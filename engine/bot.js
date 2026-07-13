@@ -65,11 +65,6 @@ function resolvePrompt(state, seat, item) {
       return { ...base, slot: choosePlacementSlot(state, seat, item) };
     case 'heartAssign':
       return { ...base, assignments: chooseHeartAssignments(state, seat, item.data.amount) };
-    case 'favorWindow': {
-      // Spend favors rather than hoard them (brief guidance).
-      const usable = eligibleFavors(state, seat);
-      return { ...base, use: usable[0] ?? null };
-    }
     case 'rerollOffer':
       return { ...base, use: chooseReroll(state, seat) };
     case 'rerollAgain':
@@ -213,6 +208,14 @@ function chooseRefill(state, seat) {
 
 function draftTurn(state, seat) {
   const p = state.players[seat];
+
+  // Spend any eligible Favor(s) for an extra turn before acting — never
+  // hoard them (brief guidance). Must happen before the main action, same
+  // as a human clicking the Favor card in their reserve.
+  if (!state.turn.mainDone) {
+    const usable = eligibleFavors(state, seat);
+    if (usable.length > 0) return { type: 'useFavor', seat, cardId: usable[0] };
+  }
 
   // Maximillian follow-up buys: buy again only if a market card scores well
   // and we can spare the coins; otherwise end the turn.

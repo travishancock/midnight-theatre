@@ -499,6 +499,7 @@ function intakeDrawnCard(state, seat, cardId) {
 function finishTurn(state) {
   const seat = state.turn.seat;
   const p = state.players[seat];
+  const bonusQueue = state.turn.bonusQueue || [];
   p.turns++;
   state.turn = null;
 
@@ -515,10 +516,14 @@ function finishTurn(state) {
     return;
   }
 
-  // Favor window: after your 1st turn (Favor 1st) or 2nd+ turn (Favor 2nd+),
-  // you may discard an eligible Favor for an immediate extra turn.
-  if (eligibleFavors(state, seat).length > 0) {
-    pushPending(state, 'favorWindow', seat, { afterSeat: seat });
+  // A Favor spent before this turn's main action (see the 'useFavor' action)
+  // queues an extra turn for the same seat, taken immediately — before play
+  // passes to the next stand.
+  if (bonusQueue.length > 0) {
+    const [timing, ...rest] = bonusQueue;
+    state.turn = newTurn(seat, true, timing);
+    state.turn.bonusQueue = rest;
+    log(state, `${nameOf(state, seat)} takes an extra turn (Favor).`);
     return;
   }
   nextSeat(state, seat);
@@ -770,6 +775,25 @@ export function applyAction(state, action) {
       state.turn.done = true;
       break;
     }
+    // Spend an eligible Favor card from reserve, right before your main
+    // turn action, for an extra turn. Never a forced prompt — the player
+    // simply clicks the Favor card if (and when) they want to use it.
+    case 'useFavor': {
+      requireTurn(state, seat);
+      if (state.turn.mainDone) throw new Error('Favors must be spent before your main turn action.');
+      const p = state.players[seat];
+      const idx = p.reserve.indexOf(action.cardId);
+      if (idx === -1) throw new Error('That Favor is not in your reserve.');
+      const c = card(action.cardId);
+      if (c.cardType !== 'favor') throw new Error('That is not a Favor card.');
+      const eligible = c.triggerAfterTurn === 1 ? p.turns === 1 : p.turns >= 2;
+      if (!eligible) throw new Error('That Favor cannot be used yet.');
+      p.reserve.splice(idx, 1);
+      state.discard.push(action.cardId);
+      log(state, `${p.name} spends ${c.name} for an extra turn!`);
+      state.turn.bonusQueue = [...(state.turn.bonusQueue || []), c.triggerAfterTurn];
+      break;
+    }
     // ----- trainer abilities --------------------------------------------
     case 'trainerDiscardDraft': {
       requireTurn(state, seat);
@@ -907,24 +931,6 @@ function resolvePendingItem(state, item, action) {
         log(state, `${p.name} forfeits ${item.data.amount - mustAssign} heart(s) — no room.`);
       }
       if (total > 0) log(state, `${p.name} assigns ${total} heart(s) (${item.data.reason}).`);
-      break;
-    }
-    case 'favorWindow': {
-      removePending(state, item.id);
-      if (action.use) {
-        const idx = p.reserve.indexOf(action.use);
-        if (idx === -1) throw new Error('That Favor is not in your reserve.');
-        const c = card(action.use);
-        if (c.cardType !== 'favor') throw new Error('That is not a Favor card.');
-        const eligible = c.triggerAfterTurn === 1 ? p.turns === 1 : p.turns >= 2;
-        if (!eligible) throw new Error('That Favor cannot be used after this turn.');
-        p.reserve.splice(idx, 1);
-        state.discard.push(action.use);
-        log(state, `${p.name} spends ${c.name} for an extra turn!`);
-        state.turn = newTurn(seat, true, c.triggerAfterTurn);
-      } else {
-        nextSeat(state, item.data.afterSeat);
-      }
       break;
     }
     case 'rerollOffer': {

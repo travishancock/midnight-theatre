@@ -23,7 +23,9 @@ function cardCount(s) {
   for (const p of s.players) n += p.slots.filter(Boolean).length + p.reserve.length;
   // A card awaiting a placement decision is "in hand": acquired but not yet
   // on the mat, so it lives only in the pending prompt.
-  for (const item of s.pending) if (item.kind === 'placement') n += 1;
+  for (const item of s.pending) {
+    if (item.kind === 'placement' || item.kind === 'cardResourcePlacement') n += 1;
+  }
   return n;
 }
 

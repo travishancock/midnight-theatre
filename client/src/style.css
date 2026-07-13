@@ -146,15 +146,13 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
   border-radius: 10px; padding: 12px; margin-bottom: 10px;
 }
 .prompt .cardrow { margin: 10px 0; }
-.favorwindow {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  background: rgba(217,164,65,0.06); border: 1px dashed var(--gold-soft);
-  border-radius: 10px; padding: 8px 12px; margin-bottom: 10px;
+.hint.gold { color: var(--gold); font-style: normal; }
+.favor-ready { outline: 2px solid var(--gold-soft); border-radius: 8px; animation: favorpulse 1.4s ease-in-out infinite; }
+.favor-ready:hover { outline-color: var(--gold); transform: translateY(-2px); }
+@keyframes favorpulse {
+  0%, 100% { outline-color: var(--gold-soft); }
+  50% { outline-color: var(--gold); }
 }
-.favorwindow .cardrow { margin: 0; }
-.favorwindow .pickable { outline: 2px solid var(--gold-soft); border-radius: 8px; }
-.favorwindow .pickable:hover { outline-color: var(--gold); transform: translateY(-2px); }
-.favorwindow button.small { margin-left: auto; }
 .assignrow { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
 .assign { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .stepper { display: flex; align-items: center; gap: 8px; }

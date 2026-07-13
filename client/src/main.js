@@ -249,8 +249,7 @@ function renderGame() {
           ${draftRowHtml(s, p, pending)}
           ${marketHtml(s, p)}
           ${turnBarHtml(s, p)}
-          ${pending && pending.kind === 'favorWindow' ? favorWindowHtml(s, p, pending) : ''}
-          ${pending && pending.kind !== 'favorWindow' ? promptHtml(s, p, pending) : ''}
+          ${pending ? promptHtml(s, p, pending) : ''}
           ${waitingNoteHtml(s, p, pending)}
         </div>
         <aside class="log ${ui.logOpen ? '' : 'closed'}">
@@ -375,27 +374,6 @@ function waitingNoteHtml(s, p, pending) {
   return '';
 }
 
-// ---- favor window ---------------------------------------------------------------
-//
-// Unlike the other pending prompts, a Favor window isn't a forced yes/no
-// dialog: the eligible Favor card(s) are just clickable right where they
-// already sit, and if the player doesn't click one, clicking "Continue"
-// (or, effectively, doing nothing else useful to do) moves play on.
-
-function favorWindowHtml(s, p, item) {
-  const usable = p.reserve.filter((id) => {
-    const c = card(id);
-    return c.cardType === 'favor' && (c.triggerAfterTurn === 1 ? p.turns === 1 : p.turns >= 2);
-  });
-  return `<div class="favorwindow">
-    <span class="hint">You may play a Favor card below for an extra turn — otherwise, just continue.</span>
-    <div class="cardrow clickable">
-      ${usable.map((id) => `<div class="pickable" data-favor-window="${esc(id)}">${cardHtml(id, { size: 'sm' })}</div>`).join('')}
-    </div>
-    <button id="continueNoFavor" class="small">Continue</button>
-  </div>`;
-}
-
 // ---- prompts -------------------------------------------------------------------
 
 function promptHtml(s, p, item) {
@@ -491,12 +469,24 @@ function defaultRefillPlan(s, p) {
 
 // ---- mats ------------------------------------------------------------------------
 
+// A Favor card can be spent, right now, if it's this player's turn, they
+// haven't yet taken their main turn action, nothing else is pending, and
+// the card's printed timing (1st turn done, or 2nd+ turns done) is met.
+// There is never a forced prompt for this — the card is just clickable.
+function favorReadyNow(s, p, id) {
+  if (!isMyTurn() || s.turn.mainDone) return false;
+  const c = card(id);
+  if (c.cardType !== 'favor') return false;
+  return c.triggerAfterTurn === 1 ? p.turns === 1 : p.turns >= 2;
+}
+
 function myMatHtml(s, p, pending) {
   const placing = pending?.kind === 'placement' || pending?.kind === 'cardResourcePlacement';
   const allowed = placing ? pending.data.allowedSlots : [];
   const r = ui.mode === 'rearrange' ? ui.rearrange : null;
   const slots = r ? r.slots : p.slots;
   const reserve = r ? r.reserve : p.reserve;
+  const anyFavorReady = !r && reserve.some((id) => favorReadyNow(s, p, id));
 
   return `<section class="mymat">
     <div class="mat-head">
@@ -514,11 +504,13 @@ function myMatHtml(s, p, pending) {
       }).join('')}
     </div>
     <div class="reserve">
-      <h4>Reserve (${reserve.length}) <span class="hint">favor & re-roll cards live here; bumped cards wait here</span></h4>
+      <h4>Reserve (${reserve.length}) <span class="hint">favor & re-roll cards live here; bumped cards wait here</span>
+        ${anyFavorReady ? '<span class="hint gold">— click a Favor below for an extra turn</span>' : ''}</h4>
       <div class="cardrow" id="myReserve">
         ${reserve.map((id, i) => {
           const sel = r?.picked?.zone === 'reserve' && r.picked.index === i;
-          return `<div class="pickable ${sel ? 'selected' : ''}" data-reserve="${i}">${cardHtml(id, { size: 'sm', hearts: (s.hearts[id] || 0) || null })}</div>`;
+          const favorReady = !r && favorReadyNow(s, p, id);
+          return `<div class="pickable ${sel ? 'selected' : ''} ${favorReady ? 'favor-ready' : ''}" data-reserve="${i}" ${favorReady ? 'title="Click to spend this Favor for an extra turn"' : ''}>${cardHtml(id, { size: 'sm', hearts: (s.hearts[id] || 0) || null })}</div>`;
         }).join('') || (r ? '' : '<span class="hint">empty</span>')}
         ${r ? '<div class="pickable droptarget" data-reserve="-1">⤓ move here</div>' : ''}
       </div>
@@ -621,6 +613,9 @@ function wireGameEvents(s, p, pending) {
       const list = ui.rearrange ? ui.rearrange.reserve : p.reserve;
       return auricTarget(list[i]);
     }
+    if (!ui.mode && i >= 0 && favorReadyNow(s, p, p.reserve[i])) {
+      send({ type: 'useFavor', cardId: p.reserve[i] });
+    }
   });
 
   // Prompt widgets.
@@ -640,12 +635,6 @@ function wireGameEvents(s, p, pending) {
     ui.heartPlan = {};
     send({ type: 'resolvePending', pendingId: pending.id, assignments });
   });
-  app.querySelectorAll('[data-favor-window]').forEach((el) =>
-    el.addEventListener('click', () => send({ type: 'resolvePending', pendingId: pending.id, use: el.dataset.favorWindow }))
-  );
-  document.getElementById('continueNoFavor')?.addEventListener('click', () =>
-    send({ type: 'resolvePending', pendingId: pending.id, use: null })
-  );
   app.querySelectorAll('[data-reroll]').forEach((el) =>
     el.addEventListener('click', () => send({ type: 'resolvePending', pendingId: pending.id, use: el.dataset.reroll }))
   );

@@ -215,17 +215,25 @@ test('heart-resource cards prompt assignment, capped by capacity', () => {
   assert.equal(s.hearts[perf], 1);
 });
 
-test('favor cards go to reserve; spending one grants a bonus turn', () => {
+test('favor cards go to reserve; clicking one before your main turn grants a bonus turn', () => {
   const s = freshGame(2, 7);
   const seat = currentSeat(s);
   const p = s.players[seat];
   const favor1 = 'Favor-1-1';
   p.reserve.push(favor1);
+  p.turns = 1; // pretend this seat already completed 1 turn this round
   s.draftRow = [db.performers[0].id, db.performers[1].id, db.performers[2].id, db.performers[3].id, db.performers[4].id];
+  // There is never a forced prompt: the player just plays the Favor card
+  // whenever they like, before their main turn action.
+  assert.equal(s.pending.length, 0);
+  applyAction(s, { type: 'useFavor', seat, cardId: favor1 });
+  assert.ok(!p.reserve.includes(favor1));
+  assert.ok(s.discard.includes(favor1));
+  assert.equal(s.turn.seat, seat, 'still this player\'s turn, main action not yet taken');
+  assert.equal(s.turn.mainDone, false);
+  // Take the main turn action — an extra (bonus) turn should follow it,
+  // before play passes to the next player.
   applyAction(s, { type: 'acquireDraft', seat, cardId: db.performers[0].id });
-  const window = s.pending.find((x) => x.kind === 'favorWindow' && x.seat === seat);
-  assert.ok(window, 'favor window should open after 1st turn');
-  applyAction(s, { type: 'resolvePending', seat, pendingId: window.id, use: favor1 });
   assert.equal(s.turn.seat, seat, 'bonus turn belongs to the same player');
   assert.equal(s.turn.isBonus, true);
   // Restriction: the bonus turn may not draft a Favor of the same timing…
@@ -235,6 +243,20 @@ test('favor cards go to reserve; spending one grants a bonus turn', () => {
   s.draftRow[0] = 'Favor-2-1';
   applyAction(s, { type: 'acquireDraft', seat, cardId: 'Favor-2-1' });
   assert.ok(p.reserve.includes('Favor-2-1'));
+});
+
+test('a Favor cannot be used once the main turn action is already taken', () => {
+  const s = freshGame(2, 7);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  const favor1 = 'Favor-1-1';
+  p.reserve.push(favor1);
+  p.turns = 1;
+  s.draftRow = [db.performers[0].id, db.performers[1].id, db.performers[2].id, db.performers[3].id, db.performers[4].id];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: db.performers[0].id });
+  // Play has already moved on to the other seat — too late to use the Favor.
+  assert.notEqual(s.turn.seat, seat);
+  assert.throws(() => applyAction(s, { type: 'useFavor', seat, cardId: favor1 }));
 });
 
 test('Maximillian may chain market buys but not draft after buying', () => {
