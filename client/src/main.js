@@ -249,7 +249,8 @@ function renderGame() {
           ${draftRowHtml(s, p, pending)}
           ${marketHtml(s, p)}
           ${turnBarHtml(s, p)}
-          ${pending ? promptHtml(s, p, pending) : ''}
+          ${pending && pending.kind === 'favorWindow' ? favorWindowHtml(s, p, pending) : ''}
+          ${pending && pending.kind !== 'favorWindow' ? promptHtml(s, p, pending) : ''}
           ${waitingNoteHtml(s, p, pending)}
         </div>
         <aside class="log ${ui.logOpen ? '' : 'closed'}">
@@ -374,6 +375,27 @@ function waitingNoteHtml(s, p, pending) {
   return '';
 }
 
+// ---- favor window ---------------------------------------------------------------
+//
+// Unlike the other pending prompts, a Favor window isn't a forced yes/no
+// dialog: the eligible Favor card(s) are just clickable right where they
+// already sit, and if the player doesn't click one, clicking "Continue"
+// (or, effectively, doing nothing else useful to do) moves play on.
+
+function favorWindowHtml(s, p, item) {
+  const usable = p.reserve.filter((id) => {
+    const c = card(id);
+    return c.cardType === 'favor' && (c.triggerAfterTurn === 1 ? p.turns === 1 : p.turns >= 2);
+  });
+  return `<div class="favorwindow">
+    <span class="hint">You may play a Favor card below for an extra turn — otherwise, just continue.</span>
+    <div class="cardrow clickable">
+      ${usable.map((id) => `<div class="pickable" data-favor-window="${esc(id)}">${cardHtml(id, { size: 'sm' })}</div>`).join('')}
+    </div>
+    <button id="continueNoFavor" class="small">Continue</button>
+  </div>`;
+}
+
 // ---- prompts -------------------------------------------------------------------
 
 function promptHtml(s, p, item) {
@@ -405,16 +427,6 @@ function promptHtml(s, p, item) {
             </div>`).join('')}
         </div>
         <button id="confirmHearts" class="primary" ${total === must ? '' : 'disabled'}>Confirm</button>`);
-    }
-    case 'favorWindow': {
-      const usable = p.reserve.filter((id) => {
-        const c = card(id);
-        return c.cardType === 'favor' && (c.triggerAfterTurn === 1 ? p.turns === 1 : p.turns >= 2);
-      });
-      return promptBox(`
-        <div>You may spend a Favor for an <b>extra turn</b> right now:</div>
-        <div class="cardrow">${usable.map((id) => `<div class="pickable" data-favor="${esc(id)}">${cardHtml(id, { size: 'sm' })}</div>`).join('')}</div>
-        <button id="skipFavor">No thanks — pass play on</button>`);
     }
     case 'rerollOffer': {
       const want = item.data.kind === 'collection' ? 'collection' : 'tomato';
@@ -628,10 +640,10 @@ function wireGameEvents(s, p, pending) {
     ui.heartPlan = {};
     send({ type: 'resolvePending', pendingId: pending.id, assignments });
   });
-  app.querySelectorAll('[data-favor]').forEach((el) =>
-    el.addEventListener('click', () => send({ type: 'resolvePending', pendingId: pending.id, use: el.dataset.favor }))
+  app.querySelectorAll('[data-favor-window]').forEach((el) =>
+    el.addEventListener('click', () => send({ type: 'resolvePending', pendingId: pending.id, use: el.dataset.favorWindow }))
   );
-  document.getElementById('skipFavor')?.addEventListener('click', () =>
+  document.getElementById('continueNoFavor')?.addEventListener('click', () =>
     send({ type: 'resolvePending', pendingId: pending.id, use: null })
   );
   app.querySelectorAll('[data-reroll]').forEach((el) =>
