@@ -15,6 +15,7 @@ import {
   marketCost,
   maxHearts,
   capacityLeft,
+  eligibleFavors,
   allowedSlots,
   seatWithStand,
   TRAINERS,
@@ -257,7 +258,7 @@ test('favor cards go to reserve; clicking one before your main turn grants a bon
   const p = s.players[seat];
   const favor1 = 'Favor-1-1';
   p.reserve.push(favor1);
-  p.turns = 1; // pretend this seat already completed 1 turn this round
+  p.turns = 0; // a "1st" Favor is only usable on the player's actual first turn
   s.draftRow = [db.performers[0].id, db.performers[1].id, db.performers[2].id, db.performers[3].id, db.performers[4].id];
   // There is never a forced prompt: the player just plays the Favor card
   // whenever they like, before their main turn action.
@@ -287,12 +288,37 @@ test('a Favor cannot be used once the main turn action is already taken', () => 
   const p = s.players[seat];
   const favor1 = 'Favor-1-1';
   p.reserve.push(favor1);
-  p.turns = 1;
+  p.turns = 0;
   s.draftRow = [db.performers[0].id, db.performers[1].id, db.performers[2].id, db.performers[3].id, db.performers[4].id];
   applyAction(s, { type: 'acquireDraft', seat, cardId: db.performers[0].id });
   // Play has already moved on to the other seat — too late to use the Favor.
   assert.notEqual(s.turn.seat, seat);
   assert.throws(() => applyAction(s, { type: 'useFavor', seat, cardId: favor1 }));
+});
+
+test('Favor timing: "1st" only on turn 1, "2nd" on turn 2 or any later turn', () => {
+  const s = freshGame(2, 7);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  const favor1 = 'Favor-1-1';
+  const favor2 = 'Favor-2-1';
+  p.reserve.push(favor1, favor2);
+
+  // On the player's actual 1st turn (p.turns === 0): "1st" is usable,
+  // "2nd" is not yet.
+  p.turns = 0;
+  assert.deepEqual(eligibleFavors(s, seat), [favor1]);
+  assert.throws(() => applyAction(s, { type: 'useFavor', seat, cardId: favor2 }));
+
+  // On the player's 2nd turn (p.turns === 1): "2nd" is usable, "1st" no
+  // longer is (even though it's still sitting unused in reserve).
+  p.turns = 1;
+  assert.deepEqual(eligibleFavors(s, seat), [favor2]);
+  assert.throws(() => applyAction(s, { type: 'useFavor', seat, cardId: favor1 }));
+
+  // On any later turn (p.turns === 3), "2nd" remains usable.
+  p.turns = 3;
+  assert.deepEqual(eligibleFavors(s, seat), [favor2]);
 });
 
 test('Maximillian may chain market buys but not draft after buying', () => {

@@ -204,12 +204,21 @@ export function allowedSlots(state, seat, cardId) {
   return SLOTS_FOR_TYPE[c.cardType];
 }
 
+// p.turns is how many turns this seat has already completed this round, so
+// it also identifies which turn is coming up next (0 = about to take their
+// 1st turn, 1 = about to take their 2nd, etc). A "1st" Favor is only usable
+// on the player's actual first turn of the round; a "2nd" Favor is usable
+// on their second turn or any later turn that round.
+export function favorEligibleNow(triggerAfterTurn, turnsSoFar) {
+  return triggerAfterTurn === 1 ? turnsSoFar === 0 : turnsSoFar >= 1;
+}
+
 export function eligibleFavors(state, seat) {
   const p = state.players[seat];
   return p.reserve.filter((id) => {
     const c = card(id);
     if (c.cardType !== 'favor') return false;
-    return c.triggerAfterTurn === 1 ? p.turns === 1 : p.turns >= 2;
+    return favorEligibleNow(c.triggerAfterTurn, p.turns);
   });
 }
 
@@ -792,8 +801,7 @@ export function applyAction(state, action) {
       if (idx === -1) throw new Error('That Favor is not in your reserve.');
       const c = card(action.cardId);
       if (c.cardType !== 'favor') throw new Error('That is not a Favor card.');
-      const eligible = c.triggerAfterTurn === 1 ? p.turns === 1 : p.turns >= 2;
-      if (!eligible) throw new Error('That Favor cannot be used yet.');
+      if (!favorEligibleNow(c.triggerAfterTurn, p.turns)) throw new Error('That Favor cannot be used yet.');
       p.reserve.splice(idx, 1);
       state.discard.push(action.cardId);
       log(state, `${p.name} spends ${c.name} for an extra turn!`);

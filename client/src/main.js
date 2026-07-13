@@ -471,13 +471,15 @@ function defaultRefillPlan(s, p) {
 
 // A Favor card can be spent, right now, if it's this player's turn, they
 // haven't yet taken their main turn action, nothing else is pending, and
-// the card's printed timing (1st turn done, or 2nd+ turns done) is met.
-// There is never a forced prompt for this — the card is just clickable.
+// the card's printed timing is met: a "1st" Favor only on the player's
+// actual first turn of the round (p.turns === 0), a "2nd" Favor on their
+// second turn or any later turn that round (p.turns >= 1). There is never a
+// forced prompt for this — the card is just clickable.
 function favorReadyNow(s, p, id) {
   if (!isMyTurn() || s.turn.mainDone) return false;
   const c = card(id);
   if (c.cardType !== 'favor') return false;
-  return c.triggerAfterTurn === 1 ? p.turns === 1 : p.turns >= 2;
+  return c.triggerAfterTurn === 1 ? p.turns === 0 : p.turns >= 1;
 }
 
 function myMatHtml(s, p, pending) {
