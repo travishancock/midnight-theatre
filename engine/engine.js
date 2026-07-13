@@ -159,12 +159,18 @@ function isOnBoard(state, seat, cardId) {
   return state.players[seat].slots.includes(cardId);
 }
 
-// Max hearts a card can hold: its printed startingHearts, +1 if it is on the
-// board of a player whose active Trainer is Madame Coeur.
+// Max hearts a card can hold. This is its printed capacity — which is NOT
+// always the same as how many hearts it starts with. Props/Backdrops, for
+// instance, start at 2 (solid) or 1 (wildcard) filled hearts but can hold up
+// to 3 total (their card_database.json `maxHearts` field carries this;
+// falls back to `startingHearts` for card types where capacity and starting
+// fill are the same, e.g. Trainers always start full and Performers have no
+// separate printed max). +1 more if the card is on the board of a player
+// whose active Trainer is Madame Coeur.
 export function maxHearts(state, seat, cardId) {
   const c = card(cardId);
   if (!SLOTTABLE.has(c.cardType)) return 0;
-  let cap = c.startingHearts ?? 0;
+  let cap = c.maxHearts ?? c.startingHearts ?? 0;
   if (isOnBoard(state, seat, cardId) && trainerActive(state, seat, TRAINERS.COEUR)) cap += 1;
   return cap;
 }

@@ -14,6 +14,7 @@ import {
   COLLECTION_FACES,
   marketCost,
   maxHearts,
+  capacityLeft,
   allowedSlots,
   seatWithStand,
   TRAINERS,
@@ -213,6 +214,41 @@ test('heart-resource cards prompt assignment, capped by capacity', () => {
   );
   applyAction(s, { type: 'resolvePending', seat, pendingId: pending.id, assignments: [{ cardId: perf, amount: 1 }] });
   assert.equal(s.hearts[perf], 1);
+});
+
+test('Props/Backdrops start below their printed max and can receive more hearts', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  // A solid-bar Prop: starts with 2 filled hearts, 1 empty (max 3 total).
+  const solidProp = db.propsAndBackdrops.find((c) => c.id === 'Prop-Graceful');
+  assert.equal(solidProp.startingHearts, 2);
+  assert.equal(solidProp.maxHearts, 3);
+  p.slots[6] = solidProp.id;
+  s.hearts[solidProp.id] = solidProp.startingHearts;
+  assert.equal(maxHearts(s, seat, solidProp.id), 3);
+  assert.equal(capacityLeft(s, seat, solidProp.id), 1, 'room for exactly 1 more heart');
+  // A wildcard Prop: starts with 1 filled heart, 2 empty (max 3 total).
+  const wildProp = db.propsAndBackdrops.find((c) => c.id === 'Prop-Any-Characteristic');
+  assert.equal(wildProp.startingHearts, 1);
+  assert.equal(wildProp.maxHearts, 3);
+  p.slots[6] = wildProp.id;
+  s.hearts[wildProp.id] = wildProp.startingHearts;
+  assert.equal(capacityLeft(s, seat, wildProp.id), 2, 'room for exactly 2 more hearts');
+  // Actually acquiring a Heart resource card offers the Prop as a target and
+  // lets the player fill it up to (but not past) its printed max.
+  s.hearts[wildProp.id] = wildProp.startingHearts;
+  const heart3 = firstOfName(db.resources, 'Resource 3 Hearts');
+  s.draftRow = [heart3, s.draftRow[1], s.draftRow[2]];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: heart3 });
+  const pending = s.pending.find((x) => x.kind === 'heartAssign');
+  assert.ok(pending);
+  assert.throws(() =>
+    applyAction(s, { type: 'resolvePending', seat, pendingId: pending.id, assignments: [{ cardId: wildProp.id, amount: 3 }] }),
+    'cannot exceed the printed max of 3'
+  );
+  applyAction(s, { type: 'resolvePending', seat, pendingId: pending.id, assignments: [{ cardId: wildProp.id, amount: 2 }] });
+  assert.equal(s.hearts[wildProp.id], 3);
 });
 
 test('favor cards go to reserve; clicking one before your main turn grants a bonus turn', () => {

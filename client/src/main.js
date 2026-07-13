@@ -90,7 +90,7 @@ function trainerIs(player, id) {
 function maxHearts(player, id) {
   const c = card(id);
   if (!['performer', 'backdrop', 'prop', 'trainer'].includes(c.cardType)) return 0;
-  let cap = c.startingHearts ?? 0;
+  let cap = c.maxHearts ?? c.startingHearts ?? 0;
   if (player.slots.includes(id) && trainerIs(player, 'Madame-Coeur')) cap += 1;
   return cap;
 }
