@@ -270,7 +270,7 @@ function rerollEligibleSeats(state, ev) {
 // source: 'phase' (normal dice-phase die), 'tomasso', 'curio'.
 function startDieEvent(state, { kind, source, onlySeat = null, excludeSeat = null }) {
   const value = rollDie(state, kind);
-  state.dieEvent = { kind, source, onlySeat, excludeSeat, value, passed: [], mesmera: null };
+  state.dieEvent = { kind, source, onlySeat, excludeSeat, value, passed: [], rerollAgain: null };
   const label = kind === 'collection' ? 'Collection Die' : 'Tomato Die';
   log(state, `${label} rolled: ${value}${source !== 'phase' ? ` (${source === 'tomasso' ? 'Tomasso the Terrible' : 'Madame Curio'})` : ''}`);
   queueRerollOffers(state);
@@ -302,10 +302,14 @@ function applyRerollUse(state, seat, cardId) {
   ev.value = rollDie(state, ev.kind);
   ev.passed = []; // a new result: everyone may react again
   log(state, `${p.name} plays ${c.name} — the die is re-rolled: ${ev.value}`);
-  if (trainerActive(state, seat, TRAINERS.MESMERA)) {
-    // Mesmera the Veiled: up to 3 total rolls per re-roll card, keep the last.
-    ev.mesmera = { seat, rollsLeft: 2 };
-    pushPending(state, 'mesmera', seat, { kind: ev.kind });
+  // Each re-roll card grants its own printed number (1-5) of total rolls
+  // (one has already happened above, so `count - 1` remain). Mesmera the
+  // Veiled adds 3 more rolls on top of whatever the card itself grants.
+  let rollsLeft = Math.max(0, (c.count ?? 1) - 1);
+  if (trainerActive(state, seat, TRAINERS.MESMERA)) rollsLeft += 3;
+  if (rollsLeft > 0) {
+    ev.rerollAgain = { seat, rollsLeft };
+    pushPending(state, 'rerollAgain', seat, { kind: ev.kind });
   } else {
     queueRerollOffers(state);
   }
@@ -411,8 +415,8 @@ function acquireCard(state, seat, cardId, chosenSlot) {
         log(state, `${p.name} resolves ${c.name}: +${c.amount} stars.`);
       } else if (c.resourceType === 'Card') {
         const drawn = draw(state, c.amount);
-        p.reserve.push(...drawn);
-        log(state, `${p.name} resolves ${c.name}: draws ${drawn.length} card(s) to reserve.`);
+        log(state, `${p.name} resolves ${c.name}: draws ${drawn.length} card(s).`);
+        for (const id of drawn) intakeDrawnCard(state, seat, id);
       } else {
         // Hearts
         if (totalCapacityLeft(state, seat) > 0) {
@@ -462,6 +466,30 @@ function placeInSlot(state, seat, cardId, slot) {
   p.slots[slot] = cardId;
   state.hearts[cardId] = card(cardId).startingHearts ?? 0;
   log(state, `${p.name} places ${card(cardId).name} in ${SLOT_NAMES[slot]}.`);
+}
+
+// A card drawn straight from the deck (currently only via the "Card"
+// resource effect): resource/favor/reroll cards resolve or reserve exactly
+// as they would from a normal acquisition. Slottable cards (performer/
+// backdrop/prop/trainer) go into an empty starting slot automatically; if
+// every natural slot for that card's type is already occupied, the player
+// chooses whether to place it anyway (bumping the current occupant to
+// reserve) or send the drawn card straight to reserve instead.
+function intakeDrawnCard(state, seat, cardId) {
+  const p = state.players[seat];
+  const c = card(cardId);
+  if (c.cardType === 'resource' || c.cardType === 'favor' || c.cardType === 'reroll') {
+    acquireCard(state, seat, cardId, null);
+    return;
+  }
+  const natural = SLOTS_FOR_TYPE[c.cardType];
+  const emptySlot = natural.find((i) => p.slots[i] == null);
+  if (emptySlot != null) {
+    placeInSlot(state, seat, cardId, emptySlot);
+    return;
+  }
+  const allowed = allowedSlots(state, seat, cardId);
+  pushPending(state, 'cardResourcePlacement', seat, { cardId, allowedSlots: allowed });
 }
 
 // ---------------------------------------------------------------------------
@@ -840,6 +868,20 @@ function resolvePendingItem(state, item, action) {
       placeInSlot(state, seat, item.data.cardId, slot);
       break;
     }
+    case 'cardResourcePlacement': {
+      const it = item.data;
+      if (action.toReserve) {
+        removePending(state, item.id);
+        p.reserve.push(it.cardId);
+        log(state, `${p.name} sends ${card(it.cardId).name} to reserve instead of placing it.`);
+        break;
+      }
+      const slot = action.slot;
+      if (!Number.isInteger(slot) || !it.allowedSlots.includes(slot)) throw new Error('Invalid slot for that card.');
+      removePending(state, item.id);
+      placeInSlot(state, seat, it.cardId, slot);
+      break;
+    }
     case 'heartAssign': {
       const assignments = action.assignments || [];
       const capNow = totalCapacityLeft(state, seat);
@@ -896,21 +938,21 @@ function resolvePendingItem(state, item, action) {
       }
       break;
     }
-    case 'mesmera': {
+    case 'rerollAgain': {
       const ev = state.dieEvent;
-      if (!ev || !ev.mesmera || ev.mesmera.seat !== seat) throw new Error('No Mesmera re-roll available.');
+      if (!ev || !ev.rerollAgain || ev.rerollAgain.seat !== seat) throw new Error('No extra re-roll available.');
       removePending(state, item.id);
-      if (action.again && ev.mesmera.rollsLeft > 0) {
+      if (action.again && ev.rerollAgain.rollsLeft > 0) {
         ev.value = rollDie(state, ev.kind);
-        ev.mesmera.rollsLeft--;
+        ev.rerollAgain.rollsLeft--;
         ev.passed = [];
-        log(state, `${p.name} re-rolls again (Mesmera): ${ev.value}`);
-        if (ev.mesmera.rollsLeft > 0) {
-          pushPending(state, 'mesmera', seat, { kind: ev.kind });
+        log(state, `${p.name} re-rolls again: ${ev.value}`);
+        if (ev.rerollAgain.rollsLeft > 0) {
+          pushPending(state, 'rerollAgain', seat, { kind: ev.kind });
           break;
         }
       }
-      ev.mesmera = null;
+      ev.rerollAgain = null;
       queueRerollOffers(state);
       break;
     }

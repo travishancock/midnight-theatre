@@ -113,10 +113,12 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
 .cardrow.clickable .card:hover { outline: 2px solid var(--gold); cursor: pointer; transform: translateY(-3px); }
 .card { position: relative; border-radius: 8px; overflow: hidden; background: #000; transition: transform 0.12s; flex: none; }
 .card img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.card.xs { width: 44px; height: 62px; }
-.card.sm { width: 74px; height: 104px; }
-.card.md { width: 100px; height: 140px; }
-.card.lg { width: 118px; height: 165px; }
+/* Card art is 56x87mm (w/h ratio 0.6437) — heights below are width/0.6437
+   so object-fit: cover doesn't crop the top/bottom of the printed card. */
+.card.xs { width: 44px; height: 68px; }
+.card.sm { width: 74px; height: 115px; }
+.card.md { width: 100px; height: 155px; }
+.card.lg { width: 118px; height: 183px; }
 .card.dim { opacity: 0.5; }
 .card.danger:hover { outline: 2px solid var(--red); cursor: pointer; }
 .card .hearts {
@@ -155,7 +157,7 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
 .pickable.selected { outline-style: dashed; }
 .droptarget {
   display: flex; align-items: center; justify-content: center;
-  width: 74px; height: 104px; border: 2px dashed var(--line);
+  width: 74px; height: 115px; border: 2px dashed var(--line);
   color: var(--muted); font-size: 12px; text-align: center;
 }
 
@@ -166,19 +168,19 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
 .slots { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
 .slot {
   position: relative; border: 1px solid var(--line); border-radius: 10px;
-  padding: 5px; width: 130px; min-height: 196px;
+  padding: 5px; width: 130px; min-height: 214px;
   display: flex; flex-direction: column; align-items: center; gap: 4px;
 }
 .slot .slotname { font-size: 11px; color: var(--muted); }
 .slot .empty {
   flex: 1; width: 100%; display: flex; align-items: center; justify-content: center;
-  color: #55465f; border: 1px dashed var(--line); border-radius: 8px; min-height: 160px;
+  color: #55465f; border: 1px dashed var(--line); border-radius: 8px; min-height: 178px;
 }
 .slot.highlight { border-color: var(--green); box-shadow: 0 0 10px rgba(111,174,111,0.5); cursor: pointer; }
 .slot.selected { border-color: var(--gold); border-style: dashed; }
 .slots.mini { gap: 4px; margin: 6px 0 0; }
-.slot.mini { width: 52px; min-height: 70px; padding: 3px; }
-.slot.mini .empty { min-height: 58px; }
+.slot.mini { width: 52px; min-height: 76px; padding: 3px; }
+.slot.mini .empty { min-height: 64px; }
 .reserve h4 { margin-top: 6px; }
 
 /* ---- opponents ---- */
@@ -206,6 +208,6 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
 @media (max-width: 900px) {
   .table { flex-direction: column; }
   .log { width: 100%; }
-  .slot { width: 104px; min-height: 165px; }
-  .card.lg { width: 92px; height: 129px; }
+  .slot { width: 104px; min-height: 179px; }
+  .card.lg { width: 92px; height: 143px; }
 }

@@ -1245,7 +1245,7 @@
       "name": "Resource 1 Card",
       "resourceType": "Card",
       "amount": 1,
-      "effect": "Immediately draw this many cards from the deck directly into your reserve (bypasses the draft).",
+      "effect": "Immediately draw this many cards from the deck. Each drawn card fills an empty matching starting slot if one is open; if not, you choose to place it anyway (bumping the current occupant to reserve) or send it to reserve instead.",
       "image": "cards/Resource 1 Card.webp"
     },
     {
@@ -1253,7 +1253,7 @@
       "name": "Resource 1 Card",
       "resourceType": "Card",
       "amount": 1,
-      "effect": "Immediately draw this many cards from the deck directly into your reserve (bypasses the draft).",
+      "effect": "Immediately draw this many cards from the deck. Each drawn card fills an empty matching starting slot if one is open; if not, you choose to place it anyway (bumping the current occupant to reserve) or send it to reserve instead.",
       "image": "cards/Resource 1 Card.webp"
     },
     {
@@ -1261,7 +1261,7 @@
       "name": "Resource 2 Cards",
       "resourceType": "Card",
       "amount": 2,
-      "effect": "Immediately draw this many cards from the deck directly into your reserve (bypasses the draft).",
+      "effect": "Immediately draw this many cards from the deck. Each drawn card fills an empty matching starting slot if one is open; if not, you choose to place it anyway (bumping the current occupant to reserve) or send it to reserve instead.",
       "image": "cards/Resource 2 Cards.webp"
     },
     {
@@ -1269,7 +1269,7 @@
       "name": "Resource 2 Cards",
       "resourceType": "Card",
       "amount": 2,
-      "effect": "Immediately draw this many cards from the deck directly into your reserve (bypasses the draft).",
+      "effect": "Immediately draw this many cards from the deck. Each drawn card fills an empty matching starting slot if one is open; if not, you choose to place it anyway (bumping the current occupant to reserve) or send it to reserve instead.",
       "image": "cards/Resource 2 Cards.webp"
     },
     {
@@ -1277,7 +1277,7 @@
       "name": "Resource 3 Cards",
       "resourceType": "Card",
       "amount": 3,
-      "effect": "Immediately draw this many cards from the deck directly into your reserve (bypasses the draft).",
+      "effect": "Immediately draw this many cards from the deck. Each drawn card fills an empty matching starting slot if one is open; if not, you choose to place it anyway (bumping the current occupant to reserve) or send it to reserve instead.",
       "image": "cards/Resource 3 Cards.webp"
     },
     {
@@ -1285,7 +1285,7 @@
       "name": "Resource 3 Cards",
       "resourceType": "Card",
       "amount": 3,
-      "effect": "Immediately draw this many cards from the deck directly into your reserve (bypasses the draft).",
+      "effect": "Immediately draw this many cards from the deck. Each drawn card fills an empty matching starting slot if one is open; if not, you choose to place it anyway (bumping the current occupant to reserve) or send it to reserve instead.",
       "image": "cards/Resource 3 Cards.webp"
     }
   ],
@@ -1408,71 +1408,81 @@
       "id": "PressPass-1",
       "name": "Press Pass 1",
       "rerollTarget": "collection",
-      "effect": "Discard from reserve to re-roll one Collection Die result.",
-      "image": "cards/Press Pass 1.webp"
+      "effect": "Discard from reserve to re-roll one Collection Die result (this card grants 1 re-roll).",
+      "image": "cards/Press Pass 1.webp",
+      "count": 1
     },
     {
       "id": "PressPass-2",
       "name": "Press Pass 2",
       "rerollTarget": "collection",
-      "effect": "Discard from reserve to re-roll one Collection Die result.",
-      "image": "cards/Press Pass 2.webp"
+      "effect": "Discard from reserve to re-roll one Collection Die result (this card grants 2 re-rolls).",
+      "image": "cards/Press Pass 2.webp",
+      "count": 2
     },
     {
       "id": "PressPass-3",
       "name": "Press Pass 3",
       "rerollTarget": "collection",
-      "effect": "Discard from reserve to re-roll one Collection Die result.",
-      "image": "cards/Press Pass 3.webp"
+      "effect": "Discard from reserve to re-roll one Collection Die result (this card grants 3 re-rolls).",
+      "image": "cards/Press Pass 3.webp",
+      "count": 3
     },
     {
       "id": "PressPass-4",
       "name": "Press Pass 4",
       "rerollTarget": "collection",
-      "effect": "Discard from reserve to re-roll one Collection Die result.",
-      "image": "cards/Press Pass 4.webp"
+      "effect": "Discard from reserve to re-roll one Collection Die result (this card grants 4 re-rolls).",
+      "image": "cards/Press Pass 4.webp",
+      "count": 4
     },
     {
       "id": "PressPass-5",
       "name": "Press Pass 5",
       "rerollTarget": "collection",
-      "effect": "Discard from reserve to re-roll one Collection Die result.",
-      "image": "cards/Press Pass 5.webp"
+      "effect": "Discard from reserve to re-roll one Collection Die result (this card grants 5 re-rolls).",
+      "image": "cards/Press Pass 5.webp",
+      "count": 5
     },
     {
       "id": "Audience-1",
       "name": "Audience 1",
       "rerollTarget": "tomato",
-      "effect": "Discard from reserve to re-roll one Tomato Die result.",
-      "image": "cards/Audience 1.webp"
+      "effect": "Discard from reserve to re-roll one Tomato Die result (this card grants 1 re-roll).",
+      "image": "cards/Audience 1.webp",
+      "count": 1
     },
     {
       "id": "Audience-2",
       "name": "Audience 2",
       "rerollTarget": "tomato",
-      "effect": "Discard from reserve to re-roll one Tomato Die result.",
-      "image": "cards/Audience 2.webp"
+      "effect": "Discard from reserve to re-roll one Tomato Die result (this card grants 2 re-rolls).",
+      "image": "cards/Audience 2.webp",
+      "count": 2
     },
     {
       "id": "Audience-3",
       "name": "Audience 3",
       "rerollTarget": "tomato",
-      "effect": "Discard from reserve to re-roll one Tomato Die result.",
-      "image": "cards/Audience 3.webp"
+      "effect": "Discard from reserve to re-roll one Tomato Die result (this card grants 3 re-rolls).",
+      "image": "cards/Audience 3.webp",
+      "count": 3
     },
     {
       "id": "Audience-4",
       "name": "Audience 4",
       "rerollTarget": "tomato",
-      "effect": "Discard from reserve to re-roll one Tomato Die result.",
-      "image": "cards/Audience 4.webp"
+      "effect": "Discard from reserve to re-roll one Tomato Die result (this card grants 4 re-rolls).",
+      "image": "cards/Audience 4.webp",
+      "count": 4
     },
     {
       "id": "Audience-5",
       "name": "Audience 5",
       "rerollTarget": "tomato",
-      "effect": "Discard from reserve to re-roll one Tomato Die result.",
-      "image": "cards/Audience 5.webp"
+      "effect": "Discard from reserve to re-roll one Tomato Die result (this card grants 5 re-rolls).",
+      "image": "cards/Audience 5.webp",
+      "count": 5
     }
   ]
 }

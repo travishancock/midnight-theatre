@@ -61,6 +61,8 @@ function resolvePrompt(state, seat, item) {
   switch (item.kind) {
     case 'placement':
       return { ...base, slot: choosePlacementSlot(state, seat, item) };
+    case 'cardResourcePlacement':
+      return { ...base, slot: choosePlacementSlot(state, seat, item) };
     case 'heartAssign':
       return { ...base, assignments: chooseHeartAssignments(state, seat, item.data.amount) };
     case 'favorWindow': {
@@ -70,8 +72,8 @@ function resolvePrompt(state, seat, item) {
     }
     case 'rerollOffer':
       return { ...base, use: chooseReroll(state, seat) };
-    case 'mesmera':
-      return { ...base, again: mesmeraWantsAnother(state, seat) };
+    case 'rerollAgain':
+      return { ...base, again: rerollAgainWantsAnother(state, seat) };
     case 'refill':
       return { ...base, assignments: chooseRefill(state, seat) };
     default:
@@ -171,7 +173,7 @@ function boardLetterCount(state, seat) {
   return p.slots.slice(0, 5).filter((id) => id && card(id).cardType === 'performer').length;
 }
 
-function mesmeraWantsAnother(state, seat) {
+function rerollAgainWantsAnother(state, seat) {
   const ev = state.dieEvent;
   if (!ev) return false;
   if (ev.kind === 'tomato') return tomatoThreatens(state, seat, ev.value);

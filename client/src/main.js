@@ -381,6 +381,11 @@ function promptHtml(s, p, item) {
     case 'placement': {
       return promptBox(`Place <b>${esc(card(item.data.cardId).name)}</b> — click a highlighted slot on your mat below. The current occupant (if any) moves to your reserve.`);
     }
+    case 'cardResourcePlacement': {
+      return promptBox(`
+        <div>You drew <b>${esc(card(item.data.cardId).name)}</b> but its starting slot(s) are full — click a highlighted slot to place it (the current occupant moves to your reserve), or send it to reserve instead.</div>
+        <button id="cardResourceToReserve">Send to reserve instead</button>`);
+    }
     case 'heartAssign': {
       const targets = [...p.slots.filter(Boolean), ...p.reserve].filter((id) => capLeft(p, id) > 0);
       const total = Object.values(ui.heartPlan).reduce((a, b) => a + b, 0);
@@ -420,11 +425,12 @@ function promptHtml(s, p, item) {
         <div class="cardrow">${usable.map((id) => `<div class="pickable" data-reroll="${esc(id)}">${cardHtml(id, { size: 'sm' })}</div>`).join('')}</div>
         <button id="passReroll">Keep the result</button>`);
     }
-    case 'mesmera': {
+    case 'rerollAgain': {
+      const left = st().dieEvent?.rerollAgain?.rollsLeft ?? 0;
       return promptBox(`
-        <div>Mesmera the Veiled: the die now shows <b>${st().dieEvent?.value ?? '?'}</b>. Roll it again?</div>
-        <button id="mesmeraAgain" class="primary">Roll again</button>
-        <button id="mesmeraKeep">Keep this result</button>`);
+        <div>The die now shows <b>${st().dieEvent?.value ?? '?'}</b>. You have ${left} more re-roll${left === 1 ? '' : 's'} available on that card — roll again?</div>
+        <button id="rerollAgainYes" class="primary">Roll again</button>
+        <button id="rerollAgainNo">Keep this result</button>`);
     }
     case 'refill': {
       const plan = ui.refillPlan ?? defaultRefillPlan(s, p);
@@ -474,7 +480,7 @@ function defaultRefillPlan(s, p) {
 // ---- mats ------------------------------------------------------------------------
 
 function myMatHtml(s, p, pending) {
-  const placing = pending?.kind === 'placement';
+  const placing = pending?.kind === 'placement' || pending?.kind === 'cardResourcePlacement';
   const allowed = placing ? pending.data.allowedSlots : [];
   const r = ui.mode === 'rearrange' ? ui.rearrange : null;
   const slots = r ? r.slots : p.slots;
@@ -584,7 +590,10 @@ function wireGameEvents(s, p, pending) {
     const slotEl = e.target.closest('[data-slot]');
     if (!slotEl) return;
     const i = +slotEl.dataset.slot;
-    if (pending?.kind === 'placement' && pending.data.allowedSlots.includes(i)) {
+    if (
+      (pending?.kind === 'placement' || pending?.kind === 'cardResourcePlacement') &&
+      pending.data.allowedSlots.includes(i)
+    ) {
       send({ type: 'resolvePending', pendingId: pending.id, slot: i });
       return;
     }
@@ -631,11 +640,14 @@ function wireGameEvents(s, p, pending) {
   document.getElementById('passReroll')?.addEventListener('click', () =>
     send({ type: 'resolvePending', pendingId: pending.id, use: null })
   );
-  document.getElementById('mesmeraAgain')?.addEventListener('click', () =>
+  document.getElementById('rerollAgainYes')?.addEventListener('click', () =>
     send({ type: 'resolvePending', pendingId: pending.id, again: true })
   );
-  document.getElementById('mesmeraKeep')?.addEventListener('click', () =>
+  document.getElementById('rerollAgainNo')?.addEventListener('click', () =>
     send({ type: 'resolvePending', pendingId: pending.id, again: false })
+  );
+  document.getElementById('cardResourceToReserve')?.addEventListener('click', () =>
+    send({ type: 'resolvePending', pendingId: pending.id, toReserve: true })
   );
   app.querySelectorAll('[data-refill]').forEach((sel) =>
     sel.addEventListener('change', () => {

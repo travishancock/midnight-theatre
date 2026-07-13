@@ -156,15 +156,43 @@ test('resource cards resolve immediately and are discarded', () => {
   assert.ok(!s.players[seat].slots.includes(coin3));
 });
 
-test('card-resource cards draw straight into the reserve (assumption #2)', () => {
+test('card-resource cards fill empty starting slots (assumption #2)', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots = [null, null, null, null, null, null, null, null];
+  const perf1 = performer((c) => c.startingHearts != null);
+  const perf2 = performer((c) => c.id !== perf1);
+  // draw() pops from the end of state.deck, so push the desired cards last.
+  s.deck.push(perf1, perf2);
   const draw2 = firstOfName(db.resources, 'Resource 2 Cards');
   s.draftRow = [draw2, s.draftRow[1], s.draftRow[2]];
-  const deckBefore = s.deck.length;
   applyAction(s, { type: 'acquireDraft', seat, cardId: draw2 });
-  assert.equal(s.players[seat].reserve.length, 2);
-  assert.equal(s.deck.length, deckBefore - 2);
+  assert.equal(p.reserve.length, 0, 'both drawn performers had an empty slot to fill');
+  assert.ok(p.slots.includes(perf1));
+  assert.ok(p.slots.includes(perf2));
+  assert.equal(s.hearts[perf1], card(perf1).startingHearts ?? 0);
+});
+
+test('card-resource cards prompt a placement choice once starting slots are full (assumption #2)', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  const fillers = db.performers.slice(0, 5).map((c) => c.id);
+  p.slots = [...fillers, null, null, null];
+  for (const id of fillers) s.hearts[id] = 5;
+  const drawn = performer((c) => !fillers.includes(c.id));
+  s.deck.push(drawn);
+  const draw1 = firstOfName(db.resources, 'Resource 1 Card');
+  s.draftRow = [draw1, s.draftRow[1], s.draftRow[2]];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: draw1 });
+  const prompt = s.pending.find((x) => x.kind === 'cardResourcePlacement');
+  assert.ok(prompt, 'expected a cardResourcePlacement prompt');
+  assert.equal(prompt.data.cardId, drawn);
+  // Choosing "send to reserve instead" keeps the board untouched.
+  applyAction(s, { type: 'resolvePending', seat, pendingId: prompt.id, toReserve: true });
+  assert.ok(p.reserve.includes(drawn));
+  assert.deepEqual(p.slots.slice(0, 5), fillers);
 });
 
 test('heart-resource cards prompt assignment, capped by capacity', () => {
@@ -407,6 +435,35 @@ test('re-roll cards: offered on a die roll, consumed on use', () => {
   applyAction(s, { type: 'resolvePending', seat: other, pendingId: offer.id, use: 'PressPass-1' });
   assert.ok(s.discard.includes('PressPass-1'));
   assert.ok(!s.players[other].reserve.includes('PressPass-1'));
+});
+
+test('re-roll cards grant their printed number of re-rolls (assumption #5)', () => {
+  const s = freshGame(2, 555);
+  const seat = currentSeat(s);
+  const other = s.players.find((x) => x.seat !== seat).seat;
+  s.players[other].reserve = ['PressPass-3'];
+  s.players[seat].reserve = [];
+  for (const p of s.players) p.slots = [null, null, null, null, null, null, null, null];
+  const filler = performer((c) => c.resource === 'Coin');
+  s.draftRow = [filler, db.performers[9].id];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+  const offer = s.pending.find((x) => x.kind === 'rerollOffer');
+  applyAction(s, { type: 'resolvePending', seat: other, pendingId: offer.id, use: 'PressPass-3' });
+  // "Press Pass 3" grants 3 total rolls. Roll 1 already happened above
+  // (automatically, as part of playing the card); 2 more remain, each
+  // surfaced as a rerollAgain prompt while the player opts to continue.
+  let again = s.pending.find((x) => x.kind === 'rerollAgain');
+  assert.ok(again, 'expected a rerollAgain prompt after the first roll');
+  assert.equal(s.dieEvent.rerollAgain.rollsLeft, 2);
+  applyAction(s, { type: 'resolvePending', seat: other, pendingId: again.id, again: true }); // roll 2
+  again = s.pending.find((x) => x.kind === 'rerollAgain');
+  assert.ok(again, 'expected a second rerollAgain prompt');
+  assert.equal(s.dieEvent.rerollAgain.rollsLeft, 1);
+  applyAction(s, { type: 'resolvePending', seat: other, pendingId: again.id, again: true }); // roll 3 (last)
+  // All 3 rolls have now happened — no further rerollAgain prompt.
+  assert.ok(!s.pending.some((x) => x.kind === 'rerollAgain'));
+  assert.equal(s.dieEvent, null); // die event resolved once the last reroll's offers cleared
+  assert.ok(s.discard.includes('PressPass-3'));
 });
 
 test('a full 2-player round keeps every one of the 144 cards accounted for', () => {
