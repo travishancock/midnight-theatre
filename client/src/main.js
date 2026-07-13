@@ -47,8 +47,13 @@ async function boot() {
   socket = io();
   socket.on('room', (payload) => {
     const prevVersion = view.state?.version;
+    const isFirstState = prevVersion === undefined;
+    const prevLogLen = view.state?.log?.length ?? 0;
     view = payload;
-    if (view.state && view.state.version !== prevVersion) resetTransientUi();
+    if (view.state && view.state.version !== prevVersion) {
+      resetTransientUi();
+      if (!isFirstState) announceTrophies(view.state.log.slice(prevLogLen));
+    }
     render();
   });
   socket.on('kicked', () => {
@@ -66,6 +71,19 @@ async function boot() {
     }
   });
   render();
+}
+
+// Whenever fresh log lines arrive that record a Trophy award, surface it as
+// a toast for everyone at the table (in addition to the log entry itself),
+// so the round's outcome is hard to miss.
+function announceTrophies(newLines) {
+  const wins = newLines.filter((l) => l.includes('takes a Trophy!'));
+  if (wins.length === 0) return;
+  const names = wins.map((l) => l.split(' earned the most stars')[0]);
+  const msg = names.length === 1
+    ? `🏆 ${names[0]} wins the Trophy this round!`
+    : `🏆 ${names.join(' & ')} tie and share the Trophy this round!`;
+  toast(msg, 5000);
 }
 
 function resetTransientUi() {
@@ -711,12 +729,12 @@ function auricTarget(cardId) {
 // ---------------------------------------------------------------------------
 
 let toastTimer = null;
-function toast(msg) {
+function toast(msg, duration = 3500) {
   const el = document.getElementById('toast');
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
+  toastTimer = setTimeout(() => el.classList.remove('show'), duration);
 }
 
 boot();

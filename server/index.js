@@ -52,7 +52,8 @@ if (fs.existsSync(clientDist)) {
 const rooms = new Map(); // code -> room
 
 const BOT_NAMES = ['Zoltar', 'Colombina', 'Ferrucio', 'Odette', 'Gaspard'];
-const BOT_STEP_MS = 200; // small stagger so humans can watch bot moves
+const BOT_STEP_MS = 200; // small stagger between a bot's own sub-decisions (e.g. resolving a prompt before its main action)
+const BOT_TURN_PAUSE_MS = 2000; // longer pause after a bot fully completes a turn, so players can follow along
 const DISCONNECT_BOT_MS = 60_000; // absent players become bots so games don't stall
 
 function makeCode() {
@@ -102,12 +103,12 @@ function broadcast(room) {
 
 // ---- bot driver -------------------------------------------------------------
 
-function scheduleBots(room) {
+function scheduleBots(room, delay = BOT_STEP_MS) {
   if (room.botTimer || !room.game || room.game.phase === 'gameOver') return;
   room.botTimer = setTimeout(() => {
     room.botTimer = null;
     runOneBotStep(room);
-  }, BOT_STEP_MS);
+  }, delay);
 }
 
 function runOneBotStep(room) {
@@ -118,6 +119,7 @@ function runOneBotStep(room) {
   if (botSeat == null) return;
   const action = botAction(state, botSeat);
   if (!action) return;
+  const turnsBefore = state.turnsCompleted;
   try {
     applyAction(state, action);
   } catch (err) {
@@ -126,7 +128,11 @@ function runOneBotStep(room) {
     return;
   }
   broadcast(room);
-  scheduleBots(room);
+  // If that action completed a turn (own turn ended, whether it passes to the
+  // next seat or chains into a Favor bonus turn), pause longer before the
+  // next bot step so players have time to see what just happened.
+  const justFinishedATurn = state.turnsCompleted > turnsBefore;
+  scheduleBots(room, justFinishedATurn ? BOT_TURN_PAUSE_MS : BOT_STEP_MS);
 }
 
 // ---- socket handlers ---------------------------------------------------------

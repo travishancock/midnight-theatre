@@ -18,6 +18,7 @@ import {
   eligibleFavors,
   allowedSlots,
   seatWithStand,
+  assignTrophy,
   TRAINERS,
 } from '../engine/engine.js';
 
@@ -201,7 +202,9 @@ test('heart-resource cards prompt assignment, capped by capacity', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
-  const perf = performer((c) => c.startingHearts === 1);
+  // A performer whose printed capacity (from the card's own heart pips, not
+  // its starting fill) is exactly 1.
+  const perf = performer((c) => c.maxHearts === 1);
   p.slots[0] = perf;
   s.hearts[perf] = 0; // room for exactly 1
   const heart3 = firstOfName(db.resources, 'Resource 3 Hearts');
@@ -340,7 +343,7 @@ test('Madame Coeur raises heart capacity by 1 while on the board', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
-  const perf = performer((c) => c.startingHearts === 2);
+  const perf = performer((c) => c.maxHearts === 2);
   p.slots[0] = perf;
   assert.equal(maxHearts(s, seat, perf), 2);
   p.slots[7] = TRAINERS.COEUR;
@@ -362,7 +365,7 @@ test('Auric converts coins to hearts and back', () => {
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.AURIC;
-  const perf = performer((c) => c.startingHearts === 3);
+  const perf = performer((c) => c.maxHearts === 3);
   p.slots[0] = perf;
   s.hearts[perf] = 1;
   p.coins = 2;
@@ -384,7 +387,10 @@ test('Professor Stainglass: discard a draft card to draw one into reserve', () =
   applyAction(s, { type: 'trainerDiscardDraft', seat, cardId: victim });
   assert.ok(s.discard.includes(victim));
   assert.ok(p.reserve.includes(deckTop));
-  assert.throws(() => applyAction(s, { type: 'trainerDiscardDraft', seat, cardId: s.draftRow[0] }), /already used/);
+  // Using the ability consumes the whole turn, so a second use isn't just
+  // blocked by the once-per-turn flag — play has already moved on.
+  assert.notEqual(s.turn?.seat, seat);
+  assert.throws(() => applyAction(s, { type: 'trainerDiscardDraft', seat, cardId: s.draftRow[0] }), /not your turn/);
 });
 
 test('The Vanishing Valentino clears the draft row once, consuming trainer and turn', () => {
@@ -485,13 +491,18 @@ test('deterministic dice phase: collection matches, boosts, trophies, tomato hit
   if (hCount > 0) {
     assert.equal(p.trophies, 1);
     assert.equal(s.players[other].trophies, 0);
-    // trophy fatigue: 1 heart off every occupied starter, plus maybe the tomato die
+    // Trophy fatigue: 1 heart off every occupied starter, plus maybe the
+    // tomato die (at most 2 hits total here). Every card also has a hidden
+    // "built-in" heart beyond its printed hearts, so it takes MORE hits than
+    // its printed heart count to actually discard it (see heartHit) — with
+    // only 1-2 hits possible in this scenario, neither card is discarded;
+    // hearts just bottom out at 0.
     const perfHits = (tomato === 1 ? 1 : 0) + 1;
     const propHits = (tomato === 7 ? 1 : 0) + 1;
-    if (3 - perfHits <= 0) assert.equal(p.slots[0], null);
-    else assert.equal(s.hearts[perfH], 3 - perfHits);
-    if (2 - propHits <= 0) assert.equal(p.slots[6], null);
-    else assert.equal(s.hearts['Prop-Graceful'], 2 - propHits);
+    assert.notEqual(p.slots[0], null, 'built-in heart keeps it on the mat after only 1-2 hits');
+    assert.equal(s.hearts[perfH], Math.max(0, 3 - perfHits));
+    assert.notEqual(p.slots[6], null, 'built-in heart keeps it on the mat after only 1-2 hits');
+    assert.equal(s.hearts['Prop-Graceful'], Math.max(0, 2 - propHits));
   }
   // The filler performer (letter B, Coin) collected coins for any B rolls,
   // possibly boosted — just sanity check nothing went negative.
@@ -548,6 +559,111 @@ test('re-roll cards grant their printed number of re-rolls (assumption #5)', () 
   assert.ok(!s.pending.some((x) => x.kind === 'rerollAgain'));
   assert.equal(s.dieEvent, null); // die event resolved once the last reroll's offers cleared
   assert.ok(s.discard.includes('PressPass-3'));
+});
+
+test('Trophy ties: most round-coins among the tied wins it; still tied -> everyone shares it', () => {
+  const s = freshGame(3);
+  const [a, b, c] = s.players;
+  a.roundStars = 5; a.roundCoins = 2;
+  b.roundStars = 5; b.roundCoins = 4;
+  c.roundStars = 3; c.roundCoins = 9;
+  assignTrophy(s);
+  assert.equal(b.trophies, 1, 'most coins among the tied-on-stars leaders wins it');
+  assert.equal(a.trophies, 0);
+  assert.equal(c.trophies, 0, 'fewer stars than the leaders — most coins overall does not matter');
+
+  const s2 = freshGame(3);
+  const [x, y, z] = s2.players;
+  x.roundStars = 5; x.roundCoins = 3;
+  y.roundStars = 5; y.roundCoins = 3;
+  z.roundStars = 1; z.roundCoins = 50;
+  assignTrophy(s2);
+  assert.equal(x.trophies, 1);
+  assert.equal(y.trophies, 1, 'still tied on stars AND coins -> both take a trophy');
+  assert.equal(z.trophies, 0);
+});
+
+test('Every card has one hidden "built-in" heart before it is actually discarded', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  const other = s.players.find((x) => x.seat !== seat);
+  const perf = db.performers[0].id;
+  p.slots[0] = perf;
+  s.hearts[perf] = 1; // printed 1 heart
+  p.roundStars = 5;
+  other.roundStars = 0; // make `p` the sole trophy (and heart-fatigue) target each call
+
+  assignTrophy(s); // hit #1: 1 -> 0, survives (spent its printed heart)
+  assert.equal(s.hearts[perf], 0);
+  assert.equal(p.slots[0], perf, 'still on the mat with 0 printed hearts left');
+
+  assignTrophy(s); // hit #2: already at 0 -> consumes the hidden built-in heart, still survives
+  assert.equal(s.hearts[perf], 0);
+  assert.equal(p.slots[0], perf, 'clings on through the first hit taken at 0 hearts');
+
+  assignTrophy(s); // hit #3: already at 0 AND the built-in heart is already spent -> discarded
+  assert.equal(p.slots[0], null);
+  assert.ok(s.discard.includes(perf));
+});
+
+test('Performer heart capacity is independent of starting fill (regression: capacity comes from the printed pips, not the starting-heart count)', () => {
+  // The reported bug: capacity used to silently equal a performer's starting
+  // fill for every performer (no separate printed-max field), so no
+  // performer could ever actually receive a heart. Confirm capacity now
+  // comes from the card's own maxHearts and can exceed its starting fill.
+  const grows = db.performers.filter((c) => c.maxHearts > c.startingHearts);
+  assert.ok(grows.length > 0, 'expected some performers with room beyond their starting hearts');
+  const sample = grows[0];
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  s.players[seat].slots[0] = sample.id;
+  s.hearts[sample.id] = sample.startingHearts;
+  assert.ok(capacityLeft(s, seat, sample.id) > 0, 'a performer below its printed max must have room for more hearts');
+});
+
+test('Trainer draft-discard abilities (Tomasso/Curio/Stainglass) consume the whole turn', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.STAINGLASS;
+  const victim = s.draftRow[0];
+  applyAction(s, { type: 'trainerDiscardDraft', seat, cardId: victim });
+  assert.notEqual(s.turn?.seat, seat, 'using the ability ended the turn — play moved to the next stand');
+});
+
+test('Multiple eligible Favors can be spent in the same turn window, queuing multiple bonus turns', () => {
+  const s = freshGame(2, 7);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.reserve.push('Favor-2-1', 'Favor-2-2');
+  p.turns = 1; // both "2nd" favors are eligible
+
+  applyAction(s, { type: 'useFavor', seat, cardId: 'Favor-2-1' });
+  applyAction(s, { type: 'useFavor', seat, cardId: 'Favor-2-2' });
+  assert.deepEqual(s.turn.bonusQueue, [2, 2]);
+  assert.equal(s.turn.mainDone, false, 'both favors spent before the main action');
+
+  s.draftRow = [db.performers[0].id, db.performers[1].id, db.performers[2].id, db.performers[3].id, db.performers[4].id];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: db.performers[0].id }); // ends the real turn
+  assert.equal(s.turn.seat, seat);
+  assert.equal(s.turn.isBonus, true);
+  assert.deepEqual(s.turn.bonusQueue, [2], 'one more bonus turn still queued');
+
+  s.draftRow[0] = db.performers[5].id;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: db.performers[5].id }); // ends bonus turn #1
+  assert.equal(s.turn.seat, seat);
+  assert.equal(s.turn.isBonus, true, 'second bonus turn from the second Favor');
+  assert.deepEqual(s.turn.bonusQueue, []);
+});
+
+test('state.turnsCompleted increments once per finished turn (drives the server\'s AI turn-pause)', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  assert.equal(s.turnsCompleted, 0);
+  s.draftRow[0] = db.performers[0].id;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: db.performers[0].id });
+  assert.equal(s.turnsCompleted, 1);
 });
 
 test('a full 2-player round keeps every one of the 144 cards accounted for', () => {

@@ -66,7 +66,8 @@ export function createGame({ players, seed }) {
     discard: [],
     market: [],
     draftRow: [],
-    hearts: {}, // cardId -> current hearts on that card
+    hearts: {}, // cardId -> current (printed) hearts on that card
+    builtInSpent: {}, // cardId -> true once its hidden "built-in" heart has been used up
     players: players.map((p, i) => ({
       seat: i,
       name: p.name || `Player ${i + 1}`,
@@ -89,6 +90,7 @@ export function createGame({ players, seed }) {
     nextPendingId: 1,
     winners: null,
     log: [],
+    turnsCompleted: 0, // incremented once per finished turn — lets a driver (e.g. the server's bot loop) detect "a turn just ended" without re-deriving it from seat/phase changes
   };
 
   state.deck = shuffle(state, allCardIds().slice());
@@ -236,24 +238,32 @@ function removePending(state, id) {
 // Heart loss (tomato dice / trophy-winner removal)
 // ---------------------------------------------------------------------------
 
-// Remove 1 heart from the card in a given slot. A card that "hits 0 hearts
-// this way" is discarded from the mat. A card that is *already* at 0 hearts
-// (possible: 16 performers have printed hearts of 0) is likewise discarded
-// when hit.
+// Remove 1 heart from the card in a given slot. Every card also has one
+// hidden "built-in" heart beyond what's printed on its face: reaching 0
+// printed hearts doesn't discard a card by itself — it takes one MORE hit
+// after that (consuming the hidden heart) to actually leave the stage. So a
+// card with 1 printed heart survives a hit that brings it to 0 (that hit
+// spent the printed heart); only a second hit while it's already at 0
+// (spending the hidden heart) discards it. Cards with 0 printed hearts still
+// get this one hidden life, so even they survive a single hit.
 function heartHit(state, seat, slotIdx, why) {
   const p = state.players[seat];
   const id = p.slots[slotIdx];
   if (!id) return;
   const h = state.hearts[id] || 0;
-  if (h <= 1) {
-    state.hearts[id] = 0;
-    p.slots[slotIdx] = null;
-    state.discard.push(id);
-    log(state, `${p.name}'s ${card(id).name} (${SLOT_NAMES[slotIdx]}) loses its last heart and leaves the stage! (${why})`);
-  } else {
+  if (h > 0) {
     state.hearts[id] = h - 1;
     log(state, `${p.name}'s ${card(id).name} loses a heart (${why}) — ${h - 1} left.`);
+    return;
   }
+  if (!state.builtInSpent[id]) {
+    state.builtInSpent[id] = true;
+    log(state, `${p.name}'s ${card(id).name} has no hearts left but clings to the stage! (${why})`);
+    return;
+  }
+  p.slots[slotIdx] = null;
+  state.discard.push(id);
+  log(state, `${p.name}'s ${card(id).name} (${SLOT_NAMES[slotIdx]}) loses its last heart and leaves the stage! (${why})`);
 }
 
 // ---------------------------------------------------------------------------
@@ -480,6 +490,7 @@ function placeInSlot(state, seat, cardId, slot) {
   }
   p.slots[slot] = cardId;
   state.hearts[cardId] = card(cardId).startingHearts ?? 0;
+  delete state.builtInSpent[cardId]; // a freshly-placed card gets a brand new hidden life
   log(state, `${p.name} places ${card(cardId).name} in ${SLOT_NAMES[slot]}.`);
 }
 
@@ -517,6 +528,7 @@ function finishTurn(state) {
   const bonusQueue = state.turn.bonusQueue || [];
   p.turns++;
   state.turn = null;
+  state.turnsCompleted++;
 
   // Draft ends the moment only 1 (or 0) face-up cards remain in the row.
   if (state.draftRow.length <= 1) {
@@ -614,7 +626,7 @@ function stepDice(state) {
 // Most stars this round takes a Trophy; tie -> most coins this round; still
 // tied -> all tied players take one. Winner(s) then lose 1 heart from each of
 // their starters — all 8 mat slots (assumption #3 in the design brief).
-function assignTrophy(state) {
+export function assignTrophy(state) {
   const maxStars = Math.max(...state.players.map((p) => p.roundStars));
   let cands = state.players.filter((p) => p.roundStars === maxStars);
   if (cands.length > 1) {
@@ -811,6 +823,7 @@ export function applyAction(state, action) {
     // ----- trainer abilities --------------------------------------------
     case 'trainerDiscardDraft': {
       requireTurn(state, seat);
+      if (state.turn.mainDone) throw new Error('You have already acted this turn.');
       const which = [TRAINERS.TOMASSO, TRAINERS.CURIO, TRAINERS.STAINGLASS].find((t) => trainerActive(state, seat, t));
       if (!which) throw new Error('Your Trainer has no draft-discard ability.');
       if (state.turn.trainerDiscardUsed) throw new Error('You already used that ability this turn.');
@@ -821,7 +834,7 @@ export function applyAction(state, action) {
       state.discard.push(action.cardId);
       state.turn.trainerDiscardUsed = true;
       const p = state.players[seat];
-      log(state, `${p.name} discards ${card(action.cardId).name} from the draft row (${card(which).name}).`);
+      log(state, `${p.name} discards ${card(action.cardId).name} from the draft row (${card(which).name}) — this uses their turn.`);
       if (which === TRAINERS.STAINGLASS) {
         const drawn = draw(state, 1);
         p.reserve.push(...drawn);
@@ -831,6 +844,10 @@ export function applyAction(state, action) {
       } else {
         startDieEvent(state, { kind: 'collection', source: 'curio', onlySeat: seat });
       }
+      // Using this ability is the player's whole turn — same as rearranging
+      // or any other main action, per the owner's ruling.
+      state.turn.mainDone = true;
+      state.turn.done = true;
       break;
     }
     case 'valentino': {
