@@ -1,0 +1,24 @@
+{
+  "name": "midnight-theatre",
+  "version": "1.0.0",
+  "description": "The Midnight Theatre (The Majestic) — online multiplayer digital board game",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "concurrently -n server,client -c blue,magenta \"node server/index.js\" \"npm --prefix client run dev\"",
+    "build": "npm --prefix client install && npm --prefix client run build",
+    "postinstall": "npm --prefix client install",
+    "test": "node test/fullgame.test.js && node test/rules.test.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "socket.io-client": "^4.7.5"
+  }
+}

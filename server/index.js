@@ -1,0 +1,288 @@
+// ---------------------------------------------------------------------------
+// The Midnight Theatre — game server.
+//
+// Express serves the built client (client/dist), the card database, and the
+// card art. Socket.IO handles rooms, seats, and gameplay: clients send
+// intents, the server validates them through the pure rules engine and
+// broadcasts the authoritative state. AI seats are driven server-side by
+// engine/bot.js.
+// ---------------------------------------------------------------------------
+
+import express from 'express';
+import http from 'http';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { Server } from 'socket.io';
+
+import { initCards } from '../engine/cards.js';
+import { createGame, applyAction } from '../engine/engine.js';
+import { botAction, seatsNeedingInput } from '../engine/bot.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(__dirname, '..');
+const PORT = process.env.PORT || 3000;
+
+// ---- card database --------------------------------------------------------
+
+const cardDb = JSON.parse(fs.readFileSync(path.join(ROOT, 'assets', 'card_database.json'), 'utf8'));
+initCards(cardDb);
+
+// ---- HTTP ------------------------------------------------------------------
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: '*' } });
+
+app.get('/api/cards', (req, res) => res.json(cardDb));
+app.use('/cards', express.static(path.join(ROOT, 'assets', 'cards'), { maxAge: '7d' }));
+
+const clientDist = path.join(ROOT, 'client', 'dist');
+if (fs.existsSync(clientDist)) {
+  app.use(express.static(clientDist));
+  app.get(/^\/(?!api|cards|socket\.io).*/, (req, res) => res.sendFile(path.join(clientDist, 'index.html')));
+} else {
+  app.get('/', (req, res) =>
+    res.send('Midnight Theatre server is running. Build the client with `npm run build` (or use `npm run dev`).')
+  );
+}
+
+// ---- rooms -----------------------------------------------------------------
+
+const rooms = new Map(); // code -> room
+
+const BOT_NAMES = ['Zoltar', 'Colombina', 'Ferrucio', 'Odette', 'Gaspard'];
+const BOT_STEP_MS = 200; // small stagger so humans can watch bot moves
+const DISCONNECT_BOT_MS = 60_000; // absent players become bots so games don't stall
+
+function makeCode() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return rooms.has(code) ? makeCode() : code;
+}
+
+function newRoom(hostSocket, hostName) {
+  const room = {
+    code: makeCode(),
+    hostId: hostSocket.id,
+    seats: [{ name: hostName, socketId: hostSocket.id, isBot: false, disconnectTimer: null }],
+    game: null,
+    botTimer: null,
+  };
+  rooms.set(room.code, room);
+  return room;
+}
+
+function roomOfSocket(socket) {
+  return rooms.get(socket.data.roomCode);
+}
+
+function seatOfSocket(room, socket) {
+  return room.seats.findIndex((s) => s.socketId === socket.id);
+}
+
+function lobbyView(room) {
+  return {
+    code: room.code,
+    started: !!room.game,
+    seats: room.seats.map((s, i) => ({
+      seat: i,
+      name: s.name,
+      isBot: s.isBot,
+      connected: s.isBot || s.socketId != null,
+      isHost: s.socketId === room.hostId,
+    })),
+  };
+}
+
+function broadcast(room) {
+  io.to(room.code).emit('room', { lobby: lobbyView(room), state: room.game });
+}
+
+// ---- bot driver -------------------------------------------------------------
+
+function scheduleBots(room) {
+  if (room.botTimer || !room.game || room.game.phase === 'gameOver') return;
+  room.botTimer = setTimeout(() => {
+    room.botTimer = null;
+    runOneBotStep(room);
+  }, BOT_STEP_MS);
+}
+
+function runOneBotStep(room) {
+  const state = room.game;
+  if (!state || state.phase === 'gameOver') return;
+  const needy = seatsNeedingInput(state);
+  const botSeat = needy.find((seat) => room.seats[seat] && room.seats[seat].isBot);
+  if (botSeat == null) return;
+  const action = botAction(state, botSeat);
+  if (!action) return;
+  try {
+    applyAction(state, action);
+  } catch (err) {
+    // A bot should never produce an illegal action; log and stop rather than spin.
+    console.error(`[room ${room.code}] bot seat ${botSeat} illegal action`, action, err.message);
+    return;
+  }
+  broadcast(room);
+  scheduleBots(room);
+}
+
+// ---- socket handlers ---------------------------------------------------------
+
+io.on('connection', (socket) => {
+  socket.on('createRoom', ({ name }, cb) => {
+    const room = newRoom(socket, cleanName(name));
+    socket.data.roomCode = room.code;
+    socket.join(room.code);
+    cb?.({ ok: true, code: room.code, seat: 0 });
+    broadcast(room);
+  });
+
+  socket.on('joinRoom', ({ code, name }, cb) => {
+    const room = rooms.get(String(code || '').trim().toUpperCase());
+    if (!room) return cb?.({ error: 'No room with that code.' });
+    const wantName = cleanName(name);
+
+    // Rejoin: reclaim a disconnected human seat with the same name.
+    const back = room.seats.findIndex((s) => !s.isBot && s.socketId == null && s.name === wantName);
+    if (back !== -1) {
+      const seatObj = room.seats[back];
+      seatObj.socketId = socket.id;
+      if (seatObj.disconnectTimer) clearTimeout(seatObj.disconnectTimer);
+      seatObj.disconnectTimer = null;
+      socket.data.roomCode = room.code;
+      socket.join(room.code);
+      cb?.({ ok: true, code: room.code, seat: back });
+      broadcast(room);
+      return;
+    }
+    if (room.game) return cb?.({ error: 'That game has already started.' });
+    if (room.seats.length >= 5) return cb?.({ error: 'That room is full (5 seats max).' });
+    room.seats.push({ name: uniqueName(room, wantName), socketId: socket.id, isBot: false, disconnectTimer: null });
+    socket.data.roomCode = room.code;
+    socket.join(room.code);
+    cb?.({ ok: true, code: room.code, seat: room.seats.length - 1 });
+    broadcast(room);
+  });
+
+  socket.on('addBot', (_payload, cb) => {
+    const room = roomOfSocket(socket);
+    if (!room || socket.id !== room.hostId) return cb?.({ error: 'Only the host can add AI players.' });
+    if (room.game) return cb?.({ error: 'The game has already started.' });
+    if (room.seats.length >= 5) return cb?.({ error: 'The room is full.' });
+    const name = BOT_NAMES.find((n) => !room.seats.some((s) => s.name === `${n} (AI)`)) || `Bot ${room.seats.length + 1}`;
+    room.seats.push({ name: `${name} (AI)`, socketId: null, isBot: true, disconnectTimer: null });
+    cb?.({ ok: true });
+    broadcast(room);
+  });
+
+  socket.on('removeSeat', ({ seat }, cb) => {
+    const room = roomOfSocket(socket);
+    if (!room || socket.id !== room.hostId) return cb?.({ error: 'Only the host can remove seats.' });
+    if (room.game) return cb?.({ error: 'The game has already started.' });
+    if (!room.seats[seat] || room.seats[seat].socketId === room.hostId) return cb?.({ error: 'Cannot remove that seat.' });
+    const [gone] = room.seats.splice(seat, 1);
+    if (gone.socketId) {
+      const s = io.sockets.sockets.get(gone.socketId);
+      if (s) {
+        s.leave(room.code);
+        s.data.roomCode = null;
+        s.emit('kicked');
+      }
+    }
+    cb?.({ ok: true });
+    broadcast(room);
+  });
+
+  socket.on('startGame', (_payload, cb) => {
+    const room = roomOfSocket(socket);
+    if (!room || socket.id !== room.hostId) return cb?.({ error: 'Only the host can start the game.' });
+    if (room.game) return cb?.({ error: 'Already started.' });
+    if (room.seats.length < 2) return cb?.({ error: 'You need at least 2 seats (add an AI player?).' });
+    room.game = createGame({
+      players: room.seats.map((s) => ({ name: s.name, isBot: s.isBot })),
+    });
+    cb?.({ ok: true });
+    broadcast(room);
+    scheduleBots(room);
+  });
+
+  socket.on('action', (action, cb) => {
+    const room = roomOfSocket(socket);
+    if (!room || !room.game) return cb?.({ error: 'No game in progress.' });
+    const seat = seatOfSocket(room, socket);
+    if (seat === -1) return cb?.({ error: 'You are not seated in this room.' });
+    if (action?.seat !== seat) return cb?.({ error: 'You can only act for your own seat.' });
+    try {
+      applyAction(room.game, action);
+    } catch (err) {
+      return cb?.({ error: err.message });
+    }
+    cb?.({ ok: true });
+    broadcast(room);
+    scheduleBots(room);
+  });
+
+  socket.on('disconnect', () => {
+    const room = roomOfSocket(socket);
+    if (!room) return;
+    const seat = seatOfSocket(room, socket);
+    if (seat === -1) return;
+    const seatObj = room.seats[seat];
+    seatObj.socketId = null;
+
+    if (!room.game) {
+      // Lobby: drop the seat entirely (host leaving hands the room to seat 0,
+      // or deletes the room if empty).
+      room.seats.splice(seat, 1);
+      const humans = room.seats.filter((s) => !s.isBot && s.socketId);
+      if (humans.length === 0) {
+        rooms.delete(room.code);
+        return;
+      }
+      if (socket.id === room.hostId) room.hostId = humans[0].socketId;
+      broadcast(room);
+      return;
+    }
+
+    // Mid-game: give them a minute to rejoin, then let a bot take over.
+    seatObj.disconnectTimer = setTimeout(() => {
+      seatObj.disconnectTimer = null;
+      if (seatObj.socketId == null && !seatObj.isBot) {
+        seatObj.isBot = true;
+        seatObj.name = `${seatObj.name} (AI)`;
+        if (room.game && seat < room.game.players.length) {
+          room.game.players[seat].isBot = true;
+          room.game.players[seat].name = seatObj.name;
+        }
+        broadcast(room);
+        scheduleBots(room);
+      }
+      // Clean up rooms where every human has gone.
+      if (room.seats.every((s) => s.isBot || s.socketId == null)) rooms.delete(room.code);
+    }, DISCONNECT_BOT_MS);
+    if (socket.id === room.hostId) {
+      const other = room.seats.find((s) => !s.isBot && s.socketId);
+      if (other) room.hostId = other.socketId;
+    }
+    broadcast(room);
+  });
+});
+
+function cleanName(name) {
+  const n = String(name || '').trim().slice(0, 24);
+  return n || 'Player';
+}
+
+function uniqueName(room, name) {
+  let n = name;
+  let i = 2;
+  while (room.seats.some((s) => s.name === n)) n = `${name} ${i++}`;
+  return n;
+}
+
+server.listen(PORT, () => {
+  console.log(`Midnight Theatre server listening on http://localhost:${PORT}`);
+});

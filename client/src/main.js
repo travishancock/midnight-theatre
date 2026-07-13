@@ -1,0 +1,707 @@
+// The Midnight Theatre — client. Framework-free SPA: the server broadcasts
+// the authoritative game state; this file renders it and sends intents back.
+
+import { io } from 'socket.io-client';
+
+const app = document.getElementById('app');
+
+// ---------------------------------------------------------------------------
+// Global client state
+// ---------------------------------------------------------------------------
+
+let socket = null;
+let cards = new Map(); // id -> card data (from /api/cards)
+let my = { code: null, seat: null, name: '' };
+let view = { lobby: null, state: null };
+
+// Transient UI state
+let ui = {
+  mode: null, // null | 'rearrange' | 'discardDraft' | 'auricC2H' | 'auricH2C' | 'placeSlot'
+  rearrange: null, // { slots, reserve, picked: {zone, index} | null }
+  heartPlan: {}, // cardId -> amount, for heartAssign prompt
+  refillPlan: null, // [{slot, cardId}]
+  logOpen: true,
+};
+
+const SLOT_NAMES = ['Performer 1', 'Performer 2', 'Performer 3', 'Performer 4', 'Performer 5', 'Backdrop', 'Prop', 'Trainer'];
+const TRAINER_DISCARDERS = ['Tomasso-the-Terrible', 'Madame-Curio', 'Professor-Stainglass'];
+
+// ---------------------------------------------------------------------------
+// Bootstrap
+// ---------------------------------------------------------------------------
+
+async function boot() {
+  const db = await fetch('/api/cards').then((r) => r.json());
+  for (const key of ['performers', 'propsAndBackdrops', 'trainers', 'resources', 'favors', 'rerolls']) {
+    for (const c of db[key]) {
+      const cardType =
+        key === 'performers' ? 'performer'
+        : key === 'propsAndBackdrops' ? c.cardKind
+        : key === 'trainers' ? 'trainer'
+        : key === 'resources' ? 'resource'
+        : key === 'favors' ? 'favor'
+        : 'reroll';
+      cards.set(c.id, { ...c, cardType });
+    }
+  }
+  socket = io();
+  socket.on('room', (payload) => {
+    const prevVersion = view.state?.version;
+    view = payload;
+    if (view.state && view.state.version !== prevVersion) resetTransientUi();
+    render();
+  });
+  socket.on('kicked', () => {
+    my = { code: null, seat: null, name: my.name };
+    view = { lobby: null, state: null };
+    render();
+  });
+  socket.on('disconnect', () => toast('Connection lost — trying to reconnect…'));
+  socket.on('connect', () => {
+    // Auto-rejoin after a dropped connection.
+    if (my.code && my.name) {
+      socket.emit('joinRoom', { code: my.code, name: my.name }, (res) => {
+        if (res?.ok) my.seat = res.seat;
+      });
+    }
+  });
+  render();
+}
+
+function resetTransientUi() {
+  ui.mode = null;
+  ui.rearrange = null;
+  ui.heartPlan = {};
+  ui.refillPlan = null;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers mirroring engine rules (server remains authoritative)
+// ---------------------------------------------------------------------------
+
+const card = (id) => cards.get(id);
+const st = () => view.state;
+const me = () => st()?.players?.[my.seat];
+
+function trainerIs(player, id) {
+  return player.slots[7] === id;
+}
+
+function maxHearts(player, id) {
+  const c = card(id);
+  if (!['performer', 'backdrop', 'prop', 'trainer'].includes(c.cardType)) return 0;
+  let cap = c.startingHearts ?? 0;
+  if (player.slots.includes(id) && trainerIs(player, 'Madame-Coeur')) cap += 1;
+  return cap;
+}
+
+function capLeft(player, id) {
+  return Math.max(0, maxHearts(player, id) - (st().hearts[id] || 0));
+}
+
+function marketCost(player, index) {
+  let cost = index + 1;
+  if (trainerIs(player, 'Barnaby-Pennywhistle')) cost = Math.max(1, cost - 1);
+  return cost;
+}
+
+function myPending() {
+  if (!st() || my.seat == null) return null;
+  return st().pending.find((p) => p.seat === my.seat) || null;
+}
+
+function isMyTurn() {
+  const s = st();
+  return s && s.phase === 'draft' && s.turn && s.turn.seat === my.seat && !s.turn.done && s.pending.length === 0;
+}
+
+function send(action, silent = false) {
+  socket.emit('action', { ...action, seat: my.seat }, (res) => {
+    if (res?.error && !silent) toast(res.error);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+function render() {
+  if (!view.lobby) return renderWelcome();
+  if (!view.state) return renderLobby();
+  renderGame();
+}
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+const imgUrl = (c) => '/' + encodeURI(c.image);
+
+function cardHtml(id, { size = 'md', extra = '', badge = null, hearts = null, dim = false } = {}) {
+  const c = card(id);
+  const h = hearts != null ? hearts : null;
+  return `
+    <div class="card ${size} ${dim ? 'dim' : ''} ${extra}" data-cardid="${esc(id)}" title="${esc(cardTitle(c))}">
+      <img src="${imgUrl(c)}" alt="${esc(c.name)}" loading="lazy" draggable="false"/>
+      ${h != null ? `<span class="hearts">❤ ${h}</span>` : ''}
+      ${badge ? `<span class="badge">${badge}</span>` : ''}
+    </div>`;
+}
+
+function cardTitle(c) {
+  const bits = [c.name];
+  if (c.cardType === 'performer') bits.push(`Letter ${c.letter} · ${c.resource} · ${c.startingHearts}❤ · ${c.powerDots} power dots`);
+  if (c.effect) bits.push(c.effect);
+  if (c.ability) bits.push(c.ability);
+  return bits.join('\n');
+}
+
+// ---- welcome / lobby --------------------------------------------------------
+
+function renderWelcome() {
+  app.innerHTML = `
+    <div class="welcome">
+      <h1>The Midnight Theatre</h1>
+      <p class="tag">Build the most legendary troupe under the big top.</p>
+      <div class="panel">
+        <label>Your name <input id="nameInput" maxlength="24" value="${esc(my.name)}" placeholder="e.g. Travis"/></label>
+        <div class="row">
+          <button id="createBtn" class="primary">Create a room</button>
+        </div>
+        <div class="row join-row">
+          <input id="codeInput" maxlength="4" placeholder="ROOM CODE" style="text-transform:uppercase"/>
+          <button id="joinBtn">Join</button>
+        </div>
+      </div>
+    </div>`;
+  const name = () => document.getElementById('nameInput').value.trim() || 'Player';
+  document.getElementById('createBtn').onclick = () => {
+    my.name = name();
+    socket.emit('createRoom', { name: my.name }, (res) => {
+      if (res?.error) return toast(res.error);
+      my.code = res.code;
+      my.seat = res.seat;
+    });
+  };
+  document.getElementById('joinBtn').onclick = () => {
+    my.name = name();
+    const code = document.getElementById('codeInput').value.trim().toUpperCase();
+    socket.emit('joinRoom', { code, name: my.name }, (res) => {
+      if (res?.error) return toast(res.error);
+      my.code = res.code;
+      my.seat = res.seat;
+    });
+  };
+}
+
+function renderLobby() {
+  const L = view.lobby;
+  const iAmHost = L.seats.some((s) => s.seat === my.seat && s.isHost);
+  app.innerHTML = `
+    <div class="welcome">
+      <h1>The Midnight Theatre</h1>
+      <div class="panel">
+        <h2>Room <span class="code">${esc(L.code)}</span></h2>
+        <p class="hint">Share this code (or this page's address) with the other players.</p>
+        <ul class="seatlist">
+          ${L.seats.map((s) => `
+            <li>
+              <span>${esc(s.name)} ${s.isHost ? '· host' : ''} ${s.isBot ? '· AI' : ''} ${!s.connected && !s.isBot ? '· disconnected' : ''}</span>
+              ${iAmHost && !s.isHost ? `<button class="small" data-remove="${s.seat}">remove</button>` : ''}
+            </li>`).join('')}
+        </ul>
+        ${iAmHost ? `
+          <div class="row">
+            <button id="addBotBtn" ${L.seats.length >= 5 ? 'disabled' : ''}>Add AI player</button>
+            <button id="startBtn" class="primary" ${L.seats.length < 2 ? 'disabled' : ''}>Start game (${L.seats.length} players)</button>
+          </div>
+          <p class="hint">2–5 players. AI can fill any empty seat.</p>`
+        : `<p class="hint">Waiting for the host to start the game…</p>`}
+      </div>
+    </div>`;
+  if (iAmHost) {
+    document.getElementById('addBotBtn')?.addEventListener('click', () => socket.emit('addBot', {}, (r) => r?.error && toast(r.error)));
+    document.getElementById('startBtn')?.addEventListener('click', () => socket.emit('startGame', {}, (r) => r?.error && toast(r.error)));
+    app.querySelectorAll('[data-remove]').forEach((b) =>
+      b.addEventListener('click', () => socket.emit('removeSeat', { seat: +b.dataset.remove }, (r) => r?.error && toast(r.error)))
+    );
+  }
+}
+
+// ---- game --------------------------------------------------------------------
+
+function renderGame() {
+  const s = st();
+  const p = me();
+  const iAmSpectator = !p;
+  const pending = myPending();
+
+  app.innerHTML = `
+    <div class="game">
+      <header>
+        <div class="brand">🎪 The Midnight Theatre <span class="code">room ${esc(view.lobby.code)}</span></div>
+        <div class="status">
+          Round ${s.round} · ${s.phase === 'draft' ? 'Draft phase' : s.phase === 'dice' ? 'Dice phase' : 'Game over'}
+          · First to ${s.trophyGoal} 🏆 wins
+        </div>
+      </header>
+      ${s.phase === 'gameOver' ? winnersBanner(s) : ''}
+      ${diceTray(s)}
+      <section class="table">
+        <div class="center-col">
+          ${draftRowHtml(s, p, pending)}
+          ${marketHtml(s, p)}
+          ${turnBarHtml(s, p)}
+          ${pending ? promptHtml(s, p, pending) : ''}
+          ${waitingNoteHtml(s, p, pending)}
+        </div>
+        <aside class="log ${ui.logOpen ? '' : 'closed'}">
+          <div class="log-head" id="logToggle">Show log ${ui.logOpen ? '▾' : '▸'}</div>
+          <div class="log-body">${s.log.slice(-80).map((l) => `<div>${esc(l)}</div>`).join('')}</div>
+        </aside>
+      </section>
+      ${iAmSpectator ? '' : myMatHtml(s, p, pending)}
+      <section class="opponents">
+        ${s.players.filter((x) => x.seat !== my.seat).map((x) => opponentHtml(s, x)).join('')}
+      </section>
+    </div>`;
+
+  wireGameEvents(s, p, pending);
+  const body = app.querySelector('.log-body');
+  if (body) body.scrollTop = body.scrollHeight;
+}
+
+function winnersBanner(s) {
+  const names = s.winners.map((w) => s.players[w].name).join(' & ');
+  return `<div class="winners">🏆 ${esc(names)} win${s.winners.length === 1 ? 's' : ''} the game! 🏆</div>`;
+}
+
+function diceTray(s) {
+  const d = s.dice;
+  const ev = s.dieEvent;
+  const evHtml = ev
+    ? `<span class="die live ${ev.kind}">${ev.value}</span><span class="hint">${ev.kind === 'collection' ? 'Collection die' : 'Tomato die'} just rolled${ev.source !== 'phase' ? ` (${ev.source})` : ''}</span>`
+    : '';
+  if (!d && !ev) return `<div class="dicetray"><span class="hint">Dice are rolled after the draft. ${tomatoForecast(s)}</span></div>`;
+  return `<div class="dicetray">
+    ${d ? `<span class="lbl">Collection:</span>${d.results.map((r) => `<span class="die collection">${r}</span>`).join('')}` : ''}
+    ${d && d.tomatoResults.length ? `<span class="lbl">Tomatoes:</span>${d.tomatoResults.map((r) => `<span class="die tomato">${r}</span>`).join('')}` : ''}
+    ${evHtml}
+    ${d ? `<span class="hint">${d.tomatoTotal} tomato ${d.tomatoTotal === 1 ? 'die' : 'dice'} this round</span>` : ''}
+  </div>`;
+}
+
+function tomatoForecast(s) {
+  const n = Math.min(s.round, 9);
+  return `${n} tomato ${n === 1 ? 'die' : 'dice'} loom this round.`;
+}
+
+function draftRowHtml(s, p, pending) {
+  const clickable = isMyTurn() && !ui.mode;
+  const discardMode = ui.mode === 'discardDraft';
+  return `<div class="zone">
+    <h3>Draft row <span class="hint">(free — ends when 1 card remains)</span></h3>
+    <div class="cardrow ${clickable || discardMode ? 'clickable' : ''}" id="draftRow">
+      ${s.draftRow.map((id) => cardHtml(id, { size: 'md', extra: discardMode ? 'danger' : '' })).join('') || '<span class="hint">empty</span>'}
+    </div>
+  </div>`;
+}
+
+function marketHtml(s, p) {
+  const canAct = isMyTurn() && !ui.mode;
+  return `<div class="zone">
+    <h3>Market
+      <span class="hint">deck ${s.deck.length} · discard ${s.discard.length}</span>
+      ${canAct && !s.turn.mainDone ? `<button class="small" id="resetMarketBtn" ${p && p.coins >= 1 ? '' : 'disabled'}>Reset market (1🪙)</button>` : ''}
+    </h3>
+    <div class="cardrow">
+      ${s.market.map((id, i) => {
+        const cost = p ? marketCost(p, i) : i + 1;
+        const afford = p && p.coins >= cost;
+        return `<div class="market-slot">
+          ${cardHtml(id, { size: 'md' })}
+          <button class="small buy" data-buy="${i}" ${canAct && afford && (!s.turn.mainDone || s.turn.open) ? '' : 'disabled'}>Buy ${cost}🪙</button>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+function turnBarHtml(s, p) {
+  if (!p) return '';
+  if (s.phase !== 'draft' || !s.turn) return '';
+  if (s.turn.seat !== my.seat || s.turn.done || s.pending.length > 0) return '';
+
+  const t = s.turn;
+  const trainerId = p.slots[7];
+  const buttons = [];
+
+  if (ui.mode === 'rearrange') {
+    buttons.push(`<button id="confirmRearrange" class="primary">Confirm arrangement (ends turn)</button>`);
+    buttons.push(`<button id="cancelMode">Cancel</button>`);
+  } else if (ui.mode === 'discardDraft') {
+    buttons.push(`<span class="hint">Click a draft-row card to discard it (${esc(card(trainerId)?.name || '')})</span>`);
+    buttons.push(`<button id="cancelMode">Cancel</button>`);
+  } else if (ui.mode === 'auricC2H' || ui.mode === 'auricH2C') {
+    buttons.push(`<span class="hint">${ui.mode === 'auricC2H' ? 'Click one of your cards to add the heart to' : 'Click one of your cards to take a heart from'}</span>`);
+    buttons.push(`<button id="cancelMode">Cancel</button>`);
+  } else {
+    if (!t.mainDone) {
+      buttons.push(`<span class="yourturn">Your turn — click a draft card to take it, buy from the market, or:</span>`);
+      buttons.push(`<button id="rearrangeBtn">Rearrange troupe (uses turn)</button>`);
+      if (trainerId && TRAINER_DISCARDERS.includes(trainerId) && !t.trainerDiscardUsed && s.draftRow.length >= 2) {
+        buttons.push(`<button id="trainerDiscardBtn">${esc(card(trainerId).name)}: discard a draft card</button>`);
+      }
+      if (trainerId === 'The-Vanishing-Valentino' && p.valentinoAvailable) {
+        buttons.push(`<button id="valentinoBtn">Vanishing Valentino: clear the draft row (once per game)</button>`);
+      }
+    }
+    if (t.open) buttons.push(`<button id="endTurnBtn" class="primary">End turn (Maximillian)</button>`);
+  }
+  if (trainerId === 'Auric-the-Alchemist' && !ui.mode) {
+    buttons.push(`<button id="auricC2H" ${p.coins >= 1 ? '' : 'disabled'}>Auric: 🪙→❤</button>`);
+    buttons.push(`<button id="auricH2C">Auric: ❤→🪙</button>`);
+  }
+  return `<div class="turnbar">${buttons.join(' ')}</div>`;
+}
+
+function waitingNoteHtml(s, p, pending) {
+  if (!p || pending || s.phase === 'gameOver') return '';
+  if (s.pending.length > 0) {
+    const who = [...new Set(s.pending.map((x) => s.players[x.seat].name))].join(', ');
+    return `<div class="waiting">Waiting on ${esc(who)}…</div>`;
+  }
+  if (s.phase === 'draft' && s.turn && s.turn.seat !== my.seat) {
+    return `<div class="waiting">Waiting on ${esc(s.players[s.turn.seat].name)}'s draft turn…</div>`;
+  }
+  return '';
+}
+
+// ---- prompts -------------------------------------------------------------------
+
+function promptHtml(s, p, item) {
+  switch (item.kind) {
+    case 'placement': {
+      return promptBox(`Place <b>${esc(card(item.data.cardId).name)}</b> — click a highlighted slot on your mat below. The current occupant (if any) moves to your reserve.`);
+    }
+    case 'heartAssign': {
+      const targets = [...p.slots.filter(Boolean), ...p.reserve].filter((id) => capLeft(p, id) > 0);
+      const total = Object.values(ui.heartPlan).reduce((a, b) => a + b, 0);
+      const cap = targets.reduce((a, id) => a + capLeft(p, id), 0);
+      const must = Math.min(item.data.amount, cap);
+      return promptBox(`
+        <div>Assign <b>${must}</b> heart(s) <span class="hint">(${esc(item.data.reason)})</span> — ${must - total} left to place.</div>
+        <div class="assignrow">
+          ${targets.map((id) => `
+            <div class="assign">
+              ${cardHtml(id, { size: 'sm', hearts: (s.hearts[id] || 0) + (ui.heartPlan[id] || 0) })}
+              <div class="stepper">
+                <button data-hminus="${esc(id)}" ${ui.heartPlan[id] ? '' : 'disabled'}>−</button>
+                <span>${ui.heartPlan[id] || 0}</span>
+                <button data-hplus="${esc(id)}" ${total < must && capLeft(p, id) - (ui.heartPlan[id] || 0) > 0 ? '' : 'disabled'}>+</button>
+              </div>
+            </div>`).join('')}
+        </div>
+        <button id="confirmHearts" class="primary" ${total === must ? '' : 'disabled'}>Confirm</button>`);
+    }
+    case 'favorWindow': {
+      const usable = p.reserve.filter((id) => {
+        const c = card(id);
+        return c.cardType === 'favor' && (c.triggerAfterTurn === 1 ? p.turns === 1 : p.turns >= 2);
+      });
+      return promptBox(`
+        <div>You may spend a Favor for an <b>extra turn</b> right now:</div>
+        <div class="cardrow">${usable.map((id) => `<div class="pickable" data-favor="${esc(id)}">${cardHtml(id, { size: 'sm' })}</div>`).join('')}</div>
+        <button id="skipFavor">No thanks — pass play on</button>`);
+    }
+    case 'rerollOffer': {
+      const want = item.data.kind === 'collection' ? 'collection' : 'tomato';
+      const usable = p.reserve.filter((id) => card(id).cardType === 'reroll' && card(id).rerollTarget === want);
+      return promptBox(`
+        <div>The ${want === 'collection' ? 'Collection' : 'Tomato'} die shows <span class="die ${want}">${item.data.value}</span>.
+          Spend a ${want === 'collection' ? 'Press Pass' : 'Audience'} card to re-roll it?</div>
+        <div class="cardrow">${usable.map((id) => `<div class="pickable" data-reroll="${esc(id)}">${cardHtml(id, { size: 'sm' })}</div>`).join('')}</div>
+        <button id="passReroll">Keep the result</button>`);
+    }
+    case 'mesmera': {
+      return promptBox(`
+        <div>Mesmera the Veiled: the die now shows <b>${st().dieEvent?.value ?? '?'}</b>. Roll it again?</div>
+        <button id="mesmeraAgain" class="primary">Roll again</button>
+        <button id="mesmeraKeep">Keep this result</button>`);
+    }
+    case 'refill': {
+      const plan = ui.refillPlan ?? defaultRefillPlan(s, p);
+      ui.refillPlan = plan;
+      return promptBox(`
+        <div>Refill your empty slots from your reserve (required where possible):</div>
+        <div class="refillrows">
+          ${plan.map((a, i) => `
+            <div class="refillrow">
+              <span>${SLOT_NAMES[a.slot]}:</span>
+              <select data-refill="${i}">
+                ${suitableFor(p, a.slot).map((id) => `<option value="${esc(id)}" ${id === a.cardId ? 'selected' : ''}>${esc(card(id).name)} (❤${s.hearts[id] || 0})</option>`).join('')}
+              </select>
+            </div>`).join('')}
+        </div>
+        <button id="confirmRefill" class="primary">Confirm refill</button>`);
+    }
+    default:
+      return promptBox(`Waiting on a decision (${esc(item.kind)})…`);
+  }
+}
+
+function promptBox(inner) {
+  return `<div class="prompt">${inner}</div>`;
+}
+
+function suitableFor(p, slot) {
+  const wantType = slot <= 4 ? 'performer' : slot === 5 ? 'backdrop' : slot === 6 ? 'prop' : 'trainer';
+  return p.reserve.filter((id) => card(id).cardType === wantType);
+}
+
+function defaultRefillPlan(s, p) {
+  const remaining = [...p.reserve];
+  const plan = [];
+  for (let slot = 0; slot < 8; slot++) {
+    if (p.slots[slot] != null) continue;
+    const wantType = slot <= 4 ? 'performer' : slot === 5 ? 'backdrop' : slot === 6 ? 'prop' : 'trainer';
+    const idx = remaining.findIndex((id) => card(id).cardType === wantType);
+    if (idx >= 0) {
+      plan.push({ slot, cardId: remaining[idx] });
+      remaining.splice(idx, 1);
+    }
+  }
+  return plan;
+}
+
+// ---- mats ------------------------------------------------------------------------
+
+function myMatHtml(s, p, pending) {
+  const placing = pending?.kind === 'placement';
+  const allowed = placing ? pending.data.allowedSlots : [];
+  const r = ui.mode === 'rearrange' ? ui.rearrange : null;
+  const slots = r ? r.slots : p.slots;
+  const reserve = r ? r.reserve : p.reserve;
+
+  return `<section class="mymat">
+    <div class="mat-head">
+      <h3>${esc(p.name)} <span class="hint">(you) · stand ${p.stand}</span></h3>
+      <div class="tokens">🪙 ${p.coins} &nbsp; ⭐ ${p.stars} <span class="hint">(+${p.roundStars} this round)</span> &nbsp; 🏆 ${p.trophies}/${s.trophyGoal}</div>
+    </div>
+    <div class="slots" id="mySlots">
+      ${slots.map((id, i) => {
+        const sel = r?.picked?.zone === 'slot' && r.picked.index === i;
+        return `
+        <div class="slot ${placing && allowed.includes(i) ? 'highlight' : ''} ${sel ? 'selected' : ''}" data-slot="${i}">
+          <span class="slotname">${SLOT_NAMES[i]}</span>
+          ${id ? cardHtml(id, { size: 'lg', hearts: s.hearts[id] || 0 }) : '<div class="empty">empty</div>'}
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="reserve">
+      <h4>Reserve (${reserve.length}) <span class="hint">favor & re-roll cards live here; bumped cards wait here</span></h4>
+      <div class="cardrow" id="myReserve">
+        ${reserve.map((id, i) => {
+          const sel = r?.picked?.zone === 'reserve' && r.picked.index === i;
+          return `<div class="pickable ${sel ? 'selected' : ''}" data-reserve="${i}">${cardHtml(id, { size: 'sm', hearts: (s.hearts[id] || 0) || null })}</div>`;
+        }).join('') || (r ? '' : '<span class="hint">empty</span>')}
+        ${r ? '<div class="pickable droptarget" data-reserve="-1">⤓ move here</div>' : ''}
+      </div>
+    </div>
+  </section>`;
+}
+
+function opponentHtml(s, p) {
+  const isTurn = s.phase === 'draft' && s.turn && s.turn.seat === p.seat && !s.turn.done;
+  return `<div class="opponent ${isTurn ? 'active' : ''}">
+    <div class="mat-head">
+      <h4>${esc(p.name)} ${p.isBot ? '🤖' : ''} <span class="hint">stand ${p.stand}</span></h4>
+      <div class="tokens">🪙 ${p.coins} · ⭐ ${p.stars} · 🏆 ${p.trophies} · reserve ${p.reserve.length}</div>
+    </div>
+    <div class="slots mini">
+      ${p.slots.map((id, i) => `
+        <div class="slot mini" title="${SLOT_NAMES[i]}">
+          ${id ? cardHtml(id, { size: 'xs', hearts: s.hearts[id] || 0 }) : '<div class="empty">·</div>'}
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Event wiring for the game screen
+// ---------------------------------------------------------------------------
+
+function wireGameEvents(s, p, pending) {
+  document.getElementById('logToggle')?.addEventListener('click', () => {
+    ui.logOpen = !ui.logOpen;
+    render();
+  });
+
+  // Draft-row clicks: acquire, or trainer-discard.
+  document.getElementById('draftRow')?.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-cardid]');
+    if (!el) return;
+    const id = el.dataset.cardid;
+    if (ui.mode === 'discardDraft') {
+      ui.mode = null;
+      send({ type: 'trainerDiscardDraft', cardId: id });
+    } else if (isMyTurn() && !ui.mode && !s.turn.mainDone) {
+      send({ type: 'acquireDraft', cardId: id });
+    }
+  });
+
+  // Market buys / reset.
+  app.querySelectorAll('[data-buy]').forEach((b) =>
+    b.addEventListener('click', () => send({ type: 'buyMarket', index: +b.dataset.buy }))
+  );
+  document.getElementById('resetMarketBtn')?.addEventListener('click', () => send({ type: 'resetMarket' }));
+
+  // Turn bar.
+  document.getElementById('rearrangeBtn')?.addEventListener('click', () => {
+    ui.mode = 'rearrange';
+    ui.rearrange = { slots: [...p.slots], reserve: [...p.reserve], picked: null };
+    render();
+  });
+  document.getElementById('cancelMode')?.addEventListener('click', () => {
+    ui.mode = null;
+    ui.rearrange = null;
+    render();
+  });
+  document.getElementById('confirmRearrange')?.addEventListener('click', () => {
+    const r = ui.rearrange;
+    ui.mode = null;
+    ui.rearrange = null;
+    send({ type: 'rearrange', slots: r.slots, reserve: r.reserve });
+  });
+  document.getElementById('trainerDiscardBtn')?.addEventListener('click', () => {
+    ui.mode = 'discardDraft';
+    render();
+  });
+  document.getElementById('valentinoBtn')?.addEventListener('click', () => send({ type: 'valentino' }));
+  document.getElementById('endTurnBtn')?.addEventListener('click', () => send({ type: 'endTurn' }));
+  document.getElementById('auricC2H')?.addEventListener('click', () => { ui.mode = 'auricC2H'; render(); });
+  document.getElementById('auricH2C')?.addEventListener('click', () => { ui.mode = 'auricH2C'; render(); });
+
+  // My mat: placement prompt, rearrange swaps, Auric targets.
+  document.getElementById('mySlots')?.addEventListener('click', (e) => {
+    const slotEl = e.target.closest('[data-slot]');
+    if (!slotEl) return;
+    const i = +slotEl.dataset.slot;
+    if (pending?.kind === 'placement' && pending.data.allowedSlots.includes(i)) {
+      send({ type: 'resolvePending', pendingId: pending.id, slot: i });
+      return;
+    }
+    if (ui.mode === 'rearrange') return pickForSwap('slot', i);
+    if ((ui.mode === 'auricC2H' || ui.mode === 'auricH2C') && p.slots[i]) return auricTarget(p.slots[i]);
+  });
+  document.getElementById('myReserve')?.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-reserve]');
+    if (!el) return;
+    const i = +el.dataset.reserve;
+    if (ui.mode === 'rearrange') return pickForSwap('reserve', i);
+    if (ui.mode === 'auricC2H' || ui.mode === 'auricH2C') {
+      const list = ui.rearrange ? ui.rearrange.reserve : p.reserve;
+      return auricTarget(list[i]);
+    }
+  });
+
+  // Prompt widgets.
+  app.querySelectorAll('[data-hplus]').forEach((b) =>
+    b.addEventListener('click', () => { ui.heartPlan[b.dataset.hplus] = (ui.heartPlan[b.dataset.hplus] || 0) + 1; render(); })
+  );
+  app.querySelectorAll('[data-hminus]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const id = b.dataset.hminus;
+      ui.heartPlan[id] = Math.max(0, (ui.heartPlan[id] || 0) - 1);
+      if (!ui.heartPlan[id]) delete ui.heartPlan[id];
+      render();
+    })
+  );
+  document.getElementById('confirmHearts')?.addEventListener('click', () => {
+    const assignments = Object.entries(ui.heartPlan).map(([cardId, amount]) => ({ cardId, amount }));
+    ui.heartPlan = {};
+    send({ type: 'resolvePending', pendingId: pending.id, assignments });
+  });
+  app.querySelectorAll('[data-favor]').forEach((el) =>
+    el.addEventListener('click', () => send({ type: 'resolvePending', pendingId: pending.id, use: el.dataset.favor }))
+  );
+  document.getElementById('skipFavor')?.addEventListener('click', () =>
+    send({ type: 'resolvePending', pendingId: pending.id, use: null })
+  );
+  app.querySelectorAll('[data-reroll]').forEach((el) =>
+    el.addEventListener('click', () => send({ type: 'resolvePending', pendingId: pending.id, use: el.dataset.reroll }))
+  );
+  document.getElementById('passReroll')?.addEventListener('click', () =>
+    send({ type: 'resolvePending', pendingId: pending.id, use: null })
+  );
+  document.getElementById('mesmeraAgain')?.addEventListener('click', () =>
+    send({ type: 'resolvePending', pendingId: pending.id, again: true })
+  );
+  document.getElementById('mesmeraKeep')?.addEventListener('click', () =>
+    send({ type: 'resolvePending', pendingId: pending.id, again: false })
+  );
+  app.querySelectorAll('[data-refill]').forEach((sel) =>
+    sel.addEventListener('change', () => {
+      ui.refillPlan[+sel.dataset.refill].cardId = sel.value;
+      render();
+    })
+  );
+  document.getElementById('confirmRefill')?.addEventListener('click', () => {
+    const plan = ui.refillPlan || [];
+    ui.refillPlan = null;
+    send({ type: 'resolvePending', pendingId: pending.id, assignments: plan });
+  });
+}
+
+function pickForSwap(zone, index) {
+  const r = ui.rearrange;
+  // "move here" target: append the picked card to the reserve.
+  if (zone === 'reserve' && index === -1) {
+    if (r.picked) {
+      const a = r.picked;
+      r.picked = null;
+      const v = a.zone === 'slot' ? r.slots[a.index] : r.reserve[a.index];
+      if (v != null) {
+        if (a.zone === 'slot') r.slots[a.index] = null;
+        else r.reserve.splice(a.index, 1);
+        r.reserve.push(v);
+      }
+    }
+    return render();
+  }
+  if (!r.picked) {
+    r.picked = { zone, index };
+    return render();
+  }
+  const a = r.picked;
+  r.picked = null;
+  if (a.zone === zone && a.index === index) return render(); // deselect
+  const get = (z, i) => (z === 'slot' ? r.slots[i] : r.reserve[i]);
+  const set = (z, i, v) => (z === 'slot' ? (r.slots[i] = v) : (r.reserve[i] = v));
+  const va = get(a.zone, a.index);
+  const vb = get(zone, index);
+  set(a.zone, a.index, vb ?? null);
+  set(zone, index, va ?? null);
+  // Compact the reserve (no holes).
+  r.reserve = r.reserve.filter((x) => x != null);
+  render();
+}
+
+function auricTarget(cardId) {
+  if (!cardId) return;
+  const dir = ui.mode === 'auricC2H' ? 'coinToHeart' : 'heartToCoin';
+  ui.mode = null;
+  send({ type: 'auricConvert', direction: dir, cardId });
+}
+
+// ---------------------------------------------------------------------------
+// Toasts
+// ---------------------------------------------------------------------------
+
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
+}
+
+boot();

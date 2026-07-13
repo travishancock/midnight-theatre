@@ -1,0 +1,1478 @@
+{
+  "performers": [
+    {
+      "id": "Graceful-Acrobat-M-A",
+      "name": "Graceful Acrobat M A",
+      "characteristic": "Graceful",
+      "type": "Acrobat",
+      "gender": "Male",
+      "letter": "A",
+      "resource": "Star",
+      "startingHearts": 0,
+      "powerDots": 1,
+      "image": "cards/Graceful Acrobat M A.webp"
+    },
+    {
+      "id": "Graceful-Acrobat-F-C",
+      "name": "Graceful Acrobat F C",
+      "characteristic": "Graceful",
+      "type": "Acrobat",
+      "gender": "Female",
+      "letter": "C",
+      "resource": "Coin",
+      "startingHearts": 1,
+      "powerDots": 2,
+      "image": "cards/Graceful Acrobat F C.webp"
+    },
+    {
+      "id": "Graceful-Acrobat-F-E",
+      "name": "Graceful Acrobat F E",
+      "characteristic": "Graceful",
+      "type": "Acrobat",
+      "gender": "Female",
+      "letter": "E",
+      "resource": "Star",
+      "startingHearts": 2,
+      "powerDots": 3,
+      "image": "cards/Graceful Acrobat F E.webp"
+    },
+    {
+      "id": "Graceful-Acrobat-M-G",
+      "name": "Graceful Acrobat M G",
+      "characteristic": "Graceful",
+      "type": "Acrobat",
+      "gender": "Male",
+      "letter": "G",
+      "resource": "Heart",
+      "startingHearts": 3,
+      "powerDots": 4,
+      "image": "cards/Graceful Acrobat M G.webp"
+    },
+    {
+      "id": "Graceful-Dancer-M-B",
+      "name": "Graceful Dancer M B",
+      "characteristic": "Graceful",
+      "type": "Dancer",
+      "gender": "Male",
+      "letter": "B",
+      "resource": "Coin",
+      "startingHearts": 1,
+      "powerDots": 1,
+      "image": "cards/Graceful Dancer M B.webp"
+    },
+    {
+      "id": "Graceful-Dancer-F-D",
+      "name": "Graceful Dancer F D",
+      "characteristic": "Graceful",
+      "type": "Dancer",
+      "gender": "Female",
+      "letter": "D",
+      "resource": "Star",
+      "startingHearts": 2,
+      "powerDots": 2,
+      "image": "cards/Graceful Dancer F D.webp"
+    },
+    {
+      "id": "Graceful-Dancer-F-F",
+      "name": "Graceful Dancer F F",
+      "characteristic": "Graceful",
+      "type": "Dancer",
+      "gender": "Female",
+      "letter": "F",
+      "resource": "Heart",
+      "startingHearts": 3,
+      "powerDots": 3,
+      "image": "cards/Graceful Dancer F F.webp"
+    },
+    {
+      "id": "Graceful-Dancer-M-H",
+      "name": "Graceful Dancer M H",
+      "characteristic": "Graceful",
+      "type": "Dancer",
+      "gender": "Male",
+      "letter": "H",
+      "resource": "Star",
+      "startingHearts": 0,
+      "powerDots": 4,
+      "image": "cards/Graceful Dancer M H.webp"
+    },
+    {
+      "id": "Graceful-Singer-M-A",
+      "name": "Graceful Singer M A",
+      "characteristic": "Graceful",
+      "type": "Singer",
+      "gender": "Male",
+      "letter": "A",
+      "resource": "Star",
+      "startingHearts": 2,
+      "powerDots": 1,
+      "image": "cards/Graceful Singer M A.webp"
+    },
+    {
+      "id": "Graceful-Singer-F-C",
+      "name": "Graceful Singer F C",
+      "characteristic": "Graceful",
+      "type": "Singer",
+      "gender": "Female",
+      "letter": "C",
+      "resource": "Heart",
+      "startingHearts": 3,
+      "powerDots": 2,
+      "image": "cards/Graceful Singer F C.webp"
+    },
+    {
+      "id": "Graceful-Singer-F-E",
+      "name": "Graceful Singer F E",
+      "characteristic": "Graceful",
+      "type": "Singer",
+      "gender": "Female",
+      "letter": "E",
+      "resource": "Star",
+      "startingHearts": 0,
+      "powerDots": 3,
+      "image": "cards/Graceful Singer F E.webp"
+    },
+    {
+      "id": "Graceful-Singer-M-G",
+      "name": "Graceful Singer M G",
+      "characteristic": "Graceful",
+      "type": "Singer",
+      "gender": "Male",
+      "letter": "G",
+      "resource": "Coin",
+      "startingHearts": 1,
+      "powerDots": 4,
+      "image": "cards/Graceful Singer M G.webp"
+    },
+    {
+      "id": "Graceful-Illusionist-M-B",
+      "name": "Graceful Illusionist M B",
+      "characteristic": "Graceful",
+      "type": "Illusionist",
+      "gender": "Male",
+      "letter": "B",
+      "resource": "Heart",
+      "startingHearts": 3,
+      "powerDots": 1,
+      "image": "cards/Graceful Illusionist M B.webp"
+    },
+    {
+      "id": "Graceful-Illusionist-F-D",
+      "name": "Graceful Illusionist F D",
+      "characteristic": "Graceful",
+      "type": "Illusionist",
+      "gender": "Female",
+      "letter": "D",
+      "resource": "Star",
+      "startingHearts": 0,
+      "powerDots": 2,
+      "image": "cards/Graceful Illusionist F D.webp"
+    },
+    {
+      "id": "Graceful-Illusionist-F-F",
+      "name": "Graceful Illusionist F F",
+      "characteristic": "Graceful",
+      "type": "Illusionist",
+      "gender": "Female",
+      "letter": "F",
+      "resource": "Coin",
+      "startingHearts": 1,
+      "powerDots": 3,
+      "image": "cards/Graceful Illusionist F F.webp"
+    },
+    {
+      "id": "Graceful-Illusionist-M-H",
+      "name": "Graceful Illusionist M H",
+      "characteristic": "Graceful",
+      "type": "Illusionist",
+      "gender": "Male",
+      "letter": "H",
+      "resource": "Star",
+      "startingHearts": 2,
+      "powerDots": 4,
+      "image": "cards/Graceful Illusionist M H.webp"
+    },
+    {
+      "id": "Powerful-Acrobat-F-B",
+      "name": "Powerful Acrobat F B",
+      "characteristic": "Powerful",
+      "type": "Acrobat",
+      "gender": "Female",
+      "letter": "B",
+      "resource": "Heart",
+      "startingHearts": 1,
+      "powerDots": 1,
+      "image": "cards/Powerful Acrobat F B.webp"
+    },
+    {
+      "id": "Powerful-Acrobat-M-D",
+      "name": "Powerful Acrobat M D",
+      "characteristic": "Powerful",
+      "type": "Acrobat",
+      "gender": "Male",
+      "letter": "D",
+      "resource": "Star",
+      "startingHearts": 2,
+      "powerDots": 2,
+      "image": "cards/Powerful Acrobat M D.webp"
+    },
+    {
+      "id": "Powerful-Acrobat-M-F",
+      "name": "Powerful Acrobat M F",
+      "characteristic": "Powerful",
+      "type": "Acrobat",
+      "gender": "Male",
+      "letter": "F",
+      "resource": "Coin",
+      "startingHearts": 3,
+      "powerDots": 3,
+      "image": "cards/Powerful Acrobat M F.webp"
+    },
+    {
+      "id": "Powerful-Acrobat-F-H",
+      "name": "Powerful Acrobat F H",
+      "characteristic": "Powerful",
+      "type": "Acrobat",
+      "gender": "Female",
+      "letter": "H",
+      "resource": "Star",
+      "startingHearts": 0,
+      "powerDots": 4,
+      "image": "cards/Powerful Acrobat F H.webp"
+    },
+    {
+      "id": "Powerful-Dancer-F-A",
+      "name": "Powerful Dancer F A",
+      "characteristic": "Powerful",
+      "type": "Dancer",
+      "gender": "Female",
+      "letter": "A",
+      "resource": "Star",
+      "startingHearts": 2,
+      "powerDots": 1,
+      "image": "cards/Powerful Dancer F A.webp"
+    },
+    {
+      "id": "Powerful-Dancer-M-C",
+      "name": "Powerful Dancer M C",
+      "characteristic": "Powerful",
+      "type": "Dancer",
+      "gender": "Male",
+      "letter": "C",
+      "resource": "Coin",
+      "startingHearts": 3,
+      "powerDots": 2,
+      "image": "cards/Powerful Dancer M C.webp"
+    },
+    {
+      "id": "Powerful-Dancer-M-E",
+      "name": "Powerful Dancer M E",
+      "characteristic": "Powerful",
+      "type": "Dancer",
+      "gender": "Male",
+      "letter": "E",
+      "resource": "Star",
+      "startingHearts": 0,
+      "powerDots": 3,
+      "image": "cards/Powerful Dancer M E.webp"
+    },
+    {
+      "id": "Powerful-Dancer-F-G",
+      "name": "Powerful Dancer F G",
+      "characteristic": "Powerful",
+      "type": "Dancer",
+      "gender": "Female",
+      "letter": "G",
+      "resource": "Heart",
+      "startingHearts": 1,
+      "powerDots": 4,
+      "image": "cards/Powerful Dancer F G.webp"
+    },
+    {
+      "id": "Powerful-Singer-F-B",
+      "name": "Powerful Singer F B",
+      "characteristic": "Powerful",
+      "type": "Singer",
+      "gender": "Female",
+      "letter": "B",
+      "resource": "Coin",
+      "startingHearts": 3,
+      "powerDots": 1,
+      "image": "cards/Powerful Singer F B.webp"
+    },
+    {
+      "id": "Powerful-Singer-M-D",
+      "name": "Powerful Singer M D",
+      "characteristic": "Powerful",
+      "type": "Singer",
+      "gender": "Male",
+      "letter": "D",
+      "resource": "Star",
+      "startingHearts": 0,
+      "powerDots": 2,
+      "image": "cards/Powerful Singer M D.webp"
+    },
+    {
+      "id": "Powerful-Singer-M-F",
+      "name": "Powerful Singer M F",
+      "characteristic": "Powerful",
+      "type": "Singer",
+      "gender": "Male",
+      "letter": "F",
+      "resource": "Heart",
+      "startingHearts": 1,
+      "powerDots": 3,
+      "image": "cards/Powerful Singer M F.webp"
+    },
+    {
+      "id": "Powerful-Singer-F-H",
+      "name": "Powerful Singer F H",
+      "characteristic": "Powerful",
+      "type": "Singer",
+      "gender": "Female",
+      "letter": "H",
+      "resource": "Star",
+      "startingHearts": 2,
+      "powerDots": 4,
+      "image": "cards/Powerful Singer F H.webp"
+    },
+    {
+      "id": "Powerful-Illusionist-F-A",
+      "name": "Powerful Illusionist F A",
+      "characteristic": "Powerful",
+      "type": "Illusionist",
+      "gender": "Female",
+      "letter": "A",
+      "resource": "Star",
+      "startingHearts": 0,
+      "powerDots": 1,
+      "image": "cards/Powerful Illusionist F A.webp"
+    },
+    {
+      "id": "Powerful-Illusionist-M-C",
+      "name": "Powerful Illusionist M C",
+      "characteristic": "Powerful",
+      "type": "Illusionist",
+      "gender": "Male",
+      "letter": "C",
+      "resource": "Heart",
+      "startingHearts": 1,
+      "powerDots": 2,
+      "image": "cards/Powerful Illusionist M C.webp"
+    },
+    {
+      "id": "Powerful-Illusionist-M-E",
+      "name": "Powerful Illusionist M E",
+      "characteristic": "Powerful",
+      "type": "Illusionist",
+      "gender": "Male",
+      "letter": "E",
+      "resource": "Star",
+      "startingHearts": 2,
+      "powerDots": 3,
+      "image": "cards/Powerful Illusionist M E.webp"
+    },
+    {
+      "id": "Powerful-Illusionist-F-G",
+      "name": "Powerful Illusionist F G",
+      "characteristic": "Powerful",
+      "type": "Illusionist",
+      "gender": "Female",
+      "letter": "G",
+      "resource": "Coin",
+      "startingHearts": 3,
+      "powerDots": 4,
+      "image": "cards/Powerful Illusionist F G.webp"
+    },
+    {
+      "id": "Dramatic-Acrobat-M-A",
+      "name": "Dramatic Acrobat M A",
+      "characteristic": "Dramatic",
+      "type": "Acrobat",
+      "gender": "Male",
+      "letter": "A",
+      "resource": "Star",
+      "startingHearts": 2,
+      "powerDots": 1,
+      "image": "cards/Dramatic Acrobat M A.webp"
+    },
+    {
+      "id": "Dramatic-Acrobat-F-C",
+      "name": "Dramatic Acrobat F C",
+      "characteristic": "Dramatic",
+      "type": "Acrobat",
+      "gender": "Female",
+      "letter": "C",
+      "resource": "Heart",
+      "startingHearts": 3,
+      "powerDots": 2,
+      "image": "cards/Dramatic Acrobat F C.webp"
+    },
+    {
+      "id": "Dramatic-Acrobat-F-E",
+      "name": "Dramatic Acrobat F E",
+      "characteristic": "Dramatic",
+      "type": "Acrobat",
+      "gender": "Female",
+      "letter": "E",
+      "resource": "Star",
+      "startingHearts": 0,
+      "powerDots": 3,
+      "image": "cards/Dramatic Acrobat F E.webp"
+    },
+    {
+      "id": "Dramatic-Acrobat-M-G",
+      "name": "Dramatic Acrobat M G",
+      "characteristic": "Dramatic",
+      "type": "Acrobat",
+      "gender": "Male",
+      "letter": "G",
+      "resource": "Coin",
+      "startingHearts": 1,
+      "powerDots": 4,
+      "image": "cards/Dramatic Acrobat M G.webp"
+    },
+    {
+      "id": "Dramatic-Dancer-M-B",
+      "name": "Dramatic Dancer M B",
+      "characteristic": "Dramatic",
+      "type": "Dancer",
+      "gender": "Male",
+      "letter": "B",
+      "resource": "Heart",
+      "startingHearts": 3,
+      "powerDots": 1,
+      "image": "cards/Dramatic Dancer M B.webp"
+    },
+    {
+      "id": "Dramatic-Dancer-F-D",
+      "name": "Dramatic Dancer F D",
+      "characteristic": "Dramatic",
+      "type": "Dancer",
+      "gender": "Female",
+      "letter": "D",
+      "resource": "Star",
+      "startingHearts": 0,
+      "powerDots": 2,
+      "image": "cards/Dramatic Dancer F D.webp"
+    },
+    {
+      "id": "Dramatic-Dancer-F-F",
+      "name": "Dramatic Dancer F F",
+      "characteristic": "Dramatic",
+      "type": "Dancer",
+      "gender": "Female",
+      "letter": "F",
+      "resource": "Coin",
+      "startingHearts": 1,
+      "powerDots": 3,
+      "image": "cards/Dramatic Dancer F F.webp"
+    },
+    {
+      "id": "Dramatic-Dancer-M-H",
+      "name": "Dramatic Dancer M H",
+      "characteristic": "Dramatic",
+      "type": "Dancer",
+      "gender": "Male",
+      "letter": "H",
+      "resource": "Star",
+      "startingHearts": 2,
+      "powerDots": 4,
+      "image": "cards/Dramatic Dancer M H.webp"
+    },
+    {
+      "id": "Dramatic-Singer-M-A",
+      "name": "Dramatic Singer M A",
+      "characteristic": "Dramatic",
+      "type": "Singer",
+      "gender": "Male",
+      "letter": "A",
+      "resource": "Star",
+      "startingHearts": 0,
+      "powerDots": 1,
+      "image": "cards/Dramatic Singer M A.webp"
+    },
+    {
+      "id": "Dramatic-Singer-F-C",
+      "name": "Dramatic Singer F C",
+      "characteristic": "Dramatic",
+      "type": "Singer",
+      "gender": "Female",
+      "letter": "C",
+      "resource": "Coin",
+      "startingHearts": 1,
+      "powerDots": 2,
+      "image": "cards/Dramatic Singer F C.webp"
+    },
+    {
+      "id": "Dramatic-Singer-F-E",
+      "name": "Dramatic Singer F E",
+      "characteristic": "Dramatic",
+      "type": "Singer",
+      "gender": "Female",
+      "letter": "E",
+      "resource": "Star",
+      "startingHearts": 2,
+      "powerDots": 3,
+      "image": "cards/Dramatic Singer F E.webp"
+    },
+    {
+      "id": "Dramatic-Singer-M-G",
+      "name": "Dramatic Singer M G",
+      "characteristic": "Dramatic",
+      "type": "Singer",
+      "gender": "Male",
+      "letter": "G",
+      "resource": "Heart",
+      "startingHearts": 3,
+      "powerDots": 4,
+      "image": "cards/Dramatic Singer M G.webp"
+    },
+    {
+      "id": "Dramatic-Illusionist-M-B",
+      "name": "Dramatic Illusionist M B",
+      "characteristic": "Dramatic",
+      "type": "Illusionist",
+      "gender": "Male",
+      "letter": "B",
+      "resource": "Coin",
+      "startingHearts": 1,
+      "powerDots": 1,
+      "image": "cards/Dramatic Illusionist M B.webp"
+    },
+    {
+      "id": "Dramatic-Illusionist-F-D",
+      "name": "Dramatic Illusionist F D",
+      "characteristic": "Dramatic",
+      "type": "Illusionist",
+      "gender": "Female",
+      "letter": "D",
+      "resource": "Star",
+      "startingHearts": 2,
+      "powerDots": 2,
+      "image": "cards/Dramatic Illusionist F D.webp"
+    },
+    {
+      "id": "Dramatic-Illusionist-F-F",
+      "name": "Dramatic Illusionist F F",
+      "characteristic": "Dramatic",
+      "type": "Illusionist",
+      "gender": "Female",
+      "letter": "F",
+      "resource": "Heart",
+      "startingHearts": 3,
+      "powerDots": 3,
+      "image": "cards/Dramatic Illusionist F F.webp"
+    },
+    {
+      "id": "Dramatic-Illusionist-M-H",
+      "name": "Dramatic Illusionist M H",
+      "characteristic": "Dramatic",
+      "type": "Illusionist",
+      "gender": "Male",
+      "letter": "H",
+      "resource": "Star",
+      "startingHearts": 0,
+      "powerDots": 4,
+      "image": "cards/Dramatic Illusionist M H.webp"
+    },
+    {
+      "id": "Haunting-Acrobat-F-B",
+      "name": "Haunting Acrobat F B",
+      "characteristic": "Haunting",
+      "type": "Acrobat",
+      "gender": "Female",
+      "letter": "B",
+      "resource": "Coin",
+      "startingHearts": 3,
+      "powerDots": 1,
+      "image": "cards/Haunting Acrobat F B.webp"
+    },
+    {
+      "id": "Haunting-Acrobat-M-D",
+      "name": "Haunting Acrobat M D",
+      "characteristic": "Haunting",
+      "type": "Acrobat",
+      "gender": "Male",
+      "letter": "D",
+      "resource": "Star",
+      "startingHearts": 0,
+      "powerDots": 2,
+      "image": "cards/Haunting Acrobat M D.webp"
+    },
+    {
+      "id": "Haunting-Acrobat-M-F",
+      "name": "Haunting Acrobat M F",
+      "characteristic": "Haunting",
+      "type": "Acrobat",
+      "gender": "Male",
+      "letter": "F",
+      "resource": "Heart",
+      "startingHearts": 1,
+      "powerDots": 3,
+      "image": "cards/Haunting Acrobat M F.webp"
+    },
+    {
+      "id": "Haunting-Acrobat-F-H",
+      "name": "Haunting Acrobat F H",
+      "characteristic": "Haunting",
+      "type": "Acrobat",
+      "gender": "Female",
+      "letter": "H",
+      "resource": "Star",
+      "startingHearts": 2,
+      "powerDots": 4,
+      "image": "cards/Haunting Acrobat F H.webp"
+    },
+    {
+      "id": "Haunting-Dancer-F-A",
+      "name": "Haunting Dancer F A",
+      "characteristic": "Haunting",
+      "type": "Dancer",
+      "gender": "Female",
+      "letter": "A",
+      "resource": "Star",
+      "startingHearts": 0,
+      "powerDots": 1,
+      "image": "cards/Haunting Dancer F A.webp"
+    },
+    {
+      "id": "Haunting-Dancer-M-C",
+      "name": "Haunting Dancer M C",
+      "characteristic": "Haunting",
+      "type": "Dancer",
+      "gender": "Male",
+      "letter": "C",
+      "resource": "Heart",
+      "startingHearts": 1,
+      "powerDots": 2,
+      "image": "cards/Haunting Dancer M C.webp"
+    },
+    {
+      "id": "Haunting-Dancer-M-E",
+      "name": "Haunting Dancer M E",
+      "characteristic": "Haunting",
+      "type": "Dancer",
+      "gender": "Male",
+      "letter": "E",
+      "resource": "Star",
+      "startingHearts": 2,
+      "powerDots": 3,
+      "image": "cards/Haunting Dancer M E.webp"
+    },
+    {
+      "id": "Haunting-Dancer-F-G",
+      "name": "Haunting Dancer F G",
+      "characteristic": "Haunting",
+      "type": "Dancer",
+      "gender": "Female",
+      "letter": "G",
+      "resource": "Coin",
+      "startingHearts": 3,
+      "powerDots": 4,
+      "image": "cards/Haunting Dancer F G.webp"
+    },
+    {
+      "id": "Haunting-Singer-F-B",
+      "name": "Haunting Singer F B",
+      "characteristic": "Haunting",
+      "type": "Singer",
+      "gender": "Female",
+      "letter": "B",
+      "resource": "Heart",
+      "startingHearts": 1,
+      "powerDots": 1,
+      "image": "cards/Haunting Singer F B.webp"
+    },
+    {
+      "id": "Haunting-Singer-M-D",
+      "name": "Haunting Singer M D",
+      "characteristic": "Haunting",
+      "type": "Singer",
+      "gender": "Male",
+      "letter": "D",
+      "resource": "Star",
+      "startingHearts": 2,
+      "powerDots": 2,
+      "image": "cards/Haunting Singer M D.webp"
+    },
+    {
+      "id": "Haunting-Singer-M-F",
+      "name": "Haunting Singer M F",
+      "characteristic": "Haunting",
+      "type": "Singer",
+      "gender": "Male",
+      "letter": "F",
+      "resource": "Coin",
+      "startingHearts": 3,
+      "powerDots": 3,
+      "image": "cards/Haunting Singer M F.webp"
+    },
+    {
+      "id": "Haunting-Singer-F-H",
+      "name": "Haunting Singer F H",
+      "characteristic": "Haunting",
+      "type": "Singer",
+      "gender": "Female",
+      "letter": "H",
+      "resource": "Star",
+      "startingHearts": 0,
+      "powerDots": 4,
+      "image": "cards/Haunting Singer F H.webp"
+    },
+    {
+      "id": "Haunting-Illusionist-F-A",
+      "name": "Haunting Illusionist F A",
+      "characteristic": "Haunting",
+      "type": "Illusionist",
+      "gender": "Female",
+      "letter": "A",
+      "resource": "Star",
+      "startingHearts": 2,
+      "powerDots": 1,
+      "image": "cards/Haunting Illusionist F A.webp"
+    },
+    {
+      "id": "Haunting-Illusionist-M-C",
+      "name": "Haunting Illusionist M C",
+      "characteristic": "Haunting",
+      "type": "Illusionist",
+      "gender": "Male",
+      "letter": "C",
+      "resource": "Coin",
+      "startingHearts": 3,
+      "powerDots": 2,
+      "image": "cards/Haunting Illusionist M C.webp"
+    },
+    {
+      "id": "Haunting-Illusionist-M-E",
+      "name": "Haunting Illusionist M E",
+      "characteristic": "Haunting",
+      "type": "Illusionist",
+      "gender": "Male",
+      "letter": "E",
+      "resource": "Star",
+      "startingHearts": 0,
+      "powerDots": 3,
+      "image": "cards/Haunting Illusionist M E.webp"
+    },
+    {
+      "id": "Haunting-Illusionist-F-G",
+      "name": "Haunting Illusionist F G",
+      "characteristic": "Haunting",
+      "type": "Illusionist",
+      "gender": "Female",
+      "letter": "G",
+      "resource": "Heart",
+      "startingHearts": 1,
+      "powerDots": 4,
+      "image": "cards/Haunting Illusionist F G.webp"
+    }
+  ],
+  "propsAndBackdrops": [
+    {
+      "id": "Prop-Graceful",
+      "name": "Prop Graceful",
+      "cardKind": "prop",
+      "boostKind": "characteristic",
+      "boosts": [
+        "Graceful"
+      ],
+      "startingHearts": 2,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Prop Graceful.webp"
+    },
+    {
+      "id": "Backdrop-Graceful",
+      "name": "Backdrop Graceful",
+      "cardKind": "backdrop",
+      "boostKind": "characteristic",
+      "boosts": [
+        "Graceful"
+      ],
+      "startingHearts": 2,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Backdrop Graceful.webp"
+    },
+    {
+      "id": "Prop-Powerful",
+      "name": "Prop Powerful",
+      "cardKind": "prop",
+      "boostKind": "characteristic",
+      "boosts": [
+        "Powerful"
+      ],
+      "startingHearts": 2,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Prop Powerful.webp"
+    },
+    {
+      "id": "Backdrop-Powerful",
+      "name": "Backdrop Powerful",
+      "cardKind": "backdrop",
+      "boostKind": "characteristic",
+      "boosts": [
+        "Powerful"
+      ],
+      "startingHearts": 2,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Backdrop Powerful.webp"
+    },
+    {
+      "id": "Prop-Dramatic",
+      "name": "Prop Dramatic",
+      "cardKind": "prop",
+      "boostKind": "characteristic",
+      "boosts": [
+        "Dramatic"
+      ],
+      "startingHearts": 2,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Prop Dramatic.webp"
+    },
+    {
+      "id": "Backdrop-Dramatic",
+      "name": "Backdrop Dramatic",
+      "cardKind": "backdrop",
+      "boostKind": "characteristic",
+      "boosts": [
+        "Dramatic"
+      ],
+      "startingHearts": 2,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Backdrop Dramatic.webp"
+    },
+    {
+      "id": "Prop-Haunting",
+      "name": "Prop Haunting",
+      "cardKind": "prop",
+      "boostKind": "characteristic",
+      "boosts": [
+        "Haunting"
+      ],
+      "startingHearts": 2,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Prop Haunting.webp"
+    },
+    {
+      "id": "Backdrop-Haunting",
+      "name": "Backdrop Haunting",
+      "cardKind": "backdrop",
+      "boostKind": "characteristic",
+      "boosts": [
+        "Haunting"
+      ],
+      "startingHearts": 2,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Backdrop Haunting.webp"
+    },
+    {
+      "id": "Prop-Any-Characteristic",
+      "name": "Prop Any Characteristic",
+      "cardKind": "prop",
+      "boostKind": "characteristic",
+      "boosts": [
+        "Graceful",
+        "Powerful",
+        "Dramatic",
+        "Haunting"
+      ],
+      "startingHearts": 1,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Prop Any Characteristic.webp"
+    },
+    {
+      "id": "Backdrop-Any-Characteristic",
+      "name": "Backdrop Any Characteristic",
+      "cardKind": "backdrop",
+      "boostKind": "characteristic",
+      "boosts": [
+        "Graceful",
+        "Powerful",
+        "Dramatic",
+        "Haunting"
+      ],
+      "startingHearts": 1,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Backdrop Any Characteristic.webp"
+    },
+    {
+      "id": "Prop-Dancer",
+      "name": "Prop Dancer",
+      "cardKind": "prop",
+      "boostKind": "type",
+      "boosts": [
+        "Dancer"
+      ],
+      "startingHearts": 2,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Prop Dancer.webp"
+    },
+    {
+      "id": "Backdrop-Dancer",
+      "name": "Backdrop Dancer",
+      "cardKind": "backdrop",
+      "boostKind": "type",
+      "boosts": [
+        "Dancer"
+      ],
+      "startingHearts": 2,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Backdrop Dancer.webp"
+    },
+    {
+      "id": "Prop-Singer",
+      "name": "Prop Singer",
+      "cardKind": "prop",
+      "boostKind": "type",
+      "boosts": [
+        "Singer"
+      ],
+      "startingHearts": 2,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Prop Singer.webp"
+    },
+    {
+      "id": "Backdrop-Singer",
+      "name": "Backdrop Singer",
+      "cardKind": "backdrop",
+      "boostKind": "type",
+      "boosts": [
+        "Singer"
+      ],
+      "startingHearts": 2,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Backdrop Singer.webp"
+    },
+    {
+      "id": "Prop-Illusionist",
+      "name": "Prop Illusionist",
+      "cardKind": "prop",
+      "boostKind": "type",
+      "boosts": [
+        "Illusionist"
+      ],
+      "startingHearts": 2,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Prop Illusionist.webp"
+    },
+    {
+      "id": "Backdrop-Illusionist",
+      "name": "Backdrop Illusionist",
+      "cardKind": "backdrop",
+      "boostKind": "type",
+      "boosts": [
+        "Illusionist"
+      ],
+      "startingHearts": 2,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Backdrop Illusionist.webp"
+    },
+    {
+      "id": "Prop-Acrobat",
+      "name": "Prop Acrobat",
+      "cardKind": "prop",
+      "boostKind": "type",
+      "boosts": [
+        "Acrobat"
+      ],
+      "startingHearts": 2,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Prop Acrobat.webp"
+    },
+    {
+      "id": "Backdrop-Acrobat",
+      "name": "Backdrop Acrobat",
+      "cardKind": "backdrop",
+      "boostKind": "type",
+      "boosts": [
+        "Acrobat"
+      ],
+      "startingHearts": 2,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Backdrop Acrobat.webp"
+    },
+    {
+      "id": "Prop-Any-Type",
+      "name": "Prop Any Type",
+      "cardKind": "prop",
+      "boostKind": "type",
+      "boosts": [
+        "Singer",
+        "Dancer",
+        "Acrobat",
+        "Illusionist"
+      ],
+      "startingHearts": 1,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Prop Any Type.webp"
+    },
+    {
+      "id": "Backdrop-Any-Type",
+      "name": "Backdrop Any Type",
+      "cardKind": "backdrop",
+      "boostKind": "type",
+      "boosts": [
+        "Singer",
+        "Dancer",
+        "Acrobat",
+        "Illusionist"
+      ],
+      "startingHearts": 1,
+      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "image": "cards/Backdrop Any Type.webp"
+    }
+  ],
+  "trainers": [
+    {
+      "id": "Madame-Coeur",
+      "name": "Madame Coeur",
+      "ability": "Your cards' max heart amount is +1",
+      "startingHearts": 3,
+      "image": "cards/Trainer Madame Coeur.webp"
+    },
+    {
+      "id": "Tomasso-the-Terrible",
+      "name": "Tomasso the Terrible",
+      "ability": "Discard 1 draft card to roll 1 tomato die; only affects other players",
+      "startingHearts": 3,
+      "image": "cards/Trainer Tomasso the Terrible.webp"
+    },
+    {
+      "id": "Madame-Curio",
+      "name": "Madame Curio",
+      "ability": "Discard 1 draft card to roll 1 collection die; only you collect",
+      "startingHearts": 3,
+      "image": "cards/Trainer Madame Curio.webp"
+    },
+    {
+      "id": "Professor-Stainglass",
+      "name": "Professor Stainglass",
+      "ability": "Discard 1 draft card to draw 1 from the deck",
+      "startingHearts": 3,
+      "image": "cards/Trainer Professor Stainglass.webp"
+    },
+    {
+      "id": "Auric-the-Alchemist",
+      "name": "Auric the Alchemist",
+      "ability": "You may assign collected coins as hearts & vice versa",
+      "startingHearts": 3,
+      "image": "cards/Trainer Auric the Alchemist.webp"
+    },
+    {
+      "id": "Barnaby-Pennywhistle",
+      "name": "Barnaby Pennywhistle",
+      "ability": "Market costs are -1 coin (re-setting market still costs 1 coin)",
+      "startingHearts": 3,
+      "image": "cards/Trainer Barnaby Pennywhistle.webp"
+    },
+    {
+      "id": "Madame-Barre",
+      "name": "Madame Barre",
+      "ability": "You may place cards in any slot on your board",
+      "startingHearts": 3,
+      "image": "cards/Trainer Madame Barre.webp"
+    },
+    {
+      "id": "Maximillian-the-Magnate",
+      "name": "Maximillian the Magnate",
+      "ability": "You may buy any number of cards from the market on a turn",
+      "startingHearts": 3,
+      "image": "cards/Trainer Maximillian the Magnate.webp"
+    },
+    {
+      "id": "Mesmera-the-Veiled",
+      "name": "Mesmera the Veiled",
+      "ability": "Get +3 re-rolls on each of your Press Pass & Tomato dice",
+      "startingHearts": 3,
+      "image": "cards/Trainer Mesmera the Veiled.webp"
+    },
+    {
+      "id": "The-Vanishing-Valentino",
+      "name": "The Vanishing Valentino",
+      "ability": "You may use turn to discard this trainer (if active) to discard all cards in the draft",
+      "startingHearts": 3,
+      "image": "cards/Trainer The Vanishing Valentino.webp"
+    }
+  ],
+  "resources": [
+    {
+      "id": "Resource-1-Heart-1",
+      "name": "Resource 1 Heart",
+      "resourceType": "Heart",
+      "amount": 1,
+      "effect": "Immediately assign this many hearts to any starter(s)/reserve card(s), up to their max.",
+      "image": "cards/Resource 1 Heart.webp"
+    },
+    {
+      "id": "Resource-1-Heart-2",
+      "name": "Resource 1 Heart",
+      "resourceType": "Heart",
+      "amount": 1,
+      "effect": "Immediately assign this many hearts to any starter(s)/reserve card(s), up to their max.",
+      "image": "cards/Resource 1 Heart.webp"
+    },
+    {
+      "id": "Resource-2-Heart-1",
+      "name": "Resource 2 Hearts",
+      "resourceType": "Heart",
+      "amount": 2,
+      "effect": "Immediately assign this many hearts to any starter(s)/reserve card(s), up to their max.",
+      "image": "cards/Resource 2 Hearts.webp"
+    },
+    {
+      "id": "Resource-2-Heart-2",
+      "name": "Resource 2 Hearts",
+      "resourceType": "Heart",
+      "amount": 2,
+      "effect": "Immediately assign this many hearts to any starter(s)/reserve card(s), up to their max.",
+      "image": "cards/Resource 2 Hearts.webp"
+    },
+    {
+      "id": "Resource-3-Heart-1",
+      "name": "Resource 3 Hearts",
+      "resourceType": "Heart",
+      "amount": 3,
+      "effect": "Immediately assign this many hearts to any starter(s)/reserve card(s), up to their max.",
+      "image": "cards/Resource 3 Hearts.webp"
+    },
+    {
+      "id": "Resource-3-Heart-2",
+      "name": "Resource 3 Hearts",
+      "resourceType": "Heart",
+      "amount": 3,
+      "effect": "Immediately assign this many hearts to any starter(s)/reserve card(s), up to their max.",
+      "image": "cards/Resource 3 Hearts.webp"
+    },
+    {
+      "id": "Resource-1-Coin-1",
+      "name": "Resource 1 Coin",
+      "resourceType": "Coin",
+      "amount": 1,
+      "effect": "Immediately take this many coins.",
+      "image": "cards/Resource 1 Coin.webp"
+    },
+    {
+      "id": "Resource-1-Coin-2",
+      "name": "Resource 1 Coin",
+      "resourceType": "Coin",
+      "amount": 1,
+      "effect": "Immediately take this many coins.",
+      "image": "cards/Resource 1 Coin.webp"
+    },
+    {
+      "id": "Resource-2-Coin-1",
+      "name": "Resource 2 Coins",
+      "resourceType": "Coin",
+      "amount": 2,
+      "effect": "Immediately take this many coins.",
+      "image": "cards/Resource 2 Coins.webp"
+    },
+    {
+      "id": "Resource-2-Coin-2",
+      "name": "Resource 2 Coins",
+      "resourceType": "Coin",
+      "amount": 2,
+      "effect": "Immediately take this many coins.",
+      "image": "cards/Resource 2 Coins.webp"
+    },
+    {
+      "id": "Resource-3-Coin-1",
+      "name": "Resource 3 Coins",
+      "resourceType": "Coin",
+      "amount": 3,
+      "effect": "Immediately take this many coins.",
+      "image": "cards/Resource 3 Coins.webp"
+    },
+    {
+      "id": "Resource-3-Coin-2",
+      "name": "Resource 3 Coins",
+      "resourceType": "Coin",
+      "amount": 3,
+      "effect": "Immediately take this many coins.",
+      "image": "cards/Resource 3 Coins.webp"
+    },
+    {
+      "id": "Resource-1-Star-1",
+      "name": "Resource 1 Star",
+      "resourceType": "Star",
+      "amount": 1,
+      "effect": "Immediately gain this many stars for the current round's trophy count.",
+      "image": "cards/Resource 1 Star.webp"
+    },
+    {
+      "id": "Resource-1-Star-2",
+      "name": "Resource 1 Star",
+      "resourceType": "Star",
+      "amount": 1,
+      "effect": "Immediately gain this many stars for the current round's trophy count.",
+      "image": "cards/Resource 1 Star.webp"
+    },
+    {
+      "id": "Resource-2-Star-1",
+      "name": "Resource 2 Stars",
+      "resourceType": "Star",
+      "amount": 2,
+      "effect": "Immediately gain this many stars for the current round's trophy count.",
+      "image": "cards/Resource 2 Stars.webp"
+    },
+    {
+      "id": "Resource-2-Star-2",
+      "name": "Resource 2 Stars",
+      "resourceType": "Star",
+      "amount": 2,
+      "effect": "Immediately gain this many stars for the current round's trophy count.",
+      "image": "cards/Resource 2 Stars.webp"
+    },
+    {
+      "id": "Resource-3-Star-1",
+      "name": "Resource 3 Stars",
+      "resourceType": "Star",
+      "amount": 3,
+      "effect": "Immediately gain this many stars for the current round's trophy count.",
+      "image": "cards/Resource 3 Stars.webp"
+    },
+    {
+      "id": "Resource-3-Star-2",
+      "name": "Resource 3 Stars",
+      "resourceType": "Star",
+      "amount": 3,
+      "effect": "Immediately gain this many stars for the current round's trophy count.",
+      "image": "cards/Resource 3 Stars.webp"
+    },
+    {
+      "id": "Resource-1-Card-1",
+      "name": "Resource 1 Card",
+      "resourceType": "Card",
+      "amount": 1,
+      "effect": "Immediately draw this many cards from the deck directly into your reserve (bypasses the draft).",
+      "image": "cards/Resource 1 Card.webp"
+    },
+    {
+      "id": "Resource-1-Card-2",
+      "name": "Resource 1 Card",
+      "resourceType": "Card",
+      "amount": 1,
+      "effect": "Immediately draw this many cards from the deck directly into your reserve (bypasses the draft).",
+      "image": "cards/Resource 1 Card.webp"
+    },
+    {
+      "id": "Resource-2-Card-1",
+      "name": "Resource 2 Cards",
+      "resourceType": "Card",
+      "amount": 2,
+      "effect": "Immediately draw this many cards from the deck directly into your reserve (bypasses the draft).",
+      "image": "cards/Resource 2 Cards.webp"
+    },
+    {
+      "id": "Resource-2-Card-2",
+      "name": "Resource 2 Cards",
+      "resourceType": "Card",
+      "amount": 2,
+      "effect": "Immediately draw this many cards from the deck directly into your reserve (bypasses the draft).",
+      "image": "cards/Resource 2 Cards.webp"
+    },
+    {
+      "id": "Resource-3-Card-1",
+      "name": "Resource 3 Cards",
+      "resourceType": "Card",
+      "amount": 3,
+      "effect": "Immediately draw this many cards from the deck directly into your reserve (bypasses the draft).",
+      "image": "cards/Resource 3 Cards.webp"
+    },
+    {
+      "id": "Resource-3-Card-2",
+      "name": "Resource 3 Cards",
+      "resourceType": "Card",
+      "amount": 3,
+      "effect": "Immediately draw this many cards from the deck directly into your reserve (bypasses the draft).",
+      "image": "cards/Resource 3 Cards.webp"
+    }
+  ],
+  "favors": [
+    {
+      "id": "Favor-1-1",
+      "name": "Favor 1st",
+      "triggerAfterTurn": 1,
+      "effect": "Discard from reserve immediately after your 1st turn in a round to take an additional turn.",
+      "image": "cards/Favor 1st.webp"
+    },
+    {
+      "id": "Favor-1-2",
+      "name": "Favor 1st",
+      "triggerAfterTurn": 1,
+      "effect": "Discard from reserve immediately after your 1st turn in a round to take an additional turn.",
+      "image": "cards/Favor 1st.webp"
+    },
+    {
+      "id": "Favor-1-3",
+      "name": "Favor 1st",
+      "triggerAfterTurn": 1,
+      "effect": "Discard from reserve immediately after your 1st turn in a round to take an additional turn.",
+      "image": "cards/Favor 1st.webp"
+    },
+    {
+      "id": "Favor-1-4",
+      "name": "Favor 1st",
+      "triggerAfterTurn": 1,
+      "effect": "Discard from reserve immediately after your 1st turn in a round to take an additional turn.",
+      "image": "cards/Favor 1st.webp"
+    },
+    {
+      "id": "Favor-1-5",
+      "name": "Favor 1st",
+      "triggerAfterTurn": 1,
+      "effect": "Discard from reserve immediately after your 1st turn in a round to take an additional turn.",
+      "image": "cards/Favor 1st.webp"
+    },
+    {
+      "id": "Favor-1-6",
+      "name": "Favor 1st",
+      "triggerAfterTurn": 1,
+      "effect": "Discard from reserve immediately after your 1st turn in a round to take an additional turn.",
+      "image": "cards/Favor 1st.webp"
+    },
+    {
+      "id": "Favor-1-7",
+      "name": "Favor 1st",
+      "triggerAfterTurn": 1,
+      "effect": "Discard from reserve immediately after your 1st turn in a round to take an additional turn.",
+      "image": "cards/Favor 1st.webp"
+    },
+    {
+      "id": "Favor-1-8",
+      "name": "Favor 1st",
+      "triggerAfterTurn": 1,
+      "effect": "Discard from reserve immediately after your 1st turn in a round to take an additional turn.",
+      "image": "cards/Favor 1st.webp"
+    },
+    {
+      "id": "Favor-2-1",
+      "name": "Favor 2nd+",
+      "triggerAfterTurn": 2,
+      "effect": "Discard from reserve immediately after your 2nd+ turn in a round to take an additional turn.",
+      "image": "cards/Favor 2nd plus.webp"
+    },
+    {
+      "id": "Favor-2-2",
+      "name": "Favor 2nd+",
+      "triggerAfterTurn": 2,
+      "effect": "Discard from reserve immediately after your 2nd+ turn in a round to take an additional turn.",
+      "image": "cards/Favor 2nd plus.webp"
+    },
+    {
+      "id": "Favor-2-3",
+      "name": "Favor 2nd+",
+      "triggerAfterTurn": 2,
+      "effect": "Discard from reserve immediately after your 2nd+ turn in a round to take an additional turn.",
+      "image": "cards/Favor 2nd plus.webp"
+    },
+    {
+      "id": "Favor-2-4",
+      "name": "Favor 2nd+",
+      "triggerAfterTurn": 2,
+      "effect": "Discard from reserve immediately after your 2nd+ turn in a round to take an additional turn.",
+      "image": "cards/Favor 2nd plus.webp"
+    },
+    {
+      "id": "Favor-2-5",
+      "name": "Favor 2nd+",
+      "triggerAfterTurn": 2,
+      "effect": "Discard from reserve immediately after your 2nd+ turn in a round to take an additional turn.",
+      "image": "cards/Favor 2nd plus.webp"
+    },
+    {
+      "id": "Favor-2-6",
+      "name": "Favor 2nd+",
+      "triggerAfterTurn": 2,
+      "effect": "Discard from reserve immediately after your 2nd+ turn in a round to take an additional turn.",
+      "image": "cards/Favor 2nd plus.webp"
+    },
+    {
+      "id": "Favor-2-7",
+      "name": "Favor 2nd+",
+      "triggerAfterTurn": 2,
+      "effect": "Discard from reserve immediately after your 2nd+ turn in a round to take an additional turn.",
+      "image": "cards/Favor 2nd plus.webp"
+    },
+    {
+      "id": "Favor-2-8",
+      "name": "Favor 2nd+",
+      "triggerAfterTurn": 2,
+      "effect": "Discard from reserve immediately after your 2nd+ turn in a round to take an additional turn.",
+      "image": "cards/Favor 2nd plus.webp"
+    }
+  ],
+  "rerolls": [
+    {
+      "id": "PressPass-1",
+      "name": "Press Pass 1",
+      "rerollTarget": "collection",
+      "effect": "Discard from reserve to re-roll one Collection Die result.",
+      "image": "cards/Press Pass 1.webp"
+    },
+    {
+      "id": "PressPass-2",
+      "name": "Press Pass 2",
+      "rerollTarget": "collection",
+      "effect": "Discard from reserve to re-roll one Collection Die result.",
+      "image": "cards/Press Pass 2.webp"
+    },
+    {
+      "id": "PressPass-3",
+      "name": "Press Pass 3",
+      "rerollTarget": "collection",
+      "effect": "Discard from reserve to re-roll one Collection Die result.",
+      "image": "cards/Press Pass 3.webp"
+    },
+    {
+      "id": "PressPass-4",
+      "name": "Press Pass 4",
+      "rerollTarget": "collection",
+      "effect": "Discard from reserve to re-roll one Collection Die result.",
+      "image": "cards/Press Pass 4.webp"
+    },
+    {
+      "id": "PressPass-5",
+      "name": "Press Pass 5",
+      "rerollTarget": "collection",
+      "effect": "Discard from reserve to re-roll one Collection Die result.",
+      "image": "cards/Press Pass 5.webp"
+    },
+    {
+      "id": "Audience-1",
+      "name": "Audience 1",
+      "rerollTarget": "tomato",
+      "effect": "Discard from reserve to re-roll one Tomato Die result.",
+      "image": "cards/Audience 1.webp"
+    },
+    {
+      "id": "Audience-2",
+      "name": "Audience 2",
+      "rerollTarget": "tomato",
+      "effect": "Discard from reserve to re-roll one Tomato Die result.",
+      "image": "cards/Audience 2.webp"
+    },
+    {
+      "id": "Audience-3",
+      "name": "Audience 3",
+      "rerollTarget": "tomato",
+      "effect": "Discard from reserve to re-roll one Tomato Die result.",
+      "image": "cards/Audience 3.webp"
+    },
+    {
+      "id": "Audience-4",
+      "name": "Audience 4",
+      "rerollTarget": "tomato",
+      "effect": "Discard from reserve to re-roll one Tomato Die result.",
+      "image": "cards/Audience 4.webp"
+    },
+    {
+      "id": "Audience-5",
+      "name": "Audience 5",
+      "rerollTarget": "tomato",
+      "effect": "Discard from reserve to re-roll one Tomato Die result.",
+      "image": "cards/Audience 5.webp"
+    }
+  ]
+}

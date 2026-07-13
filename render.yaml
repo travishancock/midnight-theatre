@@ -1,0 +1,13 @@
+# Render.com blueprint for The Midnight Theatre.
+# With this file at the repo root, Render's "Blueprint" flow configures the
+# service automatically. See README.md ("Deploying to a public URL") for the
+# exact click-by-click steps.
+services:
+  - type: web
+    name: midnight-theatre
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    autoDeploy: true
