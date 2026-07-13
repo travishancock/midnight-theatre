@@ -117,15 +117,21 @@ the engine if any is wrong:
    round** (not per player), each die resolved fully for every player before
    the next is rolled.
 5. **Re-roll card numbers (1–5)** — superseded by a later, more specific
-   ruling: the printed number on each Press Pass identifies **which
-   Collection Die of the round** it reacts to (Press Pass 1 → the round's
-   1st die, … Press Pass 5 → the 5th), spent from reserve while that one die
-   is rolled but not yet locked, granting that many re-rolls of it. The
-   Audience/"Tomato" re-roll cards were removed from the game entirely, and
-   Mesmera the Veiled's ability now re-rolls the whole Tomato batch once
-   instead of adding extra attempts to these cards. The Trophy tie-break was
-   also clarified to use each tied player's **total (career) coins**, not
-   just coins earned that round.
+   ruling: before the round's 5 Collection Dice start rolling, the
+   **highest-numbered Press Pass in play is offered to its holder** (a real
+   yes/no decision) — declining offers the next-highest instead, and only
+   **one Press Pass total is spent per round**. Accepting grants a **pool of
+   N re-rolls** (N = the card's printed number) usable on **any** of the
+   round's Collection Dice while it's open (rolled, not yet locked),
+   including several re-rolls in a row on the same die. The Audience/"Tomato"
+   re-roll cards were removed from the game entirely, and Mesmera the
+   Veiled's ability now re-rolls the whole Tomato batch once instead of
+   adding extra attempts to these cards. The Trophy tie-break was clarified
+   to use each tied player's **total (career) coins**, not just coins earned
+   that round. Card heart loss was also clarified: a card survives the hit
+   that brings it to 0 hearts, then discards on the very next hit taken
+   while already at 0 — not two more hits, as an earlier build mistakenly
+   implemented.
 
 ## Project layout
 

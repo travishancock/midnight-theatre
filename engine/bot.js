@@ -67,10 +67,20 @@ function resolvePrompt(state, seat, item) {
       return { ...base, assignments: chooseHeartAssignments(state, seat, item.data.amount) };
     case 'refill':
       return { ...base, assignments: chooseRefill(state, seat) };
+    case 'pressPassOffer':
+      return { ...base, use: wantsPressPassOffer(state, seat) };
     default:
       // Unknown prompt kind: decline/no-op resolution keeps the game moving.
       return { ...base };
   }
+}
+
+// Offered before the round's Collection Dice roll: accept whenever we have
+// any Performers on board at all, since a handful of re-rolls on a bad
+// letter is close to free value and there's no cost to holding the option
+// open (declining just keeps the card for a future, higher-priority round).
+function wantsPressPassOffer(state, seat) {
+  return boardLetterCount(state, seat) >= 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,18 +89,18 @@ function resolvePrompt(state, seat, item) {
 // human clicking the card whenever it's relevant).
 // ---------------------------------------------------------------------------
 
-// A Collection Die is open (rolled, not yet locked): does this seat hold the
-// one Press Pass that targets this specific die, and want to use it? Re-roll
-// only when the current letter gains us nothing and we have enough
-// performers on board that a new letter probably helps.
-export function botWantsPressPassReroll(state, seat) {
+// A Collection Die is open (rolled, not yet locked): does this seat control
+// the round's active Press Pass pool, still have re-rolls left, and want to
+// spend one on the current die? Re-roll only when the current letter gains
+// us nothing and we have enough performers on board that a new letter
+// probably helps.
+export function botWantsPressPassRerollNow(state, seat) {
   const ev = state.dieEvent;
-  if (!ev || ev.kind !== 'collection' || ev.source !== 'phase' || !ev.awaitingLock) return null;
-  const p = state.players[seat];
-  const cardId = p.reserve.find((id) => card(id).cardType === 'reroll' && card(id).position === ev.position);
-  if (!cardId) return null;
-  if (collectionGain(state, seat, ev.value) > 0) return null;
-  return boardLetterCount(state, seat) >= 3 ? cardId : null;
+  if (!ev || ev.kind !== 'collection' || ev.source !== 'phase' || !ev.awaitingLock) return false;
+  const d = state.dice;
+  if (!d.pressPass || d.pressPass.seat !== seat || d.pressPass.usesLeft <= 0) return false;
+  if (collectionGain(state, seat, ev.value) > 0) return false;
+  return boardLetterCount(state, seat) >= 3;
 }
 
 // The round's Tomato batch is rolled but not locked: does this seat control
@@ -298,7 +308,19 @@ function scoreCard(state, seat, id) {
     }
     case 'resource': {
       if (c.resourceType === 'Heart' && totalCapacityLeft(state, seat) === 0) return 0.2;
-      return 0.9 * (c.amount || 1) + (c.resourceType === 'Star' ? 0.6 : 0);
+      if (c.resourceType === 'Star') {
+        // Stars earned THIS round directly decide who takes the round's
+        // Trophy, so a Star resource card (especially the 3-star one) is
+        // worth much more than its face value suggests — a single card can
+        // flip the round outcome. Weight heavily, more so the further
+        // behind the round-stars leader we are (a close/losing race is
+        // exactly when a swing card like this matters most).
+        const others = state.players.filter((x) => x.seat !== seat);
+        const maxOtherRoundStars = Math.max(0, ...others.map((x) => x.roundStars));
+        const behind = Math.max(0, maxOtherRoundStars - p.roundStars);
+        return 1.6 * (c.amount || 1) + Math.min(2, behind * 0.5) + 0.5;
+      }
+      return 0.9 * (c.amount || 1);
     }
     case 'favor':
       return 1.8;

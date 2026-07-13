@@ -1491,42 +1491,37 @@
     {
       "id": "PressPass-1",
       "name": "Press Pass 1",
-      "effect": "Spend from reserve while the 1st Collection Die of the round is rolled but not yet locked, to re-roll it up to 1 time, keeping the final result.",
+      "effect": "Spend from reserve before this round's Collection Dice start rolling, if offered (priority goes to the highest-numbered Press Pass in play; only one is spent per round), to gain up to 1 re-roll usable on any Collection Die this round while it is rolled but not yet locked.",
       "image": "cards/Press Pass 1.webp",
-      "count": 1,
-      "position": 1
+      "count": 1
     },
     {
       "id": "PressPass-2",
       "name": "Press Pass 2",
-      "effect": "Spend from reserve while the 2nd Collection Die of the round is rolled but not yet locked, to re-roll it up to 2 times, keeping the final result.",
+      "effect": "Spend from reserve before this round's Collection Dice start rolling, if offered (priority goes to the highest-numbered Press Pass in play; only one is spent per round), to gain up to 2 re-rolls usable on any Collection Die this round while it is rolled but not yet locked.",
       "image": "cards/Press Pass 2.webp",
-      "count": 2,
-      "position": 2
+      "count": 2
     },
     {
       "id": "PressPass-3",
       "name": "Press Pass 3",
-      "effect": "Spend from reserve while the 3rd Collection Die of the round is rolled but not yet locked, to re-roll it up to 3 times, keeping the final result.",
+      "effect": "Spend from reserve before this round's Collection Dice start rolling, if offered (priority goes to the highest-numbered Press Pass in play; only one is spent per round), to gain up to 3 re-rolls usable on any Collection Die this round while it is rolled but not yet locked.",
       "image": "cards/Press Pass 3.webp",
-      "count": 3,
-      "position": 3
+      "count": 3
     },
     {
       "id": "PressPass-4",
       "name": "Press Pass 4",
-      "effect": "Spend from reserve while the 4th Collection Die of the round is rolled but not yet locked, to re-roll it up to 4 times, keeping the final result.",
+      "effect": "Spend from reserve before this round's Collection Dice start rolling, if offered (priority goes to the highest-numbered Press Pass in play; only one is spent per round), to gain up to 4 re-rolls usable on any Collection Die this round while it is rolled but not yet locked.",
       "image": "cards/Press Pass 4.webp",
-      "count": 4,
-      "position": 4
+      "count": 4
     },
     {
       "id": "PressPass-5",
       "name": "Press Pass 5",
-      "effect": "Spend from reserve while the 5th Collection Die of the round is rolled but not yet locked, to re-roll it up to 5 times, keeping the final result.",
+      "effect": "Spend from reserve before this round's Collection Dice start rolling, if offered (priority goes to the highest-numbered Press Pass in play; only one is spent per round), to gain up to 5 re-rolls usable on any Collection Die this round while it is rolled but not yet locked.",
       "image": "cards/Press Pass 5.webp",
-      "count": 5,
-      "position": 5
+      "count": 5
     }
   ]
 }

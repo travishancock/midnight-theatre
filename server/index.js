@@ -17,7 +17,7 @@ import { Server } from 'socket.io';
 
 import { initCards } from '../engine/cards.js';
 import { createGame, applyAction, lockCollectionDie, lockTomatoRoll } from '../engine/engine.js';
-import { botAction, seatsNeedingInput, botWantsPressPassReroll, botWantsMesmeraReroll } from '../engine/bot.js';
+import { botAction, seatsNeedingInput, botWantsPressPassRerollNow, botWantsMesmeraReroll } from '../engine/bot.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -185,14 +185,15 @@ function autoResolveBotDiceReactions(room) {
   const state = room.game;
   for (let seat = 0; seat < room.seats.length; seat++) {
     if (!room.seats[seat] || !room.seats[seat].isBot) continue;
-    const pressCardId = botWantsPressPassReroll(state, seat);
-    if (pressCardId) {
+    // A bot may spend more than one re-roll on the same stubborn die before
+    // giving up and locking it in, same as a human could.
+    while (botWantsPressPassRerollNow(state, seat)) {
       try {
-        applyAction(state, { type: 'usePressPass', seat, cardId: pressCardId });
+        applyAction(state, { type: 'usePressPass', seat });
       } catch (err) {
         console.error(`[room ${room.code}] bot seat ${seat} illegal usePressPass`, err.message);
+        break;
       }
-      continue;
     }
     if (botWantsMesmeraReroll(state, seat)) {
       try {

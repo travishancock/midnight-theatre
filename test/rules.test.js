@@ -544,11 +544,11 @@ test('deterministic dice phase: collection matches, boosts, trophies, tomato hit
   assert.ok(seatWithStand(s, 1) != null);
 });
 
-test('Press Pass N is a proactive reserve resource that re-rolls the Nth Collection Die before it locks', () => {
+test('Press Pass: offered before the round\'s Collection Dice roll; accepting grants a shared re-roll pool for any die', () => {
   const s = freshGame(2, 555);
   const seat = currentSeat(s);
   const other = s.players.find((x) => x.seat !== seat).seat;
-  s.players[other].reserve = ['PressPass-1'];
+  s.players[other].reserve = ['PressPass-3'];
   s.players[seat].reserve = [];
   // strip boards so nothing else prompts
   for (const p of s.players) p.slots = [null, null, null, null, null, null, null, null];
@@ -556,46 +556,67 @@ test('Press Pass N is a proactive reserve resource that re-rolls the Nth Collect
   s.draftRow = [filler, db.performers[9].id];
   applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
 
-  // Dice phase: the 1st Collection Die is rolled and sits open (awaiting
-  // lock) — no forced prompt, just a window in which the card is usable.
+  // Before any Collection Die rolls, the Press Pass holder is offered the
+  // chance to spend it — a real pending prompt (unlike the reroll-usage
+  // itself, which stays a proactive click during the open-die window).
+  assert.equal(s.dice.stage, 'pressPassOffer');
+  assert.equal(s.dieEvent, null, 'no die has rolled yet');
+  const offer = s.pending.find((x) => x.kind === 'pressPassOffer');
+  assert.ok(offer, 'expected a pressPassOffer prompt');
+  assert.equal(offer.seat, other);
+  assert.equal(offer.data.count, 3);
+
+  applyAction(s, { type: 'resolvePending', seat: other, pendingId: offer.id, use: true });
+  assert.ok(s.discard.includes('PressPass-3'), 'spent immediately on acceptance');
+  assert.ok(!s.players[other].reserve.includes('PressPass-3'));
+  assert.equal(s.dice.pressPass.seat, other);
+  assert.equal(s.dice.pressPass.usesLeft, 3);
+
+  // Die #1 is now open; the pool can be spent on it (or any later die), more
+  // than once in a row if desired.
   assert.equal(s.dieEvent.kind, 'collection');
   assert.equal(s.dieEvent.position, 1);
-  assert.equal(s.dieEvent.awaitingLock, true);
-  assert.equal(s.pending.length, 0, 'no forced prompt — this is a proactive click, not a pending item');
+  applyAction(s, { type: 'usePressPass', seat: other });
+  assert.equal(s.dice.pressPass.usesLeft, 2, 'one use spent');
+  assert.equal(s.dieEvent.rerollHistory.length, 1);
+  applyAction(s, { type: 'usePressPass', seat: other });
+  assert.equal(s.dice.pressPass.usesLeft, 1, 'a second use spent on the same die');
+  assert.equal(s.dieEvent.rerollHistory.length, 2);
 
-  // Wrong-position Press Pass cannot be used on this die.
-  s.players[other].reserve.push('PressPass-2');
-  assert.throws(() => applyAction(s, { type: 'usePressPass', seat: other, cardId: 'PressPass-2' }));
-
-  applyAction(s, { type: 'usePressPass', seat: other, cardId: 'PressPass-1' });
-  assert.ok(s.discard.includes('PressPass-1'), 'spent card is discarded');
-  assert.ok(!s.players[other].reserve.includes('PressPass-1'));
-  assert.equal(s.dieEvent.rerollHistory.length, 1, 'Press Pass 1 grants exactly 1 re-roll');
-  assert.equal(s.dieEvent.awaitingLock, true, 'still open — using the card does not itself lock the die');
+  // Only the seat that accepted the offer may spend from the pool.
+  assert.throws(() => applyAction(s, { type: 'usePressPass', seat }));
 
   driveDicePhase(s);
   assert.equal(s.round, 2, 'the round completed normally once locked');
 });
 
-test('Press Pass N grants its printed number of re-rolls, all spent at once', () => {
-  const s = freshGame(2, 555);
+test('Press Pass priority: the highest-numbered card is offered first; declining moves to the next', () => {
+  const s = freshGame(2, 777);
   const seat = currentSeat(s);
   const other = s.players.find((x) => x.seat !== seat).seat;
-  s.players[other].reserve = ['PressPass-3'];
-  s.players[seat].reserve = [];
+  s.players[seat].reserve = ['PressPass-2'];
+  s.players[other].reserve = ['PressPass-4'];
   for (const p of s.players) p.slots = [null, null, null, null, null, null, null, null];
   const filler = performer((c) => c.resource === 'Coin');
   s.draftRow = [filler, db.performers[9].id];
   applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
 
-  // "Press Pass 3" only matches the 3rd die of the round — drive past the
-  // first two (unreacted) before it becomes usable.
-  lockCollectionDie(s);
-  lockCollectionDie(s);
-  assert.equal(s.dieEvent.position, 3);
-  applyAction(s, { type: 'usePressPass', seat: other, cardId: 'PressPass-3' });
-  assert.equal(s.dieEvent.rerollHistory.length, 3, 'Press Pass 3 grants 3 re-rolls, all resolved immediately');
-  assert.ok(s.discard.includes('PressPass-3'));
+  let offer = s.pending.find((x) => x.kind === 'pressPassOffer');
+  assert.equal(offer.seat, other, 'Press Pass 4 outranks Press Pass 2 and is offered first');
+  assert.equal(offer.data.count, 4);
+
+  applyAction(s, { type: 'resolvePending', seat: other, pendingId: offer.id, use: false });
+  assert.ok(s.players[other].reserve.includes('PressPass-4'), 'declined card stays in reserve for a future round');
+
+  offer = s.pending.find((x) => x.kind === 'pressPassOffer');
+  assert.ok(offer, 'expected the next-highest candidate to be offered');
+  assert.equal(offer.seat, seat);
+  assert.equal(offer.data.count, 2);
+
+  applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, use: true });
+  assert.equal(s.dice.pressPass.seat, seat);
+  assert.equal(s.dice.pressPass.usesLeft, 2);
+  assert.equal(s.dice.pressPassQueue.length, 0, 'only one Press Pass may be spent per round');
 
   driveDicePhase(s);
   assert.equal(s.round, 2);
@@ -647,7 +668,7 @@ test('Trophy ties: most TOTAL (career) coins among the tied wins it; still tied 
   assert.equal(z.trophies, 0);
 });
 
-test('Every card has one hidden "built-in" heart before it is actually discarded', () => {
+test('A card survives the hit that brings it to 0 hearts, then discards on the very next hit', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
@@ -658,15 +679,27 @@ test('Every card has one hidden "built-in" heart before it is actually discarded
   p.roundStars = 5;
   other.roundStars = 0; // make `p` the sole trophy (and heart-fatigue) target each call
 
-  assignTrophy(s); // hit #1: 1 -> 0, survives (spent its printed heart)
+  assignTrophy(s); // hit #1: 1 -> 0, survives (that hit spent its last printed heart)
   assert.equal(s.hearts[perf], 0);
   assert.equal(p.slots[0], perf, 'still on the mat with 0 printed hearts left');
 
-  assignTrophy(s); // hit #2: already at 0 -> consumes the hidden built-in heart, still survives
-  assert.equal(s.hearts[perf], 0);
-  assert.equal(p.slots[0], perf, 'clings on through the first hit taken at 0 hearts');
+  assignTrophy(s); // hit #2: taken while already at 0 -> discarded now, not another reprieve
+  assert.equal(p.slots[0], null);
+  assert.ok(s.discard.includes(perf));
+});
 
-  assignTrophy(s); // hit #3: already at 0 AND the built-in heart is already spent -> discarded
+test('A card that starts at 0 printed hearts discards on its very first hit', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  const other = s.players.find((x) => x.seat !== seat);
+  const perf = db.performers[0].id;
+  p.slots[0] = perf;
+  s.hearts[perf] = 0; // already at 0, never hit before
+  p.roundStars = 5;
+  other.roundStars = 0;
+
+  assignTrophy(s); // its very first hit, taken while already at 0 -> discarded immediately
   assert.equal(p.slots[0], null);
   assert.ok(s.discard.includes(perf));
 });

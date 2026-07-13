@@ -289,13 +289,17 @@ function winnersBanner(s) {
   return `<div class="winners">🏆 ${esc(names)} win${s.winners.length === 1 ? 's' : ''} the game! 🏆</div>`;
 }
 
-// The Press Pass matching this round's currently-open (rolled, not yet
-// locked) Collection Die, if this player holds it in reserve. Proactive —
-// no prompt, just a clickable affordance while the die sits open.
-function pressPassReady(s, p) {
+// Does this player control the round's active Press Pass pool, with a
+// currently-open (rolled, not yet locked) Collection Die to spend a re-roll
+// on? Proactive — no prompt, just a clickable affordance while relevant.
+// (Whether to spend the Press Pass at all is a separate, earlier pending
+// prompt — see promptHtml's 'pressPassOffer' case.)
+function pressPassUsesLeft(s, p) {
   const ev = s.dieEvent;
-  if (!p || !ev || ev.kind !== 'collection' || ev.source !== 'phase' || !ev.awaitingLock) return null;
-  return p.reserve.find((id) => card(id).cardType === 'reroll' && card(id).position === ev.position) || null;
+  const d = s.dice;
+  if (!p || !ev || ev.kind !== 'collection' || ev.source !== 'phase' || !ev.awaitingLock) return 0;
+  if (!d || !d.pressPass || d.pressPass.seat !== p.seat) return 0;
+  return d.pressPass.usesLeft;
 }
 
 // Mesmera the Veiled: proactive re-roll of the whole Tomato batch, available
@@ -318,10 +322,10 @@ function diceTray(s, p) {
     : '';
   if (!d && !ev) return `<div class="dicetray"><span class="hint">Dice are rolled after the draft. ${tomatoForecast(s)}</span></div>`;
 
-  const pp = pressPassReady(s, p);
+  const ppUses = pressPassUsesLeft(s, p);
   const mes = mesmeraReady(s, p);
-  const reactionHtml = pp
-    ? `<div class="dice-reaction">${cardHtml(pp, { size: 'sm' })}<button id="usePressPassBtn" class="primary">Spend ${esc(card(pp).name)} — re-roll Die #${ev.position}</button></div>`
+  const reactionHtml = ppUses > 0
+    ? `<div class="dice-reaction"><button id="usePressPassBtn" class="primary">Press Pass — re-roll Die #${ev.position} (${ppUses} left)</button></div>`
     : mes
     ? `<div class="dice-reaction"><button id="mesmeraBtn" class="primary">Mesmera: re-roll all Tomato dice</button></div>`
     : d && d.stage === 'tomato' && d.tomatoRolled && !d.tomatoLocked
@@ -443,6 +447,13 @@ function waitingNoteHtml(s, p, pending) {
 
 function promptHtml(s, p, item) {
   switch (item.kind) {
+    case 'pressPassOffer': {
+      const c = card(item.data.cardId);
+      return promptBox(`
+        <div>Spend <b>${esc(c.name)}</b> before this round's Collection Dice start rolling? If you do, you'll get up to <b>${item.data.count}</b> re-roll${item.data.count > 1 ? 's' : ''} to use on any Collection Die this round, while it's rolled but not yet locked.</div>
+        <button id="pressPassYes" class="primary">Spend it</button>
+        <button id="pressPassNo">Keep it in reserve</button>`);
+    }
     case 'placement': {
       return promptBox(`Place <b>${esc(card(item.data.cardId).name)}</b> — click a highlighted slot on your mat below. The current occupant (if any) moves to your reserve.`);
     }
@@ -686,11 +697,14 @@ function wireGameEvents(s, p, pending) {
     ui.heartPlan = {};
     send({ type: 'resolvePending', pendingId: pending.id, assignments });
   });
-  document.getElementById('usePressPassBtn')?.addEventListener('click', () => {
-    const ppId = pressPassReady(s, p);
-    if (ppId) send({ type: 'usePressPass', cardId: ppId });
-  });
+  document.getElementById('usePressPassBtn')?.addEventListener('click', () => send({ type: 'usePressPass' }));
   document.getElementById('mesmeraBtn')?.addEventListener('click', () => send({ type: 'mesmeraRerollTomato' }));
+  document.getElementById('pressPassYes')?.addEventListener('click', () =>
+    send({ type: 'resolvePending', pendingId: pending.id, use: true })
+  );
+  document.getElementById('pressPassNo')?.addEventListener('click', () =>
+    send({ type: 'resolvePending', pendingId: pending.id, use: false })
+  );
   document.getElementById('cardResourceToReserve')?.addEventListener('click', () =>
     send({ type: 'resolvePending', pendingId: pending.id, toReserve: true })
   );
