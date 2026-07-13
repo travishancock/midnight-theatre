@@ -108,9 +108,7 @@ function trainerIs(player, id) {
 function maxHearts(player, id) {
   const c = card(id);
   if (!['performer', 'backdrop', 'prop', 'trainer'].includes(c.cardType)) return 0;
-  let cap = c.maxHearts ?? c.startingHearts ?? 0;
-  if (player.slots.includes(id) && trainerIs(player, 'Madame-Coeur')) cap += 1;
-  return cap;
+  return c.maxHearts ?? c.startingHearts ?? 0;
 }
 
 function capLeft(player, id) {
@@ -261,7 +259,7 @@ function renderGame() {
         </div>
       </header>
       ${s.phase === 'gameOver' ? winnersBanner(s) : ''}
-      ${diceTray(s)}
+      ${diceTray(s, p)}
       <section class="table">
         <div class="center-col">
           ${draftRowHtml(s, p, pending)}
@@ -291,19 +289,68 @@ function winnersBanner(s) {
   return `<div class="winners">🏆 ${esc(names)} win${s.winners.length === 1 ? 's' : ''} the game! 🏆</div>`;
 }
 
-function diceTray(s) {
+// The Press Pass matching this round's currently-open (rolled, not yet
+// locked) Collection Die, if this player holds it in reserve. Proactive —
+// no prompt, just a clickable affordance while the die sits open.
+function pressPassReady(s, p) {
+  const ev = s.dieEvent;
+  if (!p || !ev || ev.kind !== 'collection' || ev.source !== 'phase' || !ev.awaitingLock) return null;
+  return p.reserve.find((id) => card(id).cardType === 'reroll' && card(id).position === ev.position) || null;
+}
+
+// Mesmera the Veiled: proactive re-roll of the whole Tomato batch, available
+// only in the window after the batch is rolled and before it locks.
+function mesmeraReady(s, p) {
+  if (!p) return false;
+  const d = s.dice;
+  if (!d || d.stage !== 'tomato' || !d.tomatoRolled || d.tomatoLocked || d.mesmeraRerollUsed) return false;
+  return trainerIs(p, 'Mesmera-the-Veiled');
+}
+
+function diceTray(s, p) {
   const d = s.dice;
   const ev = s.dieEvent;
   const evHtml = ev
-    ? `<span class="die live ${ev.kind}">${ev.value}</span><span class="hint">${ev.kind === 'collection' ? 'Collection die' : 'Tomato die'} just rolled${ev.source !== 'phase' ? ` (${ev.source})` : ''}</span>`
+    ? `<span class="die live ${ev.kind}">${ev.value}</span>
+       <span class="hint">${ev.kind === 'collection' ? `Collection Die${ev.position ? ` #${ev.position}` : ''}` : 'Tomato die'}
+       ${ev.rerollHistory ? `re-rolled (${ev.rerollHistory.join(' → ')})` : 'just rolled'}
+       ${ev.source !== 'phase' ? ` (${ev.source === 'tomasso' ? 'Tomasso the Terrible' : 'Madame Curio'})` : ''}</span>`
     : '';
   if (!d && !ev) return `<div class="dicetray"><span class="hint">Dice are rolled after the draft. ${tomatoForecast(s)}</span></div>`;
+
+  const pp = pressPassReady(s, p);
+  const mes = mesmeraReady(s, p);
+  const reactionHtml = pp
+    ? `<div class="dice-reaction">${cardHtml(pp, { size: 'sm' })}<button id="usePressPassBtn" class="primary">Spend ${esc(card(pp).name)} — re-roll Die #${ev.position}</button></div>`
+    : mes
+    ? `<div class="dice-reaction"><button id="mesmeraBtn" class="primary">Mesmera: re-roll all Tomato dice</button></div>`
+    : d && d.stage === 'tomato' && d.tomatoRolled && !d.tomatoLocked
+    ? `<div class="dice-reaction"><span class="hint">Tomato dice locking in…</span></div>`
+    : '';
+
   return `<div class="dicetray">
     ${d ? `<span class="lbl">Collection:</span>${d.results.map((r) => `<span class="die collection">${r}</span>`).join('')}` : ''}
     ${d && d.tomatoResults.length ? `<span class="lbl">Tomatoes:</span>${d.tomatoResults.map((r) => `<span class="die tomato">${r}</span>`).join('')}` : ''}
     ${evHtml}
     ${d ? `<span class="hint">${d.tomatoTotal} tomato ${d.tomatoTotal === 1 ? 'die' : 'dice'} this round</span>` : ''}
-  </div>`;
+    ${reactionHtml}
+  </div>
+  ${s.phase === 'dice' ? earnedTableHtml(s) : ''}`;
+}
+
+function earnedTableHtml(s) {
+  return `<table class="earned">
+    <thead><tr><th>Player</th><th>🪙 coins</th><th>⭐ stars</th><th>❤ hearts</th></tr></thead>
+    <tbody>
+      ${s.players.map((pl) => `
+        <tr class="${pl.seat === my.seat ? 'me' : ''}">
+          <td>${esc(pl.name)}</td>
+          <td>${pl.roundCoins}</td>
+          <td>${pl.roundStars}</td>
+          <td>${pl.roundHearts}</td>
+        </tr>`).join('')}
+    </tbody>
+  </table>`;
 }
 
 function tomatoForecast(s) {
@@ -424,22 +471,6 @@ function promptHtml(s, p, item) {
         </div>
         <button id="confirmHearts" class="primary" ${total === must ? '' : 'disabled'}>Confirm</button>`);
     }
-    case 'rerollOffer': {
-      const want = item.data.kind === 'collection' ? 'collection' : 'tomato';
-      const usable = p.reserve.filter((id) => card(id).cardType === 'reroll' && card(id).rerollTarget === want);
-      return promptBox(`
-        <div>The ${want === 'collection' ? 'Collection' : 'Tomato'} die shows <span class="die ${want}">${item.data.value}</span>.
-          Spend a ${want === 'collection' ? 'Press Pass' : 'Audience'} card to re-roll it?</div>
-        <div class="cardrow">${usable.map((id) => `<div class="pickable" data-reroll="${esc(id)}">${cardHtml(id, { size: 'sm' })}</div>`).join('')}</div>
-        <button id="passReroll">Keep the result</button>`);
-    }
-    case 'rerollAgain': {
-      const left = st().dieEvent?.rerollAgain?.rollsLeft ?? 0;
-      return promptBox(`
-        <div>The die now shows <b>${st().dieEvent?.value ?? '?'}</b>. You have ${left} more re-roll${left === 1 ? '' : 's'} available on that card — roll again?</div>
-        <button id="rerollAgainYes" class="primary">Roll again</button>
-        <button id="rerollAgainNo">Keep this result</button>`);
-    }
     case 'refill': {
       const plan = ui.refillPlan ?? defaultRefillPlan(s, p);
       ui.refillPlan = plan;
@@ -511,7 +542,7 @@ function myMatHtml(s, p, pending) {
   return `<section class="mymat">
     <div class="mat-head">
       <h3>${esc(p.name)} <span class="hint">(you) · stand ${p.stand}</span></h3>
-      <div class="tokens">🪙 ${p.coins} &nbsp; ⭐ ${p.stars} <span class="hint">(+${p.roundStars} this round)</span> &nbsp; 🏆 ${p.trophies}/${s.trophyGoal}</div>
+      <div class="tokens">🪙 ${p.coins} &nbsp; ⭐ ${p.roundStars} <span class="hint">this round (${p.stars} total)</span> &nbsp; 🏆 ${p.trophies}/${s.trophyGoal}</div>
     </div>
     <div class="slots" id="mySlots">
       ${slots.map((id, i) => {
@@ -543,7 +574,7 @@ function opponentHtml(s, p) {
   return `<div class="opponent ${isTurn ? 'active' : ''}">
     <div class="mat-head">
       <h4>${esc(p.name)} ${p.isBot ? '🤖' : ''} <span class="hint">stand ${p.stand}</span></h4>
-      <div class="tokens">🪙 ${p.coins} · ⭐ ${p.stars} · 🏆 ${p.trophies} · reserve ${p.reserve.length}</div>
+      <div class="tokens">🪙 ${p.coins} · ⭐ ${p.roundStars} this round (${p.stars} total) · 🏆 ${p.trophies} · reserve ${p.reserve.length}</div>
     </div>
     <div class="slots mini">
       ${p.slots.map((id, i) => `
@@ -655,18 +686,11 @@ function wireGameEvents(s, p, pending) {
     ui.heartPlan = {};
     send({ type: 'resolvePending', pendingId: pending.id, assignments });
   });
-  app.querySelectorAll('[data-reroll]').forEach((el) =>
-    el.addEventListener('click', () => send({ type: 'resolvePending', pendingId: pending.id, use: el.dataset.reroll }))
-  );
-  document.getElementById('passReroll')?.addEventListener('click', () =>
-    send({ type: 'resolvePending', pendingId: pending.id, use: null })
-  );
-  document.getElementById('rerollAgainYes')?.addEventListener('click', () =>
-    send({ type: 'resolvePending', pendingId: pending.id, again: true })
-  );
-  document.getElementById('rerollAgainNo')?.addEventListener('click', () =>
-    send({ type: 'resolvePending', pendingId: pending.id, again: false })
-  );
+  document.getElementById('usePressPassBtn')?.addEventListener('click', () => {
+    const ppId = pressPassReady(s, p);
+    if (ppId) send({ type: 'usePressPass', cardId: ppId });
+  });
+  document.getElementById('mesmeraBtn')?.addEventListener('click', () => send({ type: 'mesmeraRerollTomato' }));
   document.getElementById('cardResourceToReserve')?.addEventListener('click', () =>
     send({ type: 'resolvePending', pendingId: pending.id, toReserve: true })
   );

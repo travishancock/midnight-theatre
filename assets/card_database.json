@@ -1111,7 +1111,7 @@
     {
       "id": "Madame-Coeur",
       "name": "Madame Coeur",
-      "ability": "Your cards' max heart amount is +1",
+      "ability": "Cards you draft/place start at their maximum heart count",
       "startingHearts": 3,
       "image": "cards/Trainer Madame Coeur.webp"
     },
@@ -1167,7 +1167,7 @@
     {
       "id": "Mesmera-the-Veiled",
       "name": "Mesmera the Veiled",
-      "ability": "Get +3 re-rolls on each of your Press Pass & Tomato dice",
+      "ability": "After the Tomato dice are rolled, you may re-roll all of them once",
       "startingHearts": 3,
       "image": "cards/Trainer Mesmera the Veiled.webp"
     },
@@ -1491,82 +1491,42 @@
     {
       "id": "PressPass-1",
       "name": "Press Pass 1",
-      "rerollTarget": "collection",
-      "effect": "Discard from reserve to re-roll one Collection Die result (this card grants 1 re-roll).",
+      "effect": "Spend from reserve while the 1st Collection Die of the round is rolled but not yet locked, to re-roll it up to 1 time, keeping the final result.",
       "image": "cards/Press Pass 1.webp",
-      "count": 1
+      "count": 1,
+      "position": 1
     },
     {
       "id": "PressPass-2",
       "name": "Press Pass 2",
-      "rerollTarget": "collection",
-      "effect": "Discard from reserve to re-roll one Collection Die result (this card grants 2 re-rolls).",
+      "effect": "Spend from reserve while the 2nd Collection Die of the round is rolled but not yet locked, to re-roll it up to 2 times, keeping the final result.",
       "image": "cards/Press Pass 2.webp",
-      "count": 2
+      "count": 2,
+      "position": 2
     },
     {
       "id": "PressPass-3",
       "name": "Press Pass 3",
-      "rerollTarget": "collection",
-      "effect": "Discard from reserve to re-roll one Collection Die result (this card grants 3 re-rolls).",
+      "effect": "Spend from reserve while the 3rd Collection Die of the round is rolled but not yet locked, to re-roll it up to 3 times, keeping the final result.",
       "image": "cards/Press Pass 3.webp",
-      "count": 3
+      "count": 3,
+      "position": 3
     },
     {
       "id": "PressPass-4",
       "name": "Press Pass 4",
-      "rerollTarget": "collection",
-      "effect": "Discard from reserve to re-roll one Collection Die result (this card grants 4 re-rolls).",
+      "effect": "Spend from reserve while the 4th Collection Die of the round is rolled but not yet locked, to re-roll it up to 4 times, keeping the final result.",
       "image": "cards/Press Pass 4.webp",
-      "count": 4
+      "count": 4,
+      "position": 4
     },
     {
       "id": "PressPass-5",
       "name": "Press Pass 5",
-      "rerollTarget": "collection",
-      "effect": "Discard from reserve to re-roll one Collection Die result (this card grants 5 re-rolls).",
+      "effect": "Spend from reserve while the 5th Collection Die of the round is rolled but not yet locked, to re-roll it up to 5 times, keeping the final result.",
       "image": "cards/Press Pass 5.webp",
-      "count": 5
-    },
-    {
-      "id": "Audience-1",
-      "name": "Audience 1",
-      "rerollTarget": "tomato",
-      "effect": "Discard from reserve to re-roll one Tomato Die result (this card grants 1 re-roll).",
-      "image": "cards/Audience 1.webp",
-      "count": 1
-    },
-    {
-      "id": "Audience-2",
-      "name": "Audience 2",
-      "rerollTarget": "tomato",
-      "effect": "Discard from reserve to re-roll one Tomato Die result (this card grants 2 re-rolls).",
-      "image": "cards/Audience 2.webp",
-      "count": 2
-    },
-    {
-      "id": "Audience-3",
-      "name": "Audience 3",
-      "rerollTarget": "tomato",
-      "effect": "Discard from reserve to re-roll one Tomato Die result (this card grants 3 re-rolls).",
-      "image": "cards/Audience 3.webp",
-      "count": 3
-    },
-    {
-      "id": "Audience-4",
-      "name": "Audience 4",
-      "rerollTarget": "tomato",
-      "effect": "Discard from reserve to re-roll one Tomato Die result (this card grants 4 re-rolls).",
-      "image": "cards/Audience 4.webp",
-      "count": 4
-    },
-    {
-      "id": "Audience-5",
-      "name": "Audience 5",
-      "rerollTarget": "tomato",
-      "effect": "Discard from reserve to re-roll one Tomato Die result (this card grants 5 re-rolls).",
-      "image": "cards/Audience 5.webp",
-      "count": 5
+      "count": 5,
+      "position": 5
     }
   ]
 }

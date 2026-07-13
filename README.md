@@ -6,9 +6,9 @@ via a 4-letter room code; AI players can fill any empty seat and play a
 complete, rules-legal game on their own.
 
 - **Rules engine** — `engine/` — a pure, framework-free state machine
-  (`applyAction(state, action)`), deterministic via a seeded RNG. All 144
-  cards, all 10 Trainer abilities, Favors, re-roll cards, market, dice phase,
-  trophies, tomato dice, and refill are implemented here.
+  (`applyAction(state, action)`), deterministic via a seeded RNG. All 139
+  cards, all 10 Trainer abilities, Favors, Press Pass re-roll cards, market,
+  dice phase, trophies, tomato dice, and refill are implemented here.
 - **Server** — `server/index.js` — Express + Socket.IO. Rooms, seats,
   authoritative game state, action validation, and server-driven AI seats.
   Players who disconnect mid-game get 60 seconds to rejoin (same name), then
@@ -52,12 +52,12 @@ npm start          # serves game + client together on http://localhost:3000
 npm test
 ```
 
-- `test/rules.test.js` — 20 unit-level engine checks (setup, market, every
-  notable Trainer ability, favors, re-rolls, rearranging, a deterministic
-  dice phase, card conservation).
+- `test/rules.test.js` — 32 unit-level engine checks (setup, market, every
+  notable Trainer ability, favors, Press Pass/Mesmera re-rolls, rearranging,
+  a deterministic dice phase, card conservation).
 - `test/fullgame.test.js` — 12 complete AI-only games (2–5 players × 3 seeds
   each) played start to finish, asserting every game reaches a valid win
-  state with no illegal moves and all 144 cards accounted for after every
+  state with no illegal moves and all 139 cards accounted for after every
   single action.
 
 ## Deploying to a public URL (Render.com)
@@ -116,14 +116,21 @@ the engine if any is wrong:
 4. **Collection dice count** — **all 5 Collection Dice are rolled once per
    round** (not per player), each die resolved fully for every player before
    the next is rolled.
-5. **Re-roll card numbers (1–5)** — the printed numbers on Press Pass and
-   Audience cards are **cosmetic only** (unique art); all 5 of a type work
-   identically.
+5. **Re-roll card numbers (1–5)** — superseded by a later, more specific
+   ruling: the printed number on each Press Pass identifies **which
+   Collection Die of the round** it reacts to (Press Pass 1 → the round's
+   1st die, … Press Pass 5 → the 5th), spent from reserve while that one die
+   is rolled but not yet locked, granting that many re-rolls of it. The
+   Audience/"Tomato" re-roll cards were removed from the game entirely, and
+   Mesmera the Veiled's ability now re-rolls the whole Tomato batch once
+   instead of adding extra attempts to these cards. The Trophy tie-break was
+   also clarified to use each tied player's **total (career) coins**, not
+   just coins earned that round.
 
 ## Project layout
 
 ```
-assets/               card art (PNGs), card_database.json (all 144 cards), Rules.pdf
+assets/               card art (PNGs), card_database.json (all 139 cards), Rules.pdf
 engine/               pure rules engine + AI bot (no I/O — fully testable)
 server/index.js       Express + Socket.IO game server
 client/               Vite single-page app (built into client/dist)

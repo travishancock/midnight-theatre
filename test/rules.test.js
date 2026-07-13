@@ -19,6 +19,8 @@ import {
   allowedSlots,
   seatWithStand,
   assignTrophy,
+  lockCollectionDie,
+  lockTomatoRoll,
   TRAINERS,
 } from '../engine/engine.js';
 
@@ -68,6 +70,29 @@ function currentSeat(state) {
   return state.turn.seat;
 }
 
+// The dice phase pauses mid-flight — a rolled-but-unlocked Collection Die
+// (awaiting a possible Press Pass reaction) and a rolled-but-unlocked Tomato
+// batch (awaiting a possible Mesmera reaction) — so it can be watched and
+// reacted to in real time (the server paces these with real timers; tests
+// just drive them through immediately since they don't care about pacing).
+function driveDicePhase(s) {
+  while (s.phase === 'dice') {
+    if (s.dieEvent && s.dieEvent.awaitingLock) { lockCollectionDie(s); continue; }
+    if (s.dice && s.dice.stage === 'tomato' && s.dice.tomatoRolled && !s.dice.tomatoLocked) { lockTomatoRoll(s); continue; }
+    break; // no more open reaction windows — nothing left to drive
+  }
+}
+
+// Like driveDicePhase, but stops the instant the Tomato batch is rolled and
+// open (before locking it in) — used by tests that want to react as Mesmera.
+function driveToTomatoOpen(s) {
+  while (!(s.dice && s.dice.stage === 'tomato' && s.dice.tomatoRolled && !s.dice.tomatoLocked)) {
+    if (s.phase !== 'dice') throw new Error('dice phase ended before the Tomato batch opened');
+    if (s.dieEvent && s.dieEvent.awaitingLock) { lockCollectionDie(s); continue; }
+    throw new Error('unexpected state while driving to the open Tomato batch');
+  }
+}
+
 // ---- setup -----------------------------------------------------------------
 
 test('setup: coins by draft stand, row sizes, trophy goal', () => {
@@ -79,7 +104,7 @@ test('setup: coins by draft stand, row sizes, trophy goal', () => {
   const s5 = freshGame(5);
   assert.equal(s5.trophyGoal, 3); // 4-5 players -> 3 trophies
   assert.equal(s5.draftRow.length, 11);
-  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, 144);
+  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, 139);
 });
 
 test('acquiring a performer fills the lowest empty slot with printed hearts', () => {
@@ -339,15 +364,18 @@ test('Maximillian may chain market buys but not draft after buying', () => {
   assert.ok(s.turn === null || s.turn.seat !== seat);
 });
 
-test('Madame Coeur raises heart capacity by 1 while on the board', () => {
+test('Madame Coeur: drafted/placed cards start at their printed maximum heart count', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
-  const perf = performer((c) => c.maxHearts === 2);
-  p.slots[0] = perf;
-  assert.equal(maxHearts(s, seat, perf), 2);
   p.slots[7] = TRAINERS.COEUR;
-  assert.equal(maxHearts(s, seat, perf), 3);
+  // Pick a performer whose printed max exceeds its normal starting fill, so
+  // Coeur's effect is visible. Capacity itself is unaffected by Coeur.
+  const perf = performer((c) => c.maxHearts > c.startingHearts);
+  assert.equal(maxHearts(s, seat, perf), card(perf).maxHearts);
+  s.draftRow = [perf, s.draftRow[1], s.draftRow[2]];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
+  assert.equal(s.hearts[perf], card(perf).maxHearts, 'placed at full printed hearts, not the usual starting fill');
 });
 
 test('Madame Barre unlocks every slot; otherwise slots are type-locked', () => {
@@ -402,8 +430,9 @@ test('The Vanishing Valentino clears the draft row once, consuming trainer and t
   applyAction(s, { type: 'valentino', seat });
   assert.equal(p.slots[7], null);
   for (const id of rowBefore) assert.ok(s.discard.includes(id));
-  // The draft ended (row empty); with empty boards the whole dice phase runs
-  // automatically and round 2 begins.
+  // The draft ended (row empty); with empty boards the dice phase runs
+  // through (pausing at each open die/tomato-batch window) and round 2 begins.
+  driveDicePhase(s);
   assert.equal(s.round, 2);
   assert.equal(p.valentinoAvailable, false);
 });
@@ -482,6 +511,9 @@ test('deterministic dice phase: collection matches, boosts, trophies, tomato hit
   const starsBefore = p.stars;
   const coinsBefore = p.coins;
   applyAction(s, { type: 'acquireDraft', seat, cardId: filler }); // filler is letter B / Coin: no heart prompts
+  // The dice phase pauses after each Collection Die (and after the Tomato
+  // batch) so a real driver can watch/react in real time; drive it through.
+  driveDicePhase(s);
 
   assert.equal(s.round, 2, 'a full round elapsed');
   assert.equal(p.stars - starsBefore, hCount * 2, `H rolled ${hCount}x -> ${hCount * 2} stars (boosted)`);
@@ -512,7 +544,7 @@ test('deterministic dice phase: collection matches, boosts, trophies, tomato hit
   assert.ok(seatWithStand(s, 1) != null);
 });
 
-test('re-roll cards: offered on a die roll, consumed on use', () => {
+test('Press Pass N is a proactive reserve resource that re-rolls the Nth Collection Die before it locks', () => {
   const s = freshGame(2, 555);
   const seat = currentSeat(s);
   const other = s.players.find((x) => x.seat !== seat).seat;
@@ -523,16 +555,29 @@ test('re-roll cards: offered on a die roll, consumed on use', () => {
   const filler = performer((c) => c.resource === 'Coin');
   s.draftRow = [filler, db.performers[9].id];
   applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
-  // Dice phase: first collection die is rolled and offered to the Press Pass holder.
-  const offer = s.pending.find((x) => x.kind === 'rerollOffer');
-  assert.ok(offer, 'expected a re-roll offer');
-  assert.equal(offer.seat, other);
-  applyAction(s, { type: 'resolvePending', seat: other, pendingId: offer.id, use: 'PressPass-1' });
-  assert.ok(s.discard.includes('PressPass-1'));
+
+  // Dice phase: the 1st Collection Die is rolled and sits open (awaiting
+  // lock) — no forced prompt, just a window in which the card is usable.
+  assert.equal(s.dieEvent.kind, 'collection');
+  assert.equal(s.dieEvent.position, 1);
+  assert.equal(s.dieEvent.awaitingLock, true);
+  assert.equal(s.pending.length, 0, 'no forced prompt — this is a proactive click, not a pending item');
+
+  // Wrong-position Press Pass cannot be used on this die.
+  s.players[other].reserve.push('PressPass-2');
+  assert.throws(() => applyAction(s, { type: 'usePressPass', seat: other, cardId: 'PressPass-2' }));
+
+  applyAction(s, { type: 'usePressPass', seat: other, cardId: 'PressPass-1' });
+  assert.ok(s.discard.includes('PressPass-1'), 'spent card is discarded');
   assert.ok(!s.players[other].reserve.includes('PressPass-1'));
+  assert.equal(s.dieEvent.rerollHistory.length, 1, 'Press Pass 1 grants exactly 1 re-roll');
+  assert.equal(s.dieEvent.awaitingLock, true, 'still open — using the card does not itself lock the die');
+
+  driveDicePhase(s);
+  assert.equal(s.round, 2, 'the round completed normally once locked');
 });
 
-test('re-roll cards grant their printed number of re-rolls (assumption #5)', () => {
+test('Press Pass N grants its printed number of re-rolls, all spent at once', () => {
   const s = freshGame(2, 555);
   const seat = currentSeat(s);
   const other = s.players.find((x) => x.seat !== seat).seat;
@@ -542,41 +587,60 @@ test('re-roll cards grant their printed number of re-rolls (assumption #5)', () 
   const filler = performer((c) => c.resource === 'Coin');
   s.draftRow = [filler, db.performers[9].id];
   applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
-  const offer = s.pending.find((x) => x.kind === 'rerollOffer');
-  applyAction(s, { type: 'resolvePending', seat: other, pendingId: offer.id, use: 'PressPass-3' });
-  // "Press Pass 3" grants 3 total rolls. Roll 1 already happened above
-  // (automatically, as part of playing the card); 2 more remain, each
-  // surfaced as a rerollAgain prompt while the player opts to continue.
-  let again = s.pending.find((x) => x.kind === 'rerollAgain');
-  assert.ok(again, 'expected a rerollAgain prompt after the first roll');
-  assert.equal(s.dieEvent.rerollAgain.rollsLeft, 2);
-  applyAction(s, { type: 'resolvePending', seat: other, pendingId: again.id, again: true }); // roll 2
-  again = s.pending.find((x) => x.kind === 'rerollAgain');
-  assert.ok(again, 'expected a second rerollAgain prompt');
-  assert.equal(s.dieEvent.rerollAgain.rollsLeft, 1);
-  applyAction(s, { type: 'resolvePending', seat: other, pendingId: again.id, again: true }); // roll 3 (last)
-  // All 3 rolls have now happened — no further rerollAgain prompt.
-  assert.ok(!s.pending.some((x) => x.kind === 'rerollAgain'));
-  assert.equal(s.dieEvent, null); // die event resolved once the last reroll's offers cleared
+
+  // "Press Pass 3" only matches the 3rd die of the round — drive past the
+  // first two (unreacted) before it becomes usable.
+  lockCollectionDie(s);
+  lockCollectionDie(s);
+  assert.equal(s.dieEvent.position, 3);
+  applyAction(s, { type: 'usePressPass', seat: other, cardId: 'PressPass-3' });
+  assert.equal(s.dieEvent.rerollHistory.length, 3, 'Press Pass 3 grants 3 re-rolls, all resolved immediately');
   assert.ok(s.discard.includes('PressPass-3'));
+
+  driveDicePhase(s);
+  assert.equal(s.round, 2);
 });
 
-test('Trophy ties: most round-coins among the tied wins it; still tied -> everyone shares it', () => {
+test('Mesmera the Veiled may re-roll the whole Tomato batch once, before it locks', () => {
+  const s = freshGame(2, 8);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.MESMERA;
+  const filler = performer((c) => c.resource === 'Coin');
+  s.draftRow = [filler, db.performers[9].id];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+
+  driveToTomatoOpen(s);
+  assert.equal(s.dice.tomatoRolled, true);
+  assert.equal(s.dice.tomatoLocked, false);
+  assert.equal(s.dice.mesmeraRerollUsed, false);
+
+  applyAction(s, { type: 'mesmeraRerollTomato', seat });
+  assert.equal(s.dice.mesmeraRerollUsed, true);
+  assert.throws(() => applyAction(s, { type: 'mesmeraRerollTomato', seat }), /already/i);
+
+  driveDicePhase(s);
+  assert.equal(s.round, 2);
+});
+
+test('Trophy ties: most TOTAL (career) coins among the tied wins it; still tied -> everyone shares it', () => {
   const s = freshGame(3);
   const [a, b, c] = s.players;
-  a.roundStars = 5; a.roundCoins = 2;
-  b.roundStars = 5; b.roundCoins = 4;
-  c.roundStars = 3; c.roundCoins = 9;
+  // Tie-break uses each player's total coin stash, not coins earned this
+  // round — the round-only figure is a red herring here.
+  a.roundStars = 5; a.coins = 2; a.roundCoins = 99;
+  b.roundStars = 5; b.coins = 4; b.roundCoins = 0;
+  c.roundStars = 3; c.coins = 9; c.roundCoins = 0;
   assignTrophy(s);
-  assert.equal(b.trophies, 1, 'most coins among the tied-on-stars leaders wins it');
+  assert.equal(b.trophies, 1, 'most TOTAL coins among the tied-on-stars leaders wins it');
   assert.equal(a.trophies, 0);
   assert.equal(c.trophies, 0, 'fewer stars than the leaders — most coins overall does not matter');
 
   const s2 = freshGame(3);
   const [x, y, z] = s2.players;
-  x.roundStars = 5; x.roundCoins = 3;
-  y.roundStars = 5; y.roundCoins = 3;
-  z.roundStars = 1; z.roundCoins = 50;
+  x.roundStars = 5; x.coins = 3;
+  y.roundStars = 5; y.coins = 3;
+  z.roundStars = 1; z.coins = 50;
   assignTrophy(s2);
   assert.equal(x.trophies, 1);
   assert.equal(y.trophies, 1, 'still tied on stars AND coins -> both take a trophy');
@@ -666,13 +730,13 @@ test('state.turnsCompleted increments once per finished turn (drives the server\
   assert.equal(s.turnsCompleted, 1);
 });
 
-test('a full 2-player round keeps every one of the 144 cards accounted for', () => {
+test('a full 2-player round keeps every one of the 139 cards accounted for', () => {
   const s = freshGame(2, 31337);
   // count every card location
   const total = (st) =>
     st.deck.length + st.discard.length + st.market.length + st.draftRow.length +
     st.players.reduce((a, p) => a + p.slots.filter(Boolean).length + p.reserve.length, 0);
-  assert.equal(total(s), 144);
+  assert.equal(total(s), 139);
 });
 
 console.log(`\nrules.test.js: ${passed} passing${process.exitCode ? ' (with failures)' : ''}`);

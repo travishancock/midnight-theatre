@@ -65,16 +65,42 @@ function resolvePrompt(state, seat, item) {
       return { ...base, slot: choosePlacementSlot(state, seat, item) };
     case 'heartAssign':
       return { ...base, assignments: chooseHeartAssignments(state, seat, item.data.amount) };
-    case 'rerollOffer':
-      return { ...base, use: chooseReroll(state, seat) };
-    case 'rerollAgain':
-      return { ...base, again: rerollAgainWantsAnother(state, seat) };
     case 'refill':
       return { ...base, assignments: chooseRefill(state, seat) };
     default:
       // Unknown prompt kind: decline/no-op resolution keeps the game moving.
       return { ...base };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Dice-phase proactive resources (not gated by a pending prompt — driven
+// directly by the server's/tests' dice-phase pacing loop, same pattern as a
+// human clicking the card whenever it's relevant).
+// ---------------------------------------------------------------------------
+
+// A Collection Die is open (rolled, not yet locked): does this seat hold the
+// one Press Pass that targets this specific die, and want to use it? Re-roll
+// only when the current letter gains us nothing and we have enough
+// performers on board that a new letter probably helps.
+export function botWantsPressPassReroll(state, seat) {
+  const ev = state.dieEvent;
+  if (!ev || ev.kind !== 'collection' || ev.source !== 'phase' || !ev.awaitingLock) return null;
+  const p = state.players[seat];
+  const cardId = p.reserve.find((id) => card(id).cardType === 'reroll' && card(id).position === ev.position);
+  if (!cardId) return null;
+  if (collectionGain(state, seat, ev.value) > 0) return null;
+  return boardLetterCount(state, seat) >= 3 ? cardId : null;
+}
+
+// The round's Tomato batch is rolled but not locked: does this seat control
+// Mesmera and want to re-roll the whole batch? Only if the current batch
+// threatens at least one of our own cards.
+export function botWantsMesmeraReroll(state, seat) {
+  const d = state.dice;
+  if (!d || d.stage !== 'tomato' || !d.tomatoRolled || d.tomatoLocked || d.mesmeraRerollUsed) return false;
+  if (!trainerActive(state, seat, TRAINERS.MESMERA)) return false;
+  return d.tomatoResults.some((n) => tomatoThreatens(state, seat, n));
 }
 
 // Prefer an empty allowed slot; otherwise bump the least valuable occupant.
@@ -126,26 +152,6 @@ function chooseHeartAssignments(state, seat, amount) {
   return out;
 }
 
-// Defensive re-roll logic. Returns the reserve card id to spend, or null to pass.
-function chooseReroll(state, seat) {
-  const ev = state.dieEvent;
-  if (!ev) return null;
-  const p = state.players[seat];
-  const want = ev.kind === 'collection' ? 'collection' : 'tomato';
-  const cardId = p.reserve.find((id) => card(id).cardType === 'reroll' && card(id).rerollTarget === want);
-  if (!cardId) return null;
-
-  if (ev.kind === 'tomato') {
-    if (ev.excludeSeat === seat) return null; // Tomasso: this die cannot hit us
-    return tomatoThreatens(state, seat, ev.value) ? cardId : null;
-  }
-  // Collection die: re-roll only when we gain nothing from the current letter
-  // and we have enough performers that a new letter probably helps.
-  if (collectionGain(state, seat, ev.value) > 0) return null;
-  const lettersOnBoard = boardLetterCount(state, seat);
-  return lettersOnBoard >= 3 ? cardId : null;
-}
-
 function tomatoThreatens(state, seat, value) {
   const p = state.players[seat];
   const id = p.slots[value - 1];
@@ -166,13 +172,6 @@ function collectionGain(state, seat, letter) {
 function boardLetterCount(state, seat) {
   const p = state.players[seat];
   return p.slots.slice(0, 5).filter((id) => id && card(id).cardType === 'performer').length;
-}
-
-function rerollAgainWantsAnother(state, seat) {
-  const ev = state.dieEvent;
-  if (!ev) return false;
-  if (ev.kind === 'tomato') return tomatoThreatens(state, seat, ev.value);
-  return collectionGain(state, seat, ev.value) === 0;
 }
 
 // Fill every fillable empty slot (mandatory). Performers: best first.

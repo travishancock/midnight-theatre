@@ -1,6 +1,6 @@
 // Full simulated games: AI bots in every seat, for 2-5 players across several
 // seeds. Asserts each game completes without throwing, reaches a valid win
-// state, and that every one of the 144 cards stays accounted for throughout.
+// state, and that every one of the 139 cards stays accounted for throughout.
 // Run with: node test/fullgame.test.js
 
 import assert from 'assert';
@@ -9,14 +9,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { initCards } from '../engine/cards.js';
-import { createGame, applyAction } from '../engine/engine.js';
-import { botAction, seatsNeedingInput } from '../engine/bot.js';
+import { createGame, applyAction, lockCollectionDie, lockTomatoRoll } from '../engine/engine.js';
+import { botAction, seatsNeedingInput, botWantsPressPassReroll, botWantsMesmeraReroll } from '../engine/bot.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'assets', 'card_database.json'), 'utf8'));
 initCards(db);
 
-const TOTAL_CARDS = 144;
+const TOTAL_CARDS = 139;
 
 function cardCount(s) {
   let n = s.deck.length + s.discard.length + s.market.length + s.draftRow.length;
@@ -27,6 +27,39 @@ function cardCount(s) {
     if (item.kind === 'placement' || item.kind === 'cardResourcePlacement') n += 1;
   }
   return n;
+}
+
+// The dice phase pauses at two points that are NOT `pending` prompts (so
+// seatsNeedingInput reports nothing owed): a rolled-but-unlocked Collection
+// Die (awaiting a possible Press Pass reaction) and a rolled-but-unlocked
+// Tomato batch (awaiting a possible Mesmera reaction). In production the
+// server paces these with real timers, after letting any bot decide its
+// reaction synchronously; this test drives the same two steps immediately.
+function driveDicePauseIfAny(s) {
+  if (s.dieEvent && s.dieEvent.awaitingLock) {
+    for (const p of s.players) {
+      if (!p.isBot) continue;
+      const cardId = botWantsPressPassReroll(s, p.seat);
+      if (cardId) {
+        applyAction(s, { type: 'usePressPass', seat: p.seat, cardId });
+        break; // at most one seat can hold the matching Press Pass
+      }
+    }
+    lockCollectionDie(s);
+    return true;
+  }
+  if (s.dice && s.dice.stage === 'tomato' && s.dice.tomatoRolled && !s.dice.tomatoLocked) {
+    for (const p of s.players) {
+      if (!p.isBot) continue;
+      if (botWantsMesmeraReroll(s, p.seat)) {
+        applyAction(s, { type: 'mesmeraRerollTomato', seat: p.seat });
+        break; // only one seat can hold the unique Mesmera trainer
+      }
+    }
+    lockTomatoRoll(s);
+    return true;
+  }
+  return false;
 }
 
 function playFullGame(players, seed) {
@@ -41,6 +74,12 @@ function playFullGame(players, seed) {
     if (++actions > MAX_ACTIONS) {
       throw new Error(`Game stalled after ${MAX_ACTIONS} actions (round ${s.round}, phase ${s.phase})`);
     }
+
+    if (driveDicePauseIfAny(s)) {
+      assert.equal(cardCount(s), TOTAL_CARDS, 'card conservation violated (dice-phase reaction window)');
+      continue;
+    }
+
     const needy = seatsNeedingInput(s);
     assert.ok(needy.length > 0, `engine settled with no one to act (phase ${s.phase}, round ${s.round})`);
     const seat = needy[0];

@@ -77,6 +77,7 @@ export function createGame({ players, seed }) {
       trophies: 0,
       roundStars: 0,
       roundCoins: 0,
+      roundHearts: 0,
       turns: 0, // turns completed this round
       stand: 0, // draft-order stand 1..n
       slots: [null, null, null, null, null, null, null, null],
@@ -157,24 +158,17 @@ export function trainerActive(state, seat, trainerId) {
   return id != null && id === trainerId;
 }
 
-function isOnBoard(state, seat, cardId) {
-  return state.players[seat].slots.includes(cardId);
-}
-
 // Max hearts a card can hold. This is its printed capacity — which is NOT
 // always the same as how many hearts it starts with. Props/Backdrops, for
 // instance, start at 2 (solid) or 1 (wildcard) filled hearts but can hold up
 // to 3 total (their card_database.json `maxHearts` field carries this;
 // falls back to `startingHearts` for card types where capacity and starting
 // fill are the same, e.g. Trainers always start full and Performers have no
-// separate printed max). +1 more if the card is on the board of a player
-// whose active Trainer is Madame Coeur.
+// separate printed max).
 export function maxHearts(state, seat, cardId) {
   const c = card(cardId);
   if (!SLOTTABLE.has(c.cardType)) return 0;
-  let cap = c.maxHearts ?? c.startingHearts ?? 0;
-  if (isOnBoard(state, seat, cardId) && trainerActive(state, seat, TRAINERS.COEUR)) cap += 1;
-  return cap;
+  return c.maxHearts ?? c.startingHearts ?? 0;
 }
 
 export function capacityLeft(state, seat, cardId) {
@@ -276,68 +270,20 @@ function rollDie(state, kind) {
     : randInt(state, 8) + 1;
 }
 
-function rerollCardType(kind) {
-  return kind === 'collection' ? 'collection' : 'tomato';
-}
-
-// Seats holding an applicable re-roll card for this die event.
-function rerollEligibleSeats(state, ev) {
-  const want = rerollCardType(ev.kind);
-  return seatOrderByStand(state).filter((seat) => {
-    if (ev.onlySeat != null && seat !== ev.onlySeat) return false; // Curio dice: owner only
-    return state.players[seat].reserve.some(
-      (id) => card(id).cardType === 'reroll' && card(id).rerollTarget === want
-    );
-  });
-}
-
-// Start a die event: roll, announce, then open re-roll reactions.
-// source: 'phase' (normal dice-phase die), 'tomasso', 'curio'.
-function startDieEvent(state, { kind, source, onlySeat = null, excludeSeat = null }) {
+// Start a die event: roll and announce it. `position` (1-5) identifies which
+// of the round's 5 Collection Dice this is, for Press Pass targeting.
+// source: 'phase' (normal dice-phase die), 'tomasso', 'curio'. Only
+// phase-sourced Collection Dice pause (awaitingLock) for a possible Press
+// Pass reaction — the caller (the server, paced for spectators; a test
+// driver, immediately) must call lockCollectionDie() to let it resolve.
+// Everything else resolves the instant advance() sees it, same as before.
+function startDieEvent(state, { kind, source, position = null, onlySeat = null, excludeSeat = null }) {
   const value = rollDie(state, kind);
-  state.dieEvent = { kind, source, onlySeat, excludeSeat, value, passed: [], rerollAgain: null };
+  const awaitingLock = source === 'phase' && kind === 'collection';
+  state.dieEvent = { kind, source, position, onlySeat, excludeSeat, value, awaitingLock, rerollHistory: null };
   const label = kind === 'collection' ? 'Collection Die' : 'Tomato Die';
-  log(state, `${label} rolled: ${value}${source !== 'phase' ? ` (${source === 'tomasso' ? 'Tomasso the Terrible' : 'Madame Curio'})` : ''}`);
-  queueRerollOffers(state);
-}
-
-// Offer the current die result to eligible re-roll-card holders, one at a
-// time in stand order. When everyone passes, the die resolves.
-function queueRerollOffers(state) {
-  const ev = state.dieEvent;
-  const remaining = rerollEligibleSeats(state, ev).filter((s) => !ev.passed.includes(s));
-  if (remaining.length === 0) {
-    resolveDieEvent(state);
-    return;
-  }
-  pushPending(state, 'rerollOffer', remaining[0], { kind: ev.kind, value: ev.value });
-}
-
-function applyRerollUse(state, seat, cardId) {
-  const ev = state.dieEvent;
-  const p = state.players[seat];
-  const idx = p.reserve.indexOf(cardId);
-  if (idx === -1) throw new Error('That re-roll card is not in your reserve.');
-  const c = card(cardId);
-  if (c.cardType !== 'reroll' || c.rerollTarget !== rerollCardType(ev.kind)) {
-    throw new Error('That card cannot re-roll this die.');
-  }
-  p.reserve.splice(idx, 1);
-  state.discard.push(cardId);
-  ev.value = rollDie(state, ev.kind);
-  ev.passed = []; // a new result: everyone may react again
-  log(state, `${p.name} plays ${c.name} — the die is re-rolled: ${ev.value}`);
-  // Each re-roll card grants its own printed number (1-5) of total rolls
-  // (one has already happened above, so `count - 1` remain). Mesmera the
-  // Veiled adds 3 more rolls on top of whatever the card itself grants.
-  let rollsLeft = Math.max(0, (c.count ?? 1) - 1);
-  if (trainerActive(state, seat, TRAINERS.MESMERA)) rollsLeft += 3;
-  if (rollsLeft > 0) {
-    ev.rerollAgain = { seat, rollsLeft };
-    pushPending(state, 'rerollAgain', seat, { kind: ev.kind });
-  } else {
-    queueRerollOffers(state);
-  }
+  const posLabel = position ? ` (die #${position} this round)` : '';
+  log(state, `${label} rolled: ${value}${posLabel}${source !== 'phase' ? ` (${source === 'tomasso' ? 'Tomasso the Terrible' : 'Madame Curio'})` : ''}`);
 }
 
 // Apply the final die result to the game.
@@ -352,11 +298,32 @@ function resolveDieEvent(state) {
     }
   } else {
     resolveTomatoDie(state, ev.value, ev.excludeSeat);
-    if (ev.source === 'phase') {
-      state.dice.tomatoResults.push(ev.value);
-      state.dice.tRolled++;
-    }
   }
+}
+
+// Let a paused phase-sourced Collection Die (see startDieEvent) actually
+// resolve. Called by a driver (the server, after a short paced reveal
+// window; a test, immediately) once any Press Pass reaction window has
+// closed. A no-op if there's nothing open to lock.
+export function lockCollectionDie(state) {
+  if (state.dieEvent && state.dieEvent.awaitingLock) {
+    state.dieEvent.awaitingLock = false;
+    state.version++;
+    advance(state);
+  }
+  return state;
+}
+
+// Let a paused Tomato-dice batch (see stepDice's 'tomato' case) actually
+// apply its hits, once any Mesmera reroll window has closed.
+export function lockTomatoRoll(state) {
+  const d = state.dice;
+  if (d && d.stage === 'tomato' && d.tomatoRolled && !d.tomatoLocked) {
+    d.tomatoLocked = true;
+    state.version++;
+    advance(state);
+  }
+  return state;
 }
 
 // ---------------------------------------------------------------------------
@@ -399,6 +366,7 @@ function resolveCollectionDie(state, letter, onlySeat = null) {
         gains.push(`${units} coin${units > 1 ? 's' : ''}`);
       } else {
         heartsEarned += units;
+        p.roundHearts += units;
         gains.push(`${units} heart${units > 1 ? 's' : ''}`);
       }
     }
@@ -489,9 +457,12 @@ function placeInSlot(state, seat, cardId, slot) {
     log(state, `${p.name}'s ${card(old).name} moves to reserve.`);
   }
   p.slots[slot] = cardId;
-  state.hearts[cardId] = card(cardId).startingHearts ?? 0;
+  // Madame Coeur: newly placed/drafted cards start at their printed maximum
+  // heart count instead of their normal starting-heart value.
+  const startFull = trainerActive(state, seat, TRAINERS.COEUR);
+  state.hearts[cardId] = startFull ? maxHearts(state, seat, cardId) : (card(cardId).startingHearts ?? 0);
   delete state.builtInSpent[cardId]; // a freshly-placed card gets a brand new hidden life
-  log(state, `${p.name} places ${card(cardId).name} in ${SLOT_NAMES[slot]}.`);
+  log(state, `${p.name} places ${card(cardId).name} in ${SLOT_NAMES[slot]}${startFull ? ' at full hearts (Madame Coeur)' : ''}.`);
 }
 
 // A card drawn straight from the deck (currently only via the "Card"
@@ -571,8 +542,10 @@ function startDicePhase(state) {
     stage: 'collection',
     rolled: 0,
     results: [],
-    tRolled: 0,
     tomatoResults: [],
+    tomatoRolled: false, // the round's whole Tomato batch has been rolled (values in tomatoResults)
+    tomatoLocked: false, // the batch is finalized — hits may now be applied
+    mesmeraRerollUsed: false,
     tomatoTotal: Math.min(state.round, MAX_TOMATO_DICE),
   };
   log(state, `— Dice phase, round ${state.round} —`);
@@ -587,7 +560,7 @@ function stepDice(state) {
         d.stage = 'trophy';
         return;
       }
-      startDieEvent(state, { kind: 'collection', source: 'phase' });
+      startDieEvent(state, { kind: 'collection', source: 'phase', position: d.rolled + 1 });
       return;
     }
     case 'trophy': {
@@ -601,12 +574,20 @@ function stepDice(state) {
       d.stage = 'tomato';
       return;
     }
+    // The round's whole Tomato batch rolls at once (not resolved yet), so
+    // Mesmera the Veiled's owner can choose to re-roll the entire batch one
+    // time before any hits are actually applied. advance() pauses here
+    // (tomatoRolled && !tomatoLocked) until a driver calls lockTomatoRoll().
     case 'tomato': {
-      if (d.tRolled >= d.tomatoTotal) {
-        d.stage = 'refill';
+      if (!d.tomatoRolled) {
+        d.tomatoResults = Array.from({ length: d.tomatoTotal }, () => rollDie(state, 'tomato'));
+        d.tomatoRolled = true;
+        log(state, `Tomato dice rolled: ${d.tomatoResults.join(', ')}.`);
         return;
       }
-      startDieEvent(state, { kind: 'tomato', source: 'phase' });
+      if (!d.tomatoLocked) return;
+      for (const n of d.tomatoResults) resolveTomatoDie(state, n);
+      d.stage = 'refill';
       return;
     }
     case 'refill': {
@@ -630,8 +611,9 @@ export function assignTrophy(state) {
   const maxStars = Math.max(...state.players.map((p) => p.roundStars));
   let cands = state.players.filter((p) => p.roundStars === maxStars);
   if (cands.length > 1) {
-    const maxCoins = Math.max(...cands.map((p) => p.roundCoins));
-    const byCoins = cands.filter((p) => p.roundCoins === maxCoins);
+    // Tie-break on TOTAL (career) coins, not just coins earned this round.
+    const maxCoins = Math.max(...cands.map((p) => p.coins));
+    const byCoins = cands.filter((p) => p.coins === maxCoins);
     cands = byCoins;
   }
   for (const w of cands) {
@@ -682,6 +664,7 @@ function startNextRound(state) {
   for (const p of state.players) {
     p.roundStars = 0;
     p.roundCoins = 0;
+    p.roundHearts = 0;
     p.turns = 0;
   }
   state.draftRow = draw(state, state.players.length * 2 + 1);
@@ -697,7 +680,10 @@ function advance(state) {
     if (state.phase === 'gameOver') return;
     if (state.pending.length > 0) return;
     if (state.dieEvent) {
-      // Defensive: a die event with no pending reactions resolves.
+      // A phase-sourced Collection Die pauses (awaiting a possible Press
+      // Pass reaction) until a driver calls lockCollectionDie(). Anything
+      // else (Tomasso/Curio's ad-hoc dice) resolves immediately, as before.
+      if (state.dieEvent.awaitingLock) return;
       resolveDieEvent(state);
       continue;
     }
@@ -710,6 +696,9 @@ function advance(state) {
       return; // waiting for the current player's turn action
     }
     if (state.phase === 'dice') {
+      // A rolled Tomato batch pauses (awaiting a possible Mesmera reroll)
+      // until a driver calls lockTomatoRoll().
+      if (state.dice.stage === 'tomato' && state.dice.tomatoRolled && !state.dice.tomatoLocked) return;
       stepDice(state);
       continue;
     }
@@ -891,6 +880,50 @@ export function applyAction(state, action) {
       }
       break;
     }
+    // ----- dice-phase proactive resources --------------------------------
+    // Spend a Press Pass, right now, while its specific numbered Collection
+    // Die is rolled but not yet locked in. Never a forced prompt — the card
+    // just becomes clickable in reserve while it's relevant. Immediately
+    // re-rolls that die the card's printed number (1-5) of times, keeping
+    // only the final result.
+    case 'usePressPass': {
+      const ev = state.dieEvent;
+      if (!ev || ev.kind !== 'collection' || ev.source !== 'phase' || !ev.awaitingLock) {
+        throw new Error('No Collection Die is open for a Press Pass right now.');
+      }
+      const p = state.players[seat];
+      const idx = p.reserve.indexOf(action.cardId);
+      if (idx === -1) throw new Error('That card is not in your reserve.');
+      const c = card(action.cardId);
+      if (c.cardType !== 'reroll' || c.position !== ev.position) {
+        throw new Error('That Press Pass cannot re-roll this die.');
+      }
+      p.reserve.splice(idx, 1);
+      state.discard.push(action.cardId);
+      const rolls = [];
+      for (let i = 0; i < c.count; i++) {
+        ev.value = rollDie(state, 'collection');
+        rolls.push(ev.value);
+      }
+      ev.rerollHistory = rolls;
+      log(state, `${p.name} spends ${c.name} — Die #${ev.position} re-rolled ${c.count} time${c.count > 1 ? 's' : ''}: ${rolls.join(' → ')}.`);
+      break;
+    }
+    // Mesmera the Veiled: once the round's whole Tomato batch is rolled but
+    // not yet locked in, her owner may choose to re-roll the entire batch
+    // one time. Proactive, once per round.
+    case 'mesmeraRerollTomato': {
+      const d = state.dice;
+      if (state.phase !== 'dice' || !d || d.stage !== 'tomato' || !d.tomatoRolled || d.tomatoLocked) {
+        throw new Error('There is no Tomato roll open to re-roll right now.');
+      }
+      if (!trainerActive(state, seat, TRAINERS.MESMERA)) throw new Error('Mesmera the Veiled is not your active Trainer.');
+      if (d.mesmeraRerollUsed) throw new Error('Mesmera has already been used this round.');
+      d.tomatoResults = Array.from({ length: d.tomatoTotal }, () => rollDie(state, 'tomato'));
+      d.mesmeraRerollUsed = true;
+      log(state, `${nameOf(state, seat)} invokes Mesmera the Veiled — all Tomato dice are re-rolled: ${d.tomatoResults.join(', ')}.`);
+      break;
+    }
     // ----- pending-prompt resolutions ------------------------------------
     case 'resolvePending': {
       const item = state.pending.find((x) => x.id === action.pendingId);
@@ -962,35 +995,6 @@ function resolvePendingItem(state, item, action) {
         log(state, `${p.name} forfeits ${item.data.amount - mustAssign} heart(s) — no room.`);
       }
       if (total > 0) log(state, `${p.name} assigns ${total} heart(s) (${item.data.reason}).`);
-      break;
-    }
-    case 'rerollOffer': {
-      if (!state.dieEvent) throw new Error('No die to re-roll.');
-      removePending(state, item.id);
-      if (action.use) {
-        applyRerollUse(state, seat, action.use);
-      } else {
-        state.dieEvent.passed.push(seat);
-        queueRerollOffers(state);
-      }
-      break;
-    }
-    case 'rerollAgain': {
-      const ev = state.dieEvent;
-      if (!ev || !ev.rerollAgain || ev.rerollAgain.seat !== seat) throw new Error('No extra re-roll available.');
-      removePending(state, item.id);
-      if (action.again && ev.rerollAgain.rollsLeft > 0) {
-        ev.value = rollDie(state, ev.kind);
-        ev.rerollAgain.rollsLeft--;
-        ev.passed = [];
-        log(state, `${p.name} re-rolls again: ${ev.value}`);
-        if (ev.rerollAgain.rollsLeft > 0) {
-          pushPending(state, 'rerollAgain', seat, { kind: ev.kind });
-          break;
-        }
-      }
-      ev.rerollAgain = null;
-      queueRerollOffers(state);
       break;
     }
     case 'refill': {

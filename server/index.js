@@ -16,8 +16,8 @@ import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
 
 import { initCards } from '../engine/cards.js';
-import { createGame, applyAction } from '../engine/engine.js';
-import { botAction, seatsNeedingInput } from '../engine/bot.js';
+import { createGame, applyAction, lockCollectionDie, lockTomatoRoll } from '../engine/engine.js';
+import { botAction, seatsNeedingInput, botWantsPressPassReroll, botWantsMesmeraReroll } from '../engine/bot.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -54,6 +54,7 @@ const rooms = new Map(); // code -> room
 const BOT_NAMES = ['Zoltar', 'Colombina', 'Ferrucio', 'Odette', 'Gaspard'];
 const BOT_STEP_MS = 200; // small stagger between a bot's own sub-decisions (e.g. resolving a prompt before its main action)
 const BOT_TURN_PAUSE_MS = 2000; // longer pause after a bot fully completes a turn, so players can follow along
+const DICE_REVEAL_MS = 2200; // how long a rolled die/tomato batch stays on screen (and reactable) before it locks
 const DISCONNECT_BOT_MS = 60_000; // absent players become bots so games don't stall
 
 function makeCode() {
@@ -70,6 +71,7 @@ function newRoom(hostSocket, hostName) {
     seats: [{ name: hostName, socketId: hostSocket.id, isBot: false, disconnectTimer: null }],
     game: null,
     botTimer: null,
+    diceTimer: null,
   };
   rooms.set(room.code, room);
   return room;
@@ -133,6 +135,73 @@ function runOneBotStep(room) {
   // next bot step so players have time to see what just happened.
   const justFinishedATurn = state.turnsCompleted > turnsBefore;
   scheduleBots(room, justFinishedATurn ? BOT_TURN_PAUSE_MS : BOT_STEP_MS);
+  scheduleDicePhase(room);
+}
+
+// ---- dice-phase driver -------------------------------------------------------
+//
+// The engine pauses mid-dice-phase at two points so the reveal can be watched
+// and reacted to in real time: a Collection Die sits rolled-but-unlocked
+// (state.dieEvent.awaitingLock) so Press Pass holders can react, and the
+// Tomato batch sits rolled-but-unlocked (state.dice.tomatoRolled &&
+// !state.dice.tomatoLocked) so Mesmera's holder can react. Neither pause is a
+// `pending` prompt — they're driven proactively, the same way a human would
+// just click the reactive card if they want it. This driver auto-resolves any
+// bot's reaction immediately, then waits DICE_REVEAL_MS (so everyone can see
+// the die/dice on screen) before locking and letting the engine continue.
+
+function scheduleDicePhase(room) {
+  if (room.diceTimer || !room.game || room.game.phase !== 'dice') return;
+  const state = room.game;
+
+  const ev = state.dieEvent;
+  if (ev && ev.awaitingLock) {
+    autoResolveBotDiceReactions(room);
+    room.diceTimer = setTimeout(() => {
+      room.diceTimer = null;
+      lockCollectionDie(state);
+      broadcast(room);
+      scheduleBots(room);
+      scheduleDicePhase(room);
+    }, DICE_REVEAL_MS);
+    return;
+  }
+
+  const d = state.dice;
+  if (d && d.stage === 'tomato' && d.tomatoRolled && !d.tomatoLocked) {
+    autoResolveBotDiceReactions(room);
+    room.diceTimer = setTimeout(() => {
+      room.diceTimer = null;
+      lockTomatoRoll(state);
+      broadcast(room);
+      scheduleBots(room);
+      scheduleDicePhase(room);
+    }, DICE_REVEAL_MS);
+    return;
+  }
+}
+
+function autoResolveBotDiceReactions(room) {
+  const state = room.game;
+  for (let seat = 0; seat < room.seats.length; seat++) {
+    if (!room.seats[seat] || !room.seats[seat].isBot) continue;
+    const pressCardId = botWantsPressPassReroll(state, seat);
+    if (pressCardId) {
+      try {
+        applyAction(state, { type: 'usePressPass', seat, cardId: pressCardId });
+      } catch (err) {
+        console.error(`[room ${room.code}] bot seat ${seat} illegal usePressPass`, err.message);
+      }
+      continue;
+    }
+    if (botWantsMesmeraReroll(state, seat)) {
+      try {
+        applyAction(state, { type: 'mesmeraRerollTomato', seat });
+      } catch (err) {
+        console.error(`[room ${room.code}] bot seat ${seat} illegal mesmeraRerollTomato`, err.message);
+      }
+    }
+  }
 }
 
 // ---- socket handlers ---------------------------------------------------------
@@ -213,6 +282,7 @@ io.on('connection', (socket) => {
     cb?.({ ok: true });
     broadcast(room);
     scheduleBots(room);
+    scheduleDicePhase(room);
   });
 
   socket.on('action', (action, cb) => {
@@ -229,6 +299,7 @@ io.on('connection', (socket) => {
     cb?.({ ok: true });
     broadcast(room);
     scheduleBots(room);
+    scheduleDicePhase(room);
   });
 
   socket.on('disconnect', () => {
@@ -265,6 +336,7 @@ io.on('connection', (socket) => {
         }
         broadcast(room);
         scheduleBots(room);
+        scheduleDicePhase(room);
       }
       // Clean up rooms where every human has gone.
       if (room.seats.every((s) => s.isBot || s.socketId == null)) rooms.delete(room.code);

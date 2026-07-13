@@ -103,6 +103,21 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
 .die.live { outline: 2px solid var(--gold); animation: pulse 1s infinite alternate; }
 @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.12); } }
 
+.dice-reaction {
+  display: flex; align-items: center; gap: 8px; margin-left: auto;
+  background: rgba(255, 215, 0, 0.08); border: 1px dashed var(--gold);
+  border-radius: 8px; padding: 4px 10px;
+}
+
+.earned {
+  width: 100%; border-collapse: collapse; margin: 6px 0 10px; font-size: 13px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+}
+.earned th, .earned td { padding: 6px 10px; text-align: center; border-bottom: 1px solid var(--line); }
+.earned th { color: var(--muted); font-weight: 600; }
+.earned tr:last-child td { border-bottom: none; }
+.earned tr.me td:first-child { color: var(--gold); font-weight: bold; }
+
 /* ---- table layout ---- */
 .table { display: flex; gap: 12px; align-items: flex-start; }
 .center-col { flex: 1; min-width: 0; }
