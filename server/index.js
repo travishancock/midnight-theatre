@@ -16,7 +16,7 @@ import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
 
 import { initCards } from '../engine/cards.js';
-import { createGame, applyAction, lockCollectionDie, lockTomatoRoll } from '../engine/engine.js';
+import { createGame, applyAction, lockCollectionDie, lockTomatoRoll, trainerActive, TRAINERS } from '../engine/engine.js';
 import { botAction, seatsNeedingInput, botWantsPressPassRerollNow, botWantsMesmeraReroll } from '../engine/bot.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -35,7 +35,14 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
 app.get('/api/cards', (req, res) => res.json(cardDb));
-app.use('/cards', express.static(path.join(ROOT, 'assets', 'cards'), { maxAge: '7d' }));
+// No long-lived cache here: card art filenames don't change when the art
+// itself is updated (no cache-busting hash in the client's imgUrl()), so a
+// long maxAge (this used to be 7d) meant browsers kept serving stale card
+// art for up to a week after a deploy that changed a card's image, with no
+// way for the user to see the fix short of a hard-refresh. etag stays on
+// (express.static's default) so unchanged images still get a cheap 304
+// instead of a full re-download — just always revalidated.
+app.use('/cards', express.static(path.join(ROOT, 'assets', 'cards'), { maxAge: 0 }));
 
 const clientDist = path.join(ROOT, 'client', 'dist');
 if (fs.existsSync(clientDist)) {
@@ -180,6 +187,13 @@ function scheduleDicePhase(room) {
   const d = state.dice;
   if (d && d.stage === 'tomato' && d.tomatoRolled && !d.tomatoLocked) {
     autoResolveBotDiceReactions(room);
+    // Same idea as the Press Pass pause above: if a connected human holds
+    // Mesmera the Veiled and hasn't decided yet this round, wait for their
+    // mesmeraRerollTomato or keepTomatoRoll action instead of auto-locking.
+    const mesmeraSeat = state.players.findIndex((p) => trainerActive(state, p.seat, TRAINERS.MESMERA));
+    const mSeatObj = mesmeraSeat !== -1 ? room.seats[mesmeraSeat] : null;
+    const humanIsDeciding = !d.mesmeraRerollUsed && mSeatObj && !mSeatObj.isBot && mSeatObj.socketId;
+    if (humanIsDeciding) return;
     room.diceTimer = setTimeout(() => {
       room.diceTimer = null;
       lockTomatoRoll(state);

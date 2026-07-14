@@ -672,6 +672,34 @@ test('Mesmera the Veiled may re-roll the whole Tomato batch once, before it lock
   assert.equal(s.round, 2);
 });
 
+test('keepTomatoRoll: Mesmera\'s holder can explicitly keep the open Tomato batch\'s results', () => {
+  const s = freshGame(2, 8);
+  const seat = currentSeat(s);
+  const other = s.players.find((x) => x.seat !== seat).seat;
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.MESMERA;
+  const filler = performer((c) => c.resource === 'Coin');
+  s.draftRow = [filler, db.performers[9].id];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+
+  driveToTomatoOpen(s);
+  assert.equal(s.dice.tomatoRolled, true);
+  assert.equal(s.dice.tomatoLocked, false);
+  const before = [...s.dice.tomatoResults];
+
+  // Only Mesmera's holder may confirm.
+  assert.throws(() => applyAction(s, { type: 'keepTomatoRoll', seat: other }));
+
+  applyAction(s, { type: 'keepTomatoRoll', seat });
+  assert.equal(s.dice.mesmeraRerollUsed, true, 'keeping the result spends the round\'s one Mesmera decision');
+  assert.deepEqual(s.dice.tomatoResults, before, 'results are unchanged by keeping them');
+  assert.throws(() => applyAction(s, { type: 'keepTomatoRoll', seat }), /already/i);
+  assert.throws(() => applyAction(s, { type: 'mesmeraRerollTomato', seat }), /already/i);
+
+  driveDicePhase(s);
+  assert.equal(s.round, 2);
+});
+
 test('Trophy ties: most TOTAL (career) coins among the tied wins it; still tied -> everyone shares it', () => {
   const s = freshGame(3);
   const [a, b, c] = s.players;

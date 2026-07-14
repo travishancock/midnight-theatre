@@ -961,6 +961,21 @@ export function applyAction(state, action) {
       log(state, `${nameOf(state, seat)} invokes Mesmera the Veiled — all Tomato dice are re-rolled: ${d.tomatoResults.join(', ')}.`);
       break;
     }
+    // Explicit "I'm done deciding" from Mesmera's holder: keep the Tomato
+    // batch's current results and let it lock immediately, instead of
+    // waiting out the server's reveal timer. Marks the same mesmeraRerollUsed
+    // flag as actually re-rolling — either way, the round's one decision is
+    // spent — so nothing else needs to change to make the pause stop.
+    case 'keepTomatoRoll': {
+      const d = state.dice;
+      if (state.phase !== 'dice' || !d || d.stage !== 'tomato' || !d.tomatoRolled || d.tomatoLocked) {
+        throw new Error('There is no Tomato roll open right now.');
+      }
+      if (!trainerActive(state, seat, TRAINERS.MESMERA)) throw new Error('Mesmera the Veiled is not your active Trainer.');
+      if (d.mesmeraRerollUsed) throw new Error('Mesmera has already been used this round.');
+      d.mesmeraRerollUsed = true;
+      break;
+    }
     // ----- pending-prompt resolutions ------------------------------------
     case 'resolvePending': {
       const item = state.pending.find((x) => x.id === action.pendingId);

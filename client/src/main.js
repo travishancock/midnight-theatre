@@ -323,6 +323,15 @@ function mesmeraReady(s, p) {
   return trainerIs(p, 'Mesmera-the-Veiled');
 }
 
+// Whoever holds Mesmera the Veiled also gets real (unhurried) time to decide
+// on the open Tomato batch — the server skips its usual reveal timer for
+// them (see server's scheduleDicePhase). Everyone else sees a waiting note.
+function mesmeraDecider(s) {
+  const d = s.dice;
+  if (!d || d.stage !== 'tomato' || !d.tomatoRolled || d.tomatoLocked || d.mesmeraRerollUsed) return null;
+  return s.players.find((pl) => trainerIs(pl, 'Mesmera-the-Veiled')) || null;
+}
+
 function diceTray(s, p) {
   const d = s.dice;
   const ev = s.dieEvent;
@@ -337,6 +346,7 @@ function diceTray(s, p) {
   const ppUses = pressPassUsesLeft(s, p);
   const mes = mesmeraReady(s, p);
   const decider = pressPassDecider(s);
+  const mDecider = mesmeraDecider(s);
   const reactionHtml = ppUses > 0
     ? `<div class="dice-reaction">
          <button id="usePressPassBtn" class="primary">Press Pass — re-roll Die #${ev.position} (${ppUses} left)</button>
@@ -345,7 +355,12 @@ function diceTray(s, p) {
     : decider && (!p || decider.seat !== p.seat)
     ? `<div class="dice-reaction"><span class="hint">Waiting for ${esc(decider.name)} to decide on Die #${ev.position} (Press Pass)…</span></div>`
     : mes
-    ? `<div class="dice-reaction"><button id="mesmeraBtn" class="primary">Mesmera: re-roll all Tomato dice</button></div>`
+    ? `<div class="dice-reaction">
+         <button id="mesmeraBtn" class="primary">Mesmera: re-roll all Tomato dice</button>
+         <button id="keepTomatoBtn">Keep this result</button>
+       </div>`
+    : mDecider && (!p || mDecider.seat !== p.seat)
+    ? `<div class="dice-reaction"><span class="hint">Waiting for ${esc(mDecider.name)} to decide (Mesmera the Veiled)…</span></div>`
     : d && d.stage === 'tomato' && d.tomatoRolled && !d.tomatoLocked
     ? `<div class="dice-reaction"><span class="hint">Tomato dice locking in…</span></div>`
     : '';
@@ -718,6 +733,7 @@ function wireGameEvents(s, p, pending) {
   document.getElementById('usePressPassBtn')?.addEventListener('click', () => send({ type: 'usePressPass' }));
   document.getElementById('lockPressPassBtn')?.addEventListener('click', () => send({ type: 'lockPressPassDie' }));
   document.getElementById('mesmeraBtn')?.addEventListener('click', () => send({ type: 'mesmeraRerollTomato' }));
+  document.getElementById('keepTomatoBtn')?.addEventListener('click', () => send({ type: 'keepTomatoRoll' }));
   document.getElementById('pressPassYes')?.addEventListener('click', () =>
     send({ type: 'resolvePending', pendingId: pending.id, use: true })
   );
