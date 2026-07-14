@@ -931,6 +931,21 @@ export function applyAction(state, action) {
       log(state, `${p.name} spends a Press Pass re-roll on Die #${ev.position}: ${ev.value} (${d.pressPass.usesLeft} re-roll${d.pressPass.usesLeft === 1 ? '' : 's'} left this round).`);
       break;
     }
+    // Explicit "I'm done deciding" from the round's active Press Pass holder:
+    // keep the die's current result and let it lock immediately, instead of
+    // waiting out the server's reveal timer. Only meaningful for a human —
+    // bots decide synchronously — but legal any time the die is open, even
+    // with 0 uses left, so the client's "keep this result" button always works.
+    case 'lockPressPassDie': {
+      const ev = state.dieEvent;
+      if (!ev || ev.kind !== 'collection' || ev.source !== 'phase' || !ev.awaitingLock) {
+        throw new Error('No Collection Die is open right now.');
+      }
+      const d = state.dice;
+      if (!d.pressPass || d.pressPass.seat !== seat) throw new Error('You have no active Press Pass this round.');
+      ev.awaitingLock = false; // applyAction's own advance() call (below) resolves it from here
+      break;
+    }
     // Mesmera the Veiled: once the round's whole Tomato batch is rolled but
     // not yet locked in, her owner may choose to re-roll the entire batch
     // one time. Proactive, once per round.

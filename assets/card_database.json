@@ -1111,7 +1111,7 @@
     {
       "id": "Madame-Coeur",
       "name": "Madame Coeur",
-      "ability": "Cards you draft/place start at their maximum heart count",
+      "ability": "Your acquired cards start with all hearts filled in",
       "startingHearts": 3,
       "image": "cards/Trainer Madame Coeur.webp"
     },
@@ -1167,7 +1167,7 @@
     {
       "id": "Mesmera-the-Veiled",
       "name": "Mesmera the Veiled",
-      "ability": "After the Tomato dice are rolled, you may re-roll all of them once",
+      "ability": "You may re-roll all tomato dice one time each round.",
       "startingHearts": 3,
       "image": "cards/Trainer Mesmera the Veiled.webp"
     },

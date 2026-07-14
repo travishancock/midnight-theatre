@@ -590,6 +590,34 @@ test('Press Pass: offered before the round\'s Collection Dice roll; accepting gr
   assert.equal(s.round, 2, 'the round completed normally once locked');
 });
 
+test('lockPressPassDie: the active Press Pass holder can explicitly keep the open die\'s result', () => {
+  const s = freshGame(2, 555);
+  const seat = currentSeat(s);
+  const other = s.players.find((x) => x.seat !== seat).seat;
+  s.players[other].reserve = ['PressPass-3'];
+  s.players[seat].reserve = [];
+  for (const p of s.players) p.slots = [null, null, null, null, null, null, null, null];
+  const filler = performer((c) => c.resource === 'Coin');
+  s.draftRow = [filler, db.performers[9].id];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+  const offer = s.pending.find((x) => x.kind === 'pressPassOffer');
+  applyAction(s, { type: 'resolvePending', seat: other, pendingId: offer.id, use: true });
+
+  // Only the active holder may confirm; nobody else, and not while nothing's open.
+  assert.throws(() => applyAction(s, { type: 'lockPressPassDie', seat }));
+
+  assert.ok(s.dieEvent.awaitingLock, 'die #1 is open, awaiting a decision');
+  applyAction(s, { type: 'lockPressPassDie', seat: other });
+  // Locking resolves die #1 immediately (advance() then rolls die #2, which
+  // opens its own fresh awaitingLock window — that's the normal dice-phase
+  // pause, not a sign #1 failed to lock).
+  assert.equal(s.dice.rolled, 1, 'die #1 resolved and was recorded');
+  assert.equal(s.dice.pressPass.usesLeft, 3, 'no re-roll was spent by keeping the result');
+
+  driveDicePhase(s);
+  assert.equal(s.round, 2, 'the round completed normally afterward');
+});
+
 test('Press Pass priority: the highest-numbered card is offered first; declining moves to the next', () => {
   const s = freshGame(2, 777);
   const seat = currentSeat(s);

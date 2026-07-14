@@ -52,7 +52,7 @@ npm start          # serves game + client together on http://localhost:3000
 npm test
 ```
 
-- `test/rules.test.js` — 32 unit-level engine checks (setup, market, every
+- `test/rules.test.js` — 34 unit-level engine checks (setup, market, every
   notable Trainer ability, favors, Press Pass/Mesmera re-rolls, rearranging,
   a deterministic dice phase, card conservation).
 - `test/fullgame.test.js` — 12 complete AI-only games (2–5 players × 3 seeds
@@ -131,7 +131,10 @@ the engine if any is wrong:
    that round. Card heart loss was also clarified: a card survives the hit
    that brings it to 0 hearts, then discards on the very next hit taken
    while already at 0 — not two more hits, as an earlier build mistakenly
-   implemented.
+   implemented. If a connected human holds the round's Press Pass pool with
+   re-rolls left, the server also skips its usual reveal timer on the open
+   Collection Die and waits for their explicit re-roll or "keep this result"
+   action instead, so they're never rushed by the clock.
 
 ## Project layout
 

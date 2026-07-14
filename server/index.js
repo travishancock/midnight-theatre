@@ -157,6 +157,16 @@ function scheduleDicePhase(room) {
   const ev = state.dieEvent;
   if (ev && ev.awaitingLock) {
     autoResolveBotDiceReactions(room);
+    // If a connected human holds this round's Press Pass pool and still has
+    // a re-roll left, give them real time to decide instead of auto-locking
+    // on a timer — they either spend a re-roll (usePressPass) or confirm
+    // they're keeping this result (lockPressPassDie). Either action goes
+    // through the normal 'action' handler, which calls scheduleDicePhase
+    // again afterward, so the reveal continues the moment they decide.
+    const pp = state.dice.pressPass;
+    const ppSeat = pp ? room.seats[pp.seat] : null;
+    const humanIsDeciding = pp && pp.usesLeft > 0 && ppSeat && !ppSeat.isBot && ppSeat.socketId;
+    if (humanIsDeciding) return;
     room.diceTimer = setTimeout(() => {
       room.diceTimer = null;
       lockCollectionDie(state);
