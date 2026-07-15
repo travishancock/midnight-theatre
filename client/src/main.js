@@ -16,7 +16,7 @@ let view = { lobby: null, state: null };
 
 // Transient UI state
 let ui = {
-  mode: null, // null | 'rearrange' | 'discardDraft' | 'auricC2H' | 'auricH2C' | 'placeSlot'
+  mode: null, // null | 'rearrange' | 'discardDraft' | 'placeSlot'
   rearrange: null, // { slots, reserve, picked: {zone, index} | null }
   heartPlan: {}, // cardId -> amount, for heartAssign prompt
   refillPlan: null, // [{slot, cardId}]
@@ -441,9 +441,6 @@ function turnBarHtml(s, p) {
   } else if (ui.mode === 'discardDraft') {
     buttons.push(`<span class="hint">Click a draft-row card to discard it (${esc(card(trainerId)?.name || '')})</span>`);
     buttons.push(`<button id="cancelMode">Cancel</button>`);
-  } else if (ui.mode === 'auricC2H' || ui.mode === 'auricH2C') {
-    buttons.push(`<span class="hint">${ui.mode === 'auricC2H' ? 'Click one of your cards to add the heart to' : 'Click one of your cards to take a heart from'}</span>`);
-    buttons.push(`<button id="cancelMode">Cancel</button>`);
   } else {
     if (!t.mainDone) {
       buttons.push(`<span class="yourturn">Your turn — click a draft card to take it, buy from the market, or:</span>`);
@@ -456,10 +453,6 @@ function turnBarHtml(s, p) {
       }
     }
     if (t.open) buttons.push(`<button id="endTurnBtn" class="primary">End turn (Maximillian)</button>`);
-  }
-  if (trainerId === 'Auric-the-Alchemist' && !ui.mode) {
-    buttons.push(`<button id="auricC2H" ${p.coins >= 1 ? '' : 'disabled'}>Auric: 🪙→❤</button>`);
-    buttons.push(`<button id="auricH2C">Auric: ❤→🪙</button>`);
   }
   return `<div class="turnbar">${buttons.join(' ')}</div>`;
 }
@@ -514,6 +507,19 @@ function promptHtml(s, p, item) {
             </div>`).join('')}
         </div>
         <button id="confirmHearts" class="primary" ${total === must ? '' : 'disabled'}>Confirm</button>`);
+    }
+    case 'auricGainChoice': {
+      const { coinsEarned, heartsEarned, reason } = item.data;
+      const parts = [];
+      if (coinsEarned > 0) parts.push(`<b>${coinsEarned}</b> coin${coinsEarned > 1 ? 's' : ''}`);
+      if (heartsEarned > 0) parts.push(`<b>${heartsEarned}</b> heart${heartsEarned > 1 ? 's' : ''}`);
+      return promptBox(`
+        <div>You've received ${parts.join(' and ')} <span class="hint">(${esc(reason)})</span>. Auric the Alchemist may transmute this on the way in — check any you'd like to convert:</div>
+        <div class="assignrow">
+          ${coinsEarned > 0 ? `<label><input type="checkbox" id="auricConvertCoins"/> Take the ${coinsEarned} coin${coinsEarned > 1 ? 's' : ''} as heart${coinsEarned > 1 ? 's' : ''} instead</label>` : ''}
+          ${heartsEarned > 0 ? `<label><input type="checkbox" id="auricConvertHearts"/> Take the ${heartsEarned} heart${heartsEarned > 1 ? 's' : ''} as coin${heartsEarned > 1 ? 's' : ''} instead</label>` : ''}
+        </div>
+        <button id="auricGainConfirm" class="primary">Confirm</button>`);
     }
     case 'refill': {
       const plan = ui.refillPlan ?? defaultRefillPlan(s, p);
@@ -681,10 +687,8 @@ function wireGameEvents(s, p, pending) {
   });
   document.getElementById('valentinoBtn')?.addEventListener('click', () => send({ type: 'valentino' }));
   document.getElementById('endTurnBtn')?.addEventListener('click', () => send({ type: 'endTurn' }));
-  document.getElementById('auricC2H')?.addEventListener('click', () => { ui.mode = 'auricC2H'; render(); });
-  document.getElementById('auricH2C')?.addEventListener('click', () => { ui.mode = 'auricH2C'; render(); });
 
-  // My mat: placement prompt, rearrange swaps, Auric targets.
+  // My mat: placement prompt, rearrange swaps.
   document.getElementById('mySlots')?.addEventListener('click', (e) => {
     const slotEl = e.target.closest('[data-slot]');
     if (!slotEl) return;
@@ -697,17 +701,12 @@ function wireGameEvents(s, p, pending) {
       return;
     }
     if (ui.mode === 'rearrange') return pickForSwap('slot', i);
-    if ((ui.mode === 'auricC2H' || ui.mode === 'auricH2C') && p.slots[i]) return auricTarget(p.slots[i]);
   });
   document.getElementById('myReserve')?.addEventListener('click', (e) => {
     const el = e.target.closest('[data-reserve]');
     if (!el) return;
     const i = +el.dataset.reserve;
     if (ui.mode === 'rearrange') return pickForSwap('reserve', i);
-    if (ui.mode === 'auricC2H' || ui.mode === 'auricH2C') {
-      const list = ui.rearrange ? ui.rearrange.reserve : p.reserve;
-      return auricTarget(list[i]);
-    }
     if (!ui.mode && i >= 0 && favorReadyNow(s, p, p.reserve[i])) {
       send({ type: 'useFavor', cardId: p.reserve[i] });
     }
@@ -743,6 +742,11 @@ function wireGameEvents(s, p, pending) {
   document.getElementById('cardResourceToReserve')?.addEventListener('click', () =>
     send({ type: 'resolvePending', pendingId: pending.id, toReserve: true })
   );
+  document.getElementById('auricGainConfirm')?.addEventListener('click', () => {
+    const convertCoinsToHearts = !!document.getElementById('auricConvertCoins')?.checked;
+    const convertHeartsToCoins = !!document.getElementById('auricConvertHearts')?.checked;
+    send({ type: 'resolvePending', pendingId: pending.id, convertCoinsToHearts, convertHeartsToCoins });
+  });
   app.querySelectorAll('[data-refill]').forEach((sel) =>
     sel.addEventListener('change', () => {
       ui.refillPlan[+sel.dataset.refill].cardId = sel.value;
@@ -788,13 +792,6 @@ function pickForSwap(zone, index) {
   // Compact the reserve (no holes).
   r.reserve = r.reserve.filter((x) => x != null);
   render();
-}
-
-function auricTarget(cardId) {
-  if (!cardId) return;
-  const dir = ui.mode === 'auricC2H' ? 'coinToHeart' : 'heartToCoin';
-  ui.mode = null;
-  send({ type: 'auricConvert', direction: dir, cardId });
 }
 
 // ---------------------------------------------------------------------------

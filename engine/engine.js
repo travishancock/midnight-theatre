@@ -324,8 +324,30 @@ export function lockTomatoRoll(state) {
 // Collection / Tomato resolution
 // ---------------------------------------------------------------------------
 
+// Does this player currently have at least one active Performer (one of
+// their 5 Performer slots) of every value of the given boostKind — all 4
+// Characteristics (Graceful/Powerful/Dramatic/Haunting) or all 4 Types
+// (Singer/Dancer/Acrobat/Illusionist)? Only relevant for the wildcard
+// "Any Characteristic"/"Any Type" Prop/Backdrop cards — see boostCount.
+export function hasFullSet(state, seat, boostKind) {
+  const seen = new Set();
+  const p = state.players[seat];
+  for (let i = 0; i < 5; i++) {
+    const id = p.slots[i];
+    if (!id) continue;
+    const c = card(id);
+    seen.add(boostKind === 'characteristic' ? c.characteristic : c.type);
+  }
+  return seen.size >= 4;
+}
+
 // +1 per equipped Backdrop/Prop whose boost list matches the performer
-// (assumption #1 in the design brief).
+// (assumption #1 in the design brief). The 2 wildcard cards per set (their
+// `boosts` list covers all 4 Characteristics or all 4 Types, rather than
+// just 1) only activate at all once the player has at least one active
+// Performer of every one of those 4 values — otherwise they're dormant and
+// grant no boost to anyone, even a performer that would otherwise match.
+// Single-match cards (a `boosts` list of length 1) have no such gate.
 function boostCount(state, seat, performer) {
   let n = 0;
   for (const slotIdx of [5, 6]) {
@@ -334,7 +356,9 @@ function boostCount(state, seat, performer) {
     const b = card(id);
     if (!b.boosts) continue;
     const key = b.boostKind === 'characteristic' ? performer.characteristic : performer.type;
-    if (b.boosts.includes(key)) n++;
+    if (!b.boosts.includes(key)) continue;
+    if (b.boosts.length >= 4 && !hasFullSet(state, seat, b.boostKind)) continue;
+    n++;
   }
   return n;
 }
@@ -343,6 +367,7 @@ function resolveCollectionDie(state, letter, onlySeat = null) {
   for (const p of state.players) {
     if (onlySeat != null && p.seat !== onlySeat) continue;
     let heartsEarned = 0;
+    let coinsEarned = 0;
     const gains = [];
     for (let i = 0; i < 5; i++) {
       const id = p.slots[i];
@@ -355,22 +380,47 @@ function resolveCollectionDie(state, letter, onlySeat = null) {
         p.roundStars += units;
         gains.push(`${units} star${units > 1 ? 's' : ''}`);
       } else if (c.resource === 'Coin') {
-        p.coins += units;
-        p.roundCoins += units;
+        coinsEarned += units;
         gains.push(`${units} coin${units > 1 ? 's' : ''}`);
       } else {
         heartsEarned += units;
-        p.roundHearts += units;
         gains.push(`${units} heart${units > 1 ? 's' : ''}`);
       }
     }
     if (gains.length) log(state, `${p.name} collects ${gains.join(', ')} for letter ${letter}.`);
-    if (heartsEarned > 0) {
-      if (totalCapacityLeft(state, p.seat) > 0) {
-        pushPending(state, 'heartAssign', p.seat, { amount: heartsEarned, reason: `Collection Die ${letter}` });
-      } else {
-        log(state, `${p.name} has no room for ${heartsEarned} earned heart(s) — they are forfeited.`);
-      }
+    grantCoinsAndHearts(state, p.seat, coinsEarned, heartsEarned, `Collection Die ${letter}`);
+  }
+}
+
+// Route a batch of Coin/Heart gains (from a Collection Die or an acquired
+// Coin/Heart resource card) to the player. If Auric the Alchemist is their
+// active Trainer, this is the one moment his ability applies (per the
+// owner's ruling: he may only choose to receive a coin as a heart, or a
+// heart as a coin, at the moment he actually receives one — not as a
+// free-standing swap of resources already banked) — offer a real choice
+// right now instead of crediting immediately. Everyone else, and anything
+// already decided, resolves exactly as before via creditCoinsAndHearts.
+function grantCoinsAndHearts(state, seat, coinsEarned, heartsEarned, reason) {
+  if (coinsEarned <= 0 && heartsEarned <= 0) return;
+  if (trainerActive(state, seat, TRAINERS.AURIC)) {
+    pushPending(state, 'auricGainChoice', seat, { coinsEarned, heartsEarned, reason });
+    return;
+  }
+  creditCoinsAndHearts(state, seat, coinsEarned, heartsEarned, reason);
+}
+
+function creditCoinsAndHearts(state, seat, coins, hearts, reason) {
+  const p = state.players[seat];
+  if (coins > 0) {
+    p.coins += coins;
+    p.roundCoins += coins;
+  }
+  if (hearts > 0) {
+    p.roundHearts += hearts;
+    if (totalCapacityLeft(state, seat) > 0) {
+      pushPending(state, 'heartAssign', seat, { amount: hearts, reason });
+    } else {
+      log(state, `${p.name} has no room for ${hearts} earned heart(s) — they are forfeited.`);
     }
   }
 }
@@ -393,9 +443,8 @@ function acquireCard(state, seat, cardId, chosenSlot) {
     case 'resource': {
       state.discard.push(cardId);
       if (c.resourceType === 'Coin') {
-        p.coins += c.amount;
-        p.roundCoins += c.amount;
         log(state, `${p.name} resolves ${c.name}: +${c.amount} coins.`);
+        grantCoinsAndHearts(state, seat, c.amount, 0, c.name);
       } else if (c.resourceType === 'Star') {
         p.stars += c.amount;
         p.roundStars += c.amount;
@@ -406,12 +455,8 @@ function acquireCard(state, seat, cardId, chosenSlot) {
         for (const id of drawn) intakeDrawnCard(state, seat, id);
       } else {
         // Hearts
-        if (totalCapacityLeft(state, seat) > 0) {
-          pushPending(state, 'heartAssign', seat, { amount: c.amount, reason: c.name });
-        } else {
-          log(state, `${p.name} resolves ${c.name} but has no room for hearts — forfeited.`);
-        }
         log(state, `${p.name} resolves ${c.name}.`);
+        grantCoinsAndHearts(state, seat, 0, c.amount, c.name);
       }
       return;
     }
@@ -885,29 +930,6 @@ export function applyAction(state, action) {
       state.turn.done = true;
       break;
     }
-    case 'auricConvert': {
-      // "At any time": legal whenever the game is live and Auric is active.
-      if (!trainerActive(state, seat, TRAINERS.AURIC)) throw new Error('Auric the Alchemist is not your active Trainer.');
-      const p = state.players[seat];
-      if (action.direction === 'coinToHeart') {
-        if (p.coins < 1) throw new Error('You have no coins to convert.');
-        if (!action.cardId || capacityLeft(state, seat, action.cardId) < 1) throw new Error('That card cannot take another heart.');
-        const owns = p.slots.includes(action.cardId) || p.reserve.includes(action.cardId);
-        if (!owns) throw new Error('That is not your card.');
-        p.coins -= 1;
-        state.hearts[action.cardId] = (state.hearts[action.cardId] || 0) + 1;
-        log(state, `${p.name} transmutes 1 coin into a heart on ${card(action.cardId).name} (Auric).`);
-      } else if (action.direction === 'heartToCoin') {
-        const owns = p.slots.includes(action.cardId) || p.reserve.includes(action.cardId);
-        if (!owns || (state.hearts[action.cardId] || 0) < 1) throw new Error('That card has no heart to convert.');
-        state.hearts[action.cardId] -= 1;
-        p.coins += 1;
-        log(state, `${p.name} transmutes a heart from ${card(action.cardId).name} into 1 coin (Auric).`);
-      } else {
-        throw new Error('Unknown conversion direction.');
-      }
-      break;
-    }
     // ----- dice-phase proactive resources --------------------------------
     // Spend one use from the round's active Press Pass pool (see the
     // 'pressPassOffer' pending resolution below) to re-roll whichever
@@ -1071,6 +1093,29 @@ function resolvePendingItem(state, item, action) {
         log(state, `${p.name} forfeits ${item.data.amount - mustAssign} heart(s) — no room.`);
       }
       if (total > 0) log(state, `${p.name} assigns ${total} heart(s) (${item.data.reason}).`);
+      break;
+    }
+    // Auric the Alchemist: offered the instant he actually receives a coin
+    // and/or a heart (from a Collection Die or an acquired Coin/Heart
+    // resource card — see grantCoinsAndHearts) — not a free-standing swap of
+    // resources already banked. He may convert some, all, or none of what
+    // he just received to the other type; anything kept (or converted in)
+    // as coins credits immediately, anything kept (or converted in) as
+    // hearts goes through the normal heartAssign placement prompt next.
+    case 'auricGainChoice': {
+      const { coinsEarned, heartsEarned, reason } = item.data;
+      const convertCoins = !!action.convertCoinsToHearts && coinsEarned > 0;
+      const convertHearts = !!action.convertHeartsToCoins && heartsEarned > 0;
+      removePending(state, item.id);
+      const finalCoins = (convertCoins ? 0 : coinsEarned) + (convertHearts ? heartsEarned : 0);
+      const finalHearts = (convertHearts ? 0 : heartsEarned) + (convertCoins ? coinsEarned : 0);
+      if (convertCoins || convertHearts) {
+        const bits = [];
+        if (convertCoins) bits.push(`${coinsEarned} coin${coinsEarned > 1 ? 's' : ''} into heart${coinsEarned > 1 ? 's' : ''}`);
+        if (convertHearts) bits.push(`${heartsEarned} heart${heartsEarned > 1 ? 's' : ''} into coin${heartsEarned > 1 ? 's' : ''}`);
+        log(state, `${p.name} transmutes ${bits.join(' and ')} (Auric).`);
+      }
+      creditCoinsAndHearts(state, seat, finalCoins, finalHearts, reason);
       break;
     }
     case 'refill': {

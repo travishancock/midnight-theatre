@@ -20,6 +20,7 @@ import {
   eligibleFavors,
   marketCost,
   trainerActive,
+  hasFullSet,
   TRAINERS,
 } from './engine.js';
 
@@ -69,10 +70,31 @@ function resolvePrompt(state, seat, item) {
       return { ...base, assignments: chooseRefill(state, seat) };
     case 'pressPassOffer':
       return { ...base, use: wantsPressPassOffer(state, seat) };
+    case 'auricGainChoice':
+      return { ...base, ...chooseAuricConversion(state, seat, item.data) };
     default:
       // Unknown prompt kind: decline/no-op resolution keeps the game moving.
       return { ...base };
   }
+}
+
+// Auric the Alchemist: offered the instant this seat actually receives a
+// coin and/or a heart (see engine.js's grantCoinsAndHearts). Convert coins
+// to hearts when the board is fragile and there's room for them; convert
+// hearts to coins when the board is healthy and this seat is behind on
+// coins — and always take earned hearts as coins instead of letting them go
+// to waste when there's no capacity for them at all.
+function chooseAuricConversion(state, seat, data) {
+  const p = state.players[seat];
+  const fragile = p.slots.filter((id) => id && (state.hearts[id] || 0) <= 1).length;
+  const room = totalCapacityLeft(state, seat) > 0;
+  const others = state.players.filter((x) => x.seat !== seat);
+  const maxCoins = Math.max(0, ...others.map((x) => x.coins));
+  const needsCoins = p.coins < maxCoins;
+
+  const convertHeartsToCoins = data.heartsEarned > 0 && (!room || (fragile === 0 && needsCoins));
+  const convertCoinsToHearts = data.coinsEarned > 0 && room && fragile >= 2;
+  return { convertCoinsToHearts, convertHeartsToCoins };
 }
 
 // Offered before the round's Collection Dice roll: accept whenever we have
@@ -346,6 +368,14 @@ function resourceNeedBonus(state, seat, resource) {
   return Math.min(1.0, fragile * 0.25);
 }
 
+// Wildcard "Any Characteristic"/"Any Type" Prop/Backdrop cards (boosts list
+// of length 4) are dormant until the player has one active Performer of
+// every value of that boostKind — see engine.js's hasFullSet/boostCount.
+// A single-match card (length 1) has no such gate.
+function boostActiveNow(state, seat, b) {
+  return b.boosts.length < 4 || hasFullSet(state, seat, b.boostKind);
+}
+
 function boostSynergy(state, seat, performer) {
   let s = 0;
   for (const slotIdx of [5, 6]) {
@@ -354,7 +384,11 @@ function boostSynergy(state, seat, performer) {
     const b = card(id);
     if (!b.boosts) continue;
     const key = b.boostKind === 'characteristic' ? performer.characteristic : performer.type;
-    if (b.boosts.includes(key)) s += 0.7;
+    if (!b.boosts.includes(key)) continue;
+    // A wildcard boost that isn't active yet is still worth something for
+    // drafting this performer (it may help complete the set), just less
+    // than a boost that's already live.
+    s += boostActiveNow(state, seat, b) ? 0.7 : 0.3;
   }
   return s;
 }
@@ -369,6 +403,12 @@ function matchingPerformers(state, seat, boostCard) {
     if (c.cardType !== 'performer') continue;
     const key = boostCard.boostKind === 'characteristic' ? c.characteristic : c.type;
     if (boostCard.boosts.includes(key)) n++;
+  }
+  // A wildcard card only actually helps once it's active; if the player
+  // isn't there yet, don't let its "matches everything" list overstate how
+  // many performers currently benefit.
+  if (boostCard.boosts.length >= 4 && !hasFullSet(state, seat, boostCard.boostKind)) {
+    return Math.min(n, 1);
   }
   return n;
 }

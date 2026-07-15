@@ -950,7 +950,7 @@
         "Haunting"
       ],
       "startingHearts": 1,
-      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "effect": "Only active once you have at least one active Performer of each Characteristic (Graceful, Powerful, Dramatic, and Haunting). While active: when a Collection Die roll causes a matching performer on your board to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Prop Any Characteristic.webp",
       "maxHearts": 3
     },
@@ -966,7 +966,7 @@
         "Haunting"
       ],
       "startingHearts": 1,
-      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "effect": "Only active once you have at least one active Performer of each Characteristic (Graceful, Powerful, Dramatic, and Haunting). While active: when a Collection Die roll causes a matching performer on your board to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Backdrop Any Characteristic.webp",
       "maxHearts": 3
     },
@@ -1086,7 +1086,7 @@
         "Illusionist"
       ],
       "startingHearts": 1,
-      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "effect": "Only active once you have at least one active Performer of each Type (Singer, Dancer, Acrobat, and Illusionist). While active: when a Collection Die roll causes a matching performer on your board to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Prop Any Type.webp",
       "maxHearts": 3
     },
@@ -1102,7 +1102,7 @@
         "Illusionist"
       ],
       "startingHearts": 1,
-      "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
+      "effect": "Only active once you have at least one active Performer of each Type (Singer, Dancer, Acrobat, and Illusionist). While active: when a Collection Die roll causes a matching performer on your board to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Backdrop Any Type.webp",
       "maxHearts": 3
     }
@@ -1139,7 +1139,7 @@
     {
       "id": "Auric-the-Alchemist",
       "name": "Auric the Alchemist",
-      "ability": "You may assign collected coins as hearts & vice versa",
+      "ability": "When you receive a coin or a heart, you may take it as the other instead.",
       "startingHearts": 3,
       "image": "cards/Trainer Auric the Alchemist.webp"
     },

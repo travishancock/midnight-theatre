@@ -22,6 +22,7 @@ import {
   lockCollectionDie,
   lockTomatoRoll,
   TRAINERS,
+  hasFullSet,
 } from '../engine/engine.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -388,21 +389,70 @@ test('Madame Barre unlocks every slot; otherwise slots are type-locked', () => {
   assert.deepEqual(allowedSlots(s, seat, perf), [0, 1, 2, 3, 4, 5, 6, 7]);
 });
 
-test('Auric converts coins to hearts and back', () => {
+test('Auric the Alchemist: converting received coins into hearts routes through heart placement', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.AURIC;
+  s.hearts[TRAINERS.AURIC] = 3; // fully healed, so it contributes no spare heart capacity below
   const perf = performer((c) => c.maxHearts === 3);
   p.slots[0] = perf;
   s.hearts[perf] = 1;
-  p.coins = 2;
-  applyAction(s, { type: 'auricConvert', seat, direction: 'coinToHeart', cardId: perf });
-  assert.equal(p.coins, 1);
-  assert.equal(s.hearts[perf], 2);
-  applyAction(s, { type: 'auricConvert', seat, direction: 'heartToCoin', cardId: perf });
-  assert.equal(p.coins, 2);
-  assert.equal(s.hearts[perf], 1);
+  p.coins = 0;
+
+  // Old free-standing "swap already-banked resources anytime" action is gone.
+  assert.throws(() => applyAction(s, { type: 'auricConvert', seat, direction: 'coinToHeart', cardId: perf }), /Unknown action type/);
+
+  // Receiving 3 coins: instead of an immediate credit, Auric is offered a
+  // real choice right at the moment of receiving them.
+  const coin3 = firstOfName(db.resources, 'Resource 3 Coins');
+  s.draftRow[0] = coin3;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: coin3 });
+  const offer = s.pending.find((x) => x.kind === 'auricGainChoice');
+  assert.ok(offer, 'expected an auricGainChoice prompt on receiving coins');
+  assert.equal(offer.data.coinsEarned, 3);
+  assert.equal(offer.data.heartsEarned, 0);
+
+  applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, convertCoinsToHearts: true });
+  assert.equal(p.coins, 0, 'coins unchanged — this batch was converted, not credited');
+  const hearts = s.pending.find((x) => x.kind === 'heartAssign');
+  assert.ok(hearts, 'converted coins route into the normal heart-assignment prompt');
+  assert.equal(hearts.data.amount, 3);
+  applyAction(s, { type: 'resolvePending', seat, pendingId: hearts.id, assignments: [{ cardId: perf, amount: 2 }] });
+  assert.equal(s.hearts[perf], 3, 'capped at the card\'s max (only 2 of the 3 fit)');
+});
+
+test('Auric the Alchemist: declining the offer credits a received coin normally', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.AURIC;
+  p.coins = 0;
+  const coin3 = firstOfName(db.resources, 'Resource 3 Coins');
+  s.draftRow[0] = coin3;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: coin3 });
+  const offer = s.pending.find((x) => x.kind === 'auricGainChoice');
+  assert.ok(offer);
+  applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, convertCoinsToHearts: false });
+  assert.equal(p.coins, 3, 'declined the conversion — credited as coins exactly as usual');
+});
+
+test('Auric the Alchemist: converting received hearts into coins skips heart placement entirely', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.AURIC;
+  p.coins = 0;
+  const heart3 = firstOfName(db.resources, 'Resource 3 Hearts');
+  s.draftRow[0] = heart3;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: heart3 });
+  const offer = s.pending.find((x) => x.kind === 'auricGainChoice');
+  assert.ok(offer);
+  assert.equal(offer.data.heartsEarned, 3);
+  assert.equal(offer.data.coinsEarned, 0);
+  applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, convertHeartsToCoins: true });
+  assert.equal(p.coins, 3, 'the earned hearts were converted straight to coins');
+  assert.ok(!s.pending.some((x) => x.kind === 'heartAssign'), 'no heart-placement prompt — they were converted, not kept as hearts');
 });
 
 test('Professor Stainglass: discard a draft card to draw one into reserve', () => {
@@ -542,6 +592,92 @@ test('deterministic dice phase: collection matches, boosts, trophies, tomato hit
   // New draft row was dealt for round 2.
   assert.equal(s.draftRow.length, 2 * 2 + 1);
   assert.ok(seatWithStand(s, 1) != null);
+});
+
+test('hasFullSet: wildcard Any-Characteristic/Any-Type Prop/Backdrop boosts require one of each active on board', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots = [null, null, null, null, null, null, null, null];
+  assert.equal(hasFullSet(s, seat, 'type'), false, 'empty board has no types at all');
+
+  const byType = {};
+  for (const t of ['Singer', 'Dancer', 'Acrobat', 'Illusionist']) byType[t] = db.performers.find((c) => c.type === t).id;
+  p.slots[0] = byType.Singer;
+  p.slots[1] = byType.Dancer;
+  p.slots[2] = byType.Acrobat;
+  assert.equal(hasFullSet(s, seat, 'type'), false, 'missing Illusionist');
+  p.slots[3] = byType.Illusionist;
+  assert.equal(hasFullSet(s, seat, 'type'), true, 'one of each Type now active on board');
+
+  // A reserve card doesn't count as "active" — only the 5 board slots do.
+  p.slots[3] = null;
+  p.reserve = [byType.Illusionist];
+  assert.equal(hasFullSet(s, seat, 'type'), false, 'a reserve card is not active on the board');
+
+  const byChar = {};
+  for (const c of ['Graceful', 'Powerful', 'Dramatic', 'Haunting']) byChar[c] = db.performers.find((x) => x.characteristic === c).id;
+  p.slots = [byChar.Graceful, byChar.Powerful, byChar.Dramatic, byChar.Haunting, null, null, null, null];
+  assert.equal(hasFullSet(s, seat, 'characteristic'), true, 'one of each Characteristic now active on board');
+});
+
+test('wildcard Prop/Backdrop boost is dormant until the player has one of each Type active, then applies', () => {
+  const rngNow = 999;
+  const otherTypes = (excludeType) => ['Singer', 'Dancer', 'Acrobat', 'Illusionist'].filter((t) => t !== excludeType);
+
+  // --- No full set: the wildcard Prop grants nothing, even though its
+  // boosts list nominally "matches" perfH's Type. ---
+  {
+    const s = freshGame(2, 1234);
+    const seat = currentSeat(s);
+    const other = s.players.find((x) => x.seat !== seat).seat;
+    const p = s.players[seat];
+    const perfH = performer((c) => c.letter === 'H' && c.resource === 'Star' && c.characteristic === 'Graceful');
+    p.slots = [perfH, null, null, null, null, null, 'Prop-Any-Type', null];
+    s.hearts[perfH] = 3;
+    s.hearts['Prop-Any-Type'] = 1;
+    s.players[other].slots = [null, null, null, null, null, null, null, null];
+    s.players[other].reserve = [];
+    p.reserve = [];
+    const filler = performer((c) => c.letter === 'B' && c.resource === 'Coin');
+    s.draftRow = [filler, db.performers[3].id];
+    s.rng = rngNow;
+    const seq = predict(rngNow, [20, 20, 20, 20, 20, 1000, 1000, 8]);
+    const hCount = seq.slice(0, 5).map((i) => COLLECTION_FACES[i]).filter((l) => l === 'H').length;
+    assert.ok(hCount > 0, 'test setup expects at least 1 H roll this round (seed 999)');
+    const starsBefore = p.stars;
+    applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+    driveDicePhase(s);
+    assert.equal(p.stars - starsBefore, hCount * 1, 'wildcard Prop inactive — no other Types on board yet');
+  }
+
+  // --- Full set of all 4 Types active: the same wildcard Prop now boosts. ---
+  {
+    const s = freshGame(2, 1234);
+    const seat = currentSeat(s);
+    const other = s.players.find((x) => x.seat !== seat).seat;
+    const p = s.players[seat];
+    const perfH = performer((c) => c.letter === 'H' && c.resource === 'Star' && c.characteristic === 'Graceful');
+    const perfType = card(perfH).type;
+    const fillers = otherTypes(perfType).map((t) => performer((c) => c.type === t && c.resource === 'Coin' && c.letter !== 'H'));
+    p.slots = [perfH, fillers[0], fillers[1], fillers[2], null, null, 'Prop-Any-Type', null];
+    s.hearts[perfH] = 3;
+    for (const f of fillers) s.hearts[f] = card(f).startingHearts ?? 0;
+    s.hearts['Prop-Any-Type'] = 1;
+    s.players[other].slots = [null, null, null, null, null, null, null, null];
+    s.players[other].reserve = [];
+    p.reserve = [];
+    const filler = performer((c) => c.letter === 'B' && c.resource === 'Coin' && !fillers.includes(c.id));
+    s.draftRow = [filler, db.performers[3].id];
+    s.rng = rngNow;
+    const seq = predict(rngNow, [20, 20, 20, 20, 20, 1000, 1000, 8]);
+    const hCount = seq.slice(0, 5).map((i) => COLLECTION_FACES[i]).filter((l) => l === 'H').length;
+    assert.ok(hasFullSet(s, seat, 'type'), 'test setup expects one of each Type active on board');
+    const starsBefore = p.stars;
+    applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+    driveDicePhase(s);
+    assert.equal(p.stars - starsBefore, hCount * 2, 'wildcard Prop active — +1 boosted unit per H roll');
+  }
 });
 
 test('Press Pass: offered before the round\'s Collection Dice roll; accepting grants a shared re-roll pool for any die', () => {
