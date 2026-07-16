@@ -845,7 +845,7 @@
       "startingHearts": 2,
       "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Prop Graceful.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Backdrop-Graceful",
@@ -858,7 +858,7 @@
       "startingHearts": 2,
       "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Backdrop Graceful.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Prop-Powerful",
@@ -871,7 +871,7 @@
       "startingHearts": 2,
       "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Prop Powerful.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Backdrop-Powerful",
@@ -884,7 +884,7 @@
       "startingHearts": 2,
       "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Backdrop Powerful.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Prop-Dramatic",
@@ -897,7 +897,7 @@
       "startingHearts": 2,
       "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Prop Dramatic.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Backdrop-Dramatic",
@@ -910,7 +910,7 @@
       "startingHearts": 2,
       "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Backdrop Dramatic.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Prop-Haunting",
@@ -923,7 +923,7 @@
       "startingHearts": 2,
       "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Prop Haunting.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Backdrop-Haunting",
@@ -936,7 +936,7 @@
       "startingHearts": 2,
       "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Backdrop Haunting.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Prop-Any-Characteristic",
@@ -949,10 +949,10 @@
         "Dramatic",
         "Haunting"
       ],
-      "startingHearts": 1,
+      "startingHearts": 2,
       "effect": "Only active once you have at least one active Performer of each Characteristic (Graceful, Powerful, Dramatic, and Haunting). While active: when a Collection Die roll causes a matching performer on your board to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Prop Any Characteristic.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Backdrop-Any-Characteristic",
@@ -965,10 +965,10 @@
         "Dramatic",
         "Haunting"
       ],
-      "startingHearts": 1,
+      "startingHearts": 2,
       "effect": "Only active once you have at least one active Performer of each Characteristic (Graceful, Powerful, Dramatic, and Haunting). While active: when a Collection Die roll causes a matching performer on your board to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Backdrop Any Characteristic.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Prop-Dancer",
@@ -981,7 +981,7 @@
       "startingHearts": 2,
       "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Prop Dancer.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Backdrop-Dancer",
@@ -994,7 +994,7 @@
       "startingHearts": 2,
       "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Backdrop Dancer.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Prop-Singer",
@@ -1007,7 +1007,7 @@
       "startingHearts": 2,
       "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Prop Singer.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Backdrop-Singer",
@@ -1020,7 +1020,7 @@
       "startingHearts": 2,
       "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Backdrop Singer.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Prop-Illusionist",
@@ -1033,7 +1033,7 @@
       "startingHearts": 2,
       "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Prop Illusionist.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Backdrop-Illusionist",
@@ -1046,7 +1046,7 @@
       "startingHearts": 2,
       "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Backdrop Illusionist.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Prop-Acrobat",
@@ -1059,7 +1059,7 @@
       "startingHearts": 2,
       "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Prop Acrobat.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Backdrop-Acrobat",
@@ -1072,7 +1072,7 @@
       "startingHearts": 2,
       "effect": "When a Collection Die roll causes a performer on your board whose characteristic or type matches this card's boost list to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Backdrop Acrobat.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Prop-Any-Type",
@@ -1085,10 +1085,10 @@
         "Acrobat",
         "Illusionist"
       ],
-      "startingHearts": 1,
+      "startingHearts": 2,
       "effect": "Only active once you have at least one active Performer of each Type (Singer, Dancer, Acrobat, and Illusionist). While active: when a Collection Die roll causes a matching performer on your board to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Prop Any Type.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Backdrop-Any-Type",
@@ -1101,10 +1101,10 @@
         "Acrobat",
         "Illusionist"
       ],
-      "startingHearts": 1,
+      "startingHearts": 2,
       "effect": "Only active once you have at least one active Performer of each Type (Singer, Dancer, Acrobat, and Illusionist). While active: when a Collection Die roll causes a matching performer on your board to collect, that performer collects +1 additional unit of their printed resource.",
       "image": "cards/Backdrop Any Type.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     }
   ],
   "trainers": [

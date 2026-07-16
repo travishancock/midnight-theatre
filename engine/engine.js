@@ -59,7 +59,7 @@ export const TRAINERS = {
   EZRA: 'Ezra-the-Sleight-of-Hand',
 };
 
-const MAX_TOMATO_DICE = 9; // the physical game has 9 tomato dice
+const MAX_TOMATO_DICE = 7; // rolled dice cap at 7 from round 7 onward (physical set has 9 tomato dice)
 
 // First trophy-holder to this many Trophies wins. Fewer players means fewer
 // people splitting the round-by-round trophies, so the threshold rises as
@@ -195,11 +195,11 @@ export function activeTrainers(state, seat) {
 
 // Max hearts a card can hold. This is its printed capacity — which is NOT
 // always the same as how many hearts it starts with. Props/Backdrops, for
-// instance, start at 2 (solid) or 1 (wildcard) filled hearts but can hold up
-// to 3 total (their card_database.json `maxHearts` field carries this;
-// falls back to `startingHearts` for card types where capacity and starting
-// fill are the same, e.g. Trainers always start full and Performers have no
-// separate printed max).
+// instance, start at 2 filled hearts and cap at 2 total — i.e. they start
+// full (their card_database.json `maxHearts` field carries this; falls back
+// to `startingHearts` for card types where capacity and starting fill are
+// the same, e.g. Trainers always start full and Performers have no separate
+// printed max).
 export function maxHearts(state, seat, cardId) {
   const c = card(cardId);
   if (!SLOTTABLE.has(c.cardType)) return 0;
