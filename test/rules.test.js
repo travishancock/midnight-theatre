@@ -72,14 +72,20 @@ function currentSeat(state) {
 }
 
 // The dice phase pauses mid-flight — a rolled-but-unlocked Collection Die
-// (pure reveal pacing) and a rolled-but-unlocked Tomato batch (awaiting a
-// possible Mesmera reaction) — so it can be watched and reacted to in real
-// time (the server paces these with real timers; tests just drive them
-// through immediately since they don't care about pacing).
+// (pure reveal pacing), a rolled-but-unlocked Tomato batch (awaiting a
+// possible Mesmera reaction), and a per-seat 'diceResultsReview' pending item
+// once both are fully resolved (awaiting a human "Continue" click, purely
+// for reveal pacing — see engine.js's stepDice 'review' stage) — so it can be
+// watched and reacted to in real time (the server paces these with real
+// timers/UI clicks; tests just drive them through immediately since they
+// don't care about pacing, unless a test wants to inspect the review prompt
+// itself, in which case it should stop before calling this).
 function driveDicePhase(s) {
   while (s.phase === 'dice') {
     if (s.dieEvent && s.dieEvent.awaitingLock) { lockCollectionDie(s); continue; }
     if (s.dice && s.dice.stage === 'tomato' && s.dice.tomatoRolled && !s.dice.tomatoLocked) { lockTomatoRoll(s); continue; }
+    const review = s.pending.find((x) => x.kind === 'diceResultsReview');
+    if (review) { applyAction(s, { type: 'resolvePending', seat: review.seat, pendingId: review.id }); continue; }
     break; // no more open reaction windows — nothing left to drive
   }
 }
@@ -100,12 +106,14 @@ test('setup: coins by draft stand, row sizes, trophy goal', () => {
   const s = freshGame(3);
   assert.equal(s.market.length, 4);
   assert.equal(s.draftRow.length, 3 * 2 + 1);
-  assert.equal(s.trophyGoal, 4); // 2-3 players -> 4 trophies
+  assert.equal(s.trophyGoal, 5); // 3 players -> 5 trophies
   for (const p of s.players) assert.equal(p.coins, (p.stand - 1) * 2);
   const s5 = freshGame(5);
-  assert.equal(s5.trophyGoal, 3); // 4-5 players -> 3 trophies
+  assert.equal(s5.trophyGoal, 3); // 5 players -> 3 trophies
   assert.equal(s5.draftRow.length, 11);
-  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, 151);
+  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, 150);
+  assert.equal(freshGame(2).trophyGoal, 6); // 2 players -> 6 trophies
+  assert.equal(freshGame(4).trophyGoal, 4); // 4 players -> 4 trophies
 });
 
 test('acquiring a performer fills the lowest empty slot with printed hearts', () => {
@@ -129,9 +137,42 @@ test('acquiring a 6th performer prompts a placement choice and bumps to reserve'
   applyAction(s, { type: 'acquireDraft', seat, cardId: extra });
   const pending = s.pending.find((x) => x.seat === seat && x.kind === 'placement');
   assert.ok(pending, 'expected a placement prompt');
+  assert.ok(pending.data.allowReserve, 'a full slot always offers the reserve alternative too');
   applyAction(s, { type: 'resolvePending', seat, pendingId: pending.id, slot: 2 });
   assert.equal(p.slots[2], extra);
   assert.ok(p.reserve.includes(five[2]), 'bumped performer goes to reserve');
+});
+
+test('acquiring a 6th performer can be sent to reserve instead of bumping anyone', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  const five = db.performers.slice(0, 5).map((c) => c.id);
+  p.slots = [...five, null, null, null];
+  const extra = db.performers[10].id;
+  s.draftRow = [extra, s.draftRow[1], s.draftRow[2]];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: extra });
+  const pending = s.pending.find((x) => x.seat === seat && x.kind === 'placement');
+  applyAction(s, { type: 'resolvePending', seat, pendingId: pending.id, toReserve: true });
+  assert.deepEqual(p.slots.slice(0, 5), five, 'no performer was bumped');
+  assert.ok(p.reserve.includes(extra), 'the new card went to reserve instead');
+});
+
+test('acquiring a Backdrop/Prop with its slot already full offers a bump-or-reserve choice', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[5] = 'Backdrop-Graceful';
+  s.hearts['Backdrop-Graceful'] = 2;
+  s.draftRow[0] = 'Backdrop-Powerful';
+  applyAction(s, { type: 'acquireDraft', seat, cardId: 'Backdrop-Powerful' });
+  const pending = s.pending.find((x) => x.kind === 'placement');
+  assert.ok(pending, 'expected a placement prompt — the Backdrop slot is already occupied');
+  assert.deepEqual(pending.data.allowedSlots, [5]);
+  assert.ok(pending.data.allowReserve);
+  applyAction(s, { type: 'resolvePending', seat, pendingId: pending.id, toReserve: true });
+  assert.equal(p.slots[5], 'Backdrop-Graceful', 'declining the bump leaves the old occupant in place');
+  assert.ok(p.reserve.includes('Backdrop-Powerful'));
 });
 
 test('market: costs 1-4, buying shifts down and refills the top slot', () => {
@@ -626,6 +667,43 @@ test('deterministic dice phase: collection matches, boosts, trophies, tomato hit
   assert.ok(seatWithStand(s, 1) != null);
 });
 
+test('after the Collection Dice and Tomato dice both roll, every seat gets a review pause before the round moves on', () => {
+  const s = freshGame(2, 1234);
+  const seat = currentSeat(s);
+  const other = s.players.find((p) => p.seat !== seat).seat;
+  s.players[seat].slots = [null, null, null, null, null, null, null, null];
+  s.players[other].slots = [null, null, null, null, null, null, null, null];
+  s.players[seat].reserve = [];
+  s.players[other].reserve = [];
+
+  const filler = performer(() => true);
+  s.draftRow = [filler, db.performers.find((c) => c.id !== filler).id];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+
+  // Drive everything except the new review pause: every Collection Die and
+  // the Tomato batch, but stop the instant a diceResultsReview shows up.
+  while (!s.pending.some((x) => x.kind === 'diceResultsReview')) {
+    if (s.dieEvent && s.dieEvent.awaitingLock) { lockCollectionDie(s); continue; }
+    if (s.dice && s.dice.stage === 'tomato' && s.dice.tomatoRolled && !s.dice.tomatoLocked) { lockTomatoRoll(s); continue; }
+    throw new Error('expected to reach the review pause');
+  }
+
+  assert.equal(s.phase, 'dice', 'the round has not moved on yet');
+  assert.equal(s.dice.results.length, 5, 'all 5 shared Collection Dice have rolled');
+  assert.ok(s.dice.tomatoLocked, 'the Tomato batch has already resolved');
+  const seatReview = s.pending.find((x) => x.kind === 'diceResultsReview' && x.seat === seat);
+  const otherReview = s.pending.find((x) => x.kind === 'diceResultsReview' && x.seat === other);
+  assert.ok(seatReview && otherReview, 'both seats get their own review prompt');
+
+  applyAction(s, { type: 'resolvePending', seat, pendingId: seatReview.id });
+  assert.equal(s.phase, 'dice', 'still waiting on the other seat to review');
+  assert.ok(s.pending.some((x) => x.kind === 'diceResultsReview' && x.seat === other));
+
+  applyAction(s, { type: 'resolvePending', seat: other, pendingId: otherReview.id });
+  driveDicePhase(s);
+  assert.equal(s.round, 2, 'the round advances once every seat has reviewed');
+});
+
 test('hasFullSet: wildcard Any-Characteristic/Any-Type Prop/Backdrop boosts require one of each active on board', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
@@ -1008,13 +1086,13 @@ test('state.turnsCompleted increments once per finished turn (drives the server\
   assert.equal(s.turnsCompleted, 1);
 });
 
-test('a full 2-player round keeps every one of the 151 cards accounted for', () => {
+test('a full 2-player round keeps every one of the 150 cards accounted for', () => {
   const s = freshGame(2, 31337);
   // count every card location
   const total = (st) =>
     st.deck.length + st.discard.length + st.market.length + st.draftRow.length +
     st.players.reduce((a, p) => a + p.slots.filter(Boolean).length + p.reserve.length, 0);
-  assert.equal(total(s), 151);
+  assert.equal(total(s), 150);
 });
 
 // ---- multi-trainer slots (5/6/7 all accept Trainer) ------------------------
@@ -1041,21 +1119,44 @@ test('trainerActive scans all 3 trainer slots — up to 3 Trainers active at onc
   assert.equal(s.turn.open, true, 'Maximillian active from slot 6 keeps the turn open after a buy');
 });
 
-test('acquiring a 4th Trainer (all 3 slots full) prompts a placement choice', () => {
+test('acquiring a Trainer places it straight into slot 8 (Trainer-only) when open', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
-  p.slots[5] = TRAINERS.BARNABY;
-  p.slots[6] = TRAINERS.MAXIMILLIAN;
+  s.draftRow[0] = TRAINERS.AURIC;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: TRAINERS.AURIC });
+  assert.equal(p.slots[7], TRAINERS.AURIC, 'slot 8 (index 7) is tried first, automatically');
+  assert.equal(s.pending.length, 0, 'no placement prompt needed when slot 8 is open');
+});
+
+test('acquiring a Trainer with slot 8 full offers a choice of slot 6 or 7, or reserve', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
   p.slots[7] = TRAINERS.COEUR;
   s.draftRow[0] = TRAINERS.AURIC;
   applyAction(s, { type: 'acquireDraft', seat, cardId: TRAINERS.AURIC });
   const pending = s.pending.find((x) => x.kind === 'placement');
-  assert.ok(pending, 'expected a placement prompt with all 3 Trainer slots full');
-  assert.deepEqual(pending.data.allowedSlots.sort(), [5, 6, 7]);
+  assert.ok(pending, 'expected a placement prompt with slot 8 full');
+  assert.deepEqual(pending.data.allowedSlots.sort(), [5, 6], 'choice is limited to slot 6 or 7 (indices 5/6) — slot 8 stays put');
+  assert.ok(pending.data.allowReserve, 'reserve is also offered');
   applyAction(s, { type: 'resolvePending', seat, pendingId: pending.id, slot: 5 });
   assert.equal(p.slots[5], TRAINERS.AURIC);
-  assert.ok(p.reserve.includes(TRAINERS.BARNABY));
+  assert.equal(p.slots[7], TRAINERS.COEUR, 'slot 8 is untouched');
+});
+
+test('acquiring a Trainer with slot 8 full can be sent to reserve instead of bumping', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.COEUR;
+  s.draftRow[0] = TRAINERS.AURIC;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: TRAINERS.AURIC });
+  const pending = s.pending.find((x) => x.kind === 'placement');
+  applyAction(s, { type: 'resolvePending', seat, pendingId: pending.id, toReserve: true });
+  assert.ok(p.reserve.includes(TRAINERS.AURIC));
+  assert.equal(p.slots[5], null);
+  assert.equal(p.slots[6], null);
 });
 
 // ---- new trainers -----------------------------------------------------------
@@ -1084,7 +1185,7 @@ test('Orsino the Headliner: A/B performers collect +2; Cassius: C/D collect +1',
   assert.equal(p.stars - before, aCount * 3, `expected 1 (base) + 2 (Orsino) = 3 stars per A roll (${aCount}x)`);
 });
 
-test('Delphine Silvertongue triples a spent Press Pass\'s private roll count', () => {
+test('Delphine Silvertongue doubles a spent Press Pass\'s private roll count', () => {
   const s = freshGame(2, 555);
   const seat = currentSeat(s);
   const other = s.players.find((x) => x.seat !== seat).seat;
@@ -1103,8 +1204,8 @@ test('Delphine Silvertongue triples a spent Press Pass\'s private roll count', (
   applyAction(s, { type: 'usePressPass', seat: other, cardId: 'PressPass-3-1' });
 
   const lastLog = s.log[s.log.length - 1];
-  assert.ok(/for 9 private Collection Die rolls/.test(lastLog), 'Press Pass 3 (count 3) tripled to 9 rolls by Delphine Silvertongue');
-  assert.ok(/tripled by Delphine Silvertongue/.test(lastLog));
+  assert.ok(/for 6 private Collection Die rolls/.test(lastLog), 'Press Pass 3 (count 3) doubled to 6 rolls by Delphine Silvertongue');
+  assert.ok(/doubled by Delphine Silvertongue/.test(lastLog));
   assert.ok(s.discard.includes('PressPass-3-1'));
 });
 
@@ -1117,28 +1218,6 @@ test('Higgins the Pawnbroker draws 1 coin whenever another player resets the mar
   s.players[seat].coins = 3;
   applyAction(s, { type: 'resetMarket', seat });
   assert.equal(s.players[other].coins, 1, 'Higgins holder draws 1 coin from someone else\'s market reset');
-});
-
-test('Amara the Reliquary: discard an acquired performer to move its hearts to another card', () => {
-  const s = freshGame(2);
-  const seat = currentSeat(s);
-  const p = s.players[seat];
-  p.slots[7] = TRAINERS.AMARA;
-  const target = db.performers.find((c) => c.maxHearts >= 2).id;
-  p.slots[1] = target;
-  s.hearts[target] = 0;
-  const perf = performer((c) => c.startingHearts >= 1 && c.id !== target);
-  s.draftRow[0] = perf;
-  applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
-  const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
-  assert.ok(offer.data.choices.includes('amara'));
-  applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, choice: 'amara' });
-  const move = s.pending.find((x) => x.kind === 'amaraHeartMove');
-  assert.ok(move, 'expected an amaraHeartMove prompt');
-  assert.equal(move.data.amount, card(perf).startingHearts);
-  applyAction(s, { type: 'resolvePending', seat, pendingId: move.id, targetCardId: target });
-  assert.equal(s.hearts[target], Math.min(card(perf).startingHearts, card(target).maxHearts));
-  assert.ok(s.discard.includes(perf));
 });
 
 test('Jonas Quickfinger: discard an acquired performer to collect its resource', () => {

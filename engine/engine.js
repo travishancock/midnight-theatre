@@ -51,7 +51,6 @@ export const TRAINERS = {
   CASSIUS: 'Cassius-the-Second-Act',
   DELPHINE: 'Delphine-Silvertongue',
   HIGGINS: 'Higgins-the-Pawnbroker',
-  AMARA: 'Amara-the-Reliquary',
   JONAS: 'Jonas-Quickfinger',
   WENDELL: 'Wendell-the-Propmaster',
   CELESTINE: 'Celestine-the-Stargazer',
@@ -61,6 +60,11 @@ export const TRAINERS = {
 };
 
 const MAX_TOMATO_DICE = 9; // the physical game has 9 tomato dice
+
+// First trophy-holder to this many Trophies wins. Fewer players means fewer
+// people splitting the round-by-round trophies, so the threshold rises as
+// the table shrinks (and drops as it grows) to keep game length comparable.
+const TROPHY_GOAL_BY_PLAYERS = { 2: 6, 3: 5, 4: 4, 5: 3 };
 
 // ---------------------------------------------------------------------------
 // Game creation
@@ -75,7 +79,7 @@ export function createGame({ players, seed }) {
     rng: (seed ?? makeSeed()) >>> 0,
     phase: 'draft', // 'draft' | 'dice' | 'gameOver'
     round: 1,
-    trophyGoal: players.length >= 4 ? 3 : 4,
+    trophyGoal: TROPHY_GOAL_BY_PLAYERS[players.length],
     deck: [],
     discard: [],
     market: [],
@@ -557,29 +561,49 @@ function acquireCard(state, seat, cardId, chosenSlot) {
       log(state, `${p.name} takes ${c.name} into reserve.`);
       return;
     default: {
-      // Slottable card: find its home slot.
+      // Slottable card: find its home slot. Whenever the natural home is
+      // already occupied, the player is offered a genuine choice — place it
+      // in the active lineup (bumping the current occupant to reserve) or
+      // send the newly acquired card to reserve instead — rather than either
+      // silently auto-bumping or forcing a bump with no reserve option.
       const allowed = allowedSlots(state, seat, cardId);
       let slot = chosenSlot;
       if (slot != null) {
         if (!allowed.includes(slot)) throw new Error('That card cannot go in that slot.');
       } else if (c.cardType === 'performer') {
-        // Default fill order: lowest empty Performer slot; if the row is full
-        // the player must choose which performer to bump to reserve.
+        // Default fill order: lowest empty Performer slot; if the row is
+        // full, offer the bump-or-reserve choice above.
         slot = [0, 1, 2, 3, 4].find((i) => p.slots[i] == null);
         if (slot == null) {
-          pushPending(state, 'placement', seat, { cardId, allowedSlots: allowed.filter((i) => i <= 4 || trainerActive(state, seat, TRAINERS.BARRE)) });
+          pushPending(state, 'placement', seat, {
+            cardId,
+            allowedSlots: allowed.filter((i) => i <= 4 || trainerActive(state, seat, TRAINERS.BARRE)),
+            allowReserve: true,
+          });
           return;
         }
       } else if (c.cardType === 'trainer') {
-        // 3 possible homes (slots 5/6/7) — take the first empty one; if all
-        // 3 are occupied, the player chooses which to bump.
-        slot = SLOTS_FOR_TYPE.trainer.find((i) => p.slots[i] == null);
-        if (slot == null) {
-          pushPending(state, 'placement', seat, { cardId, allowedSlots: allowed });
+        // Slot 8 (Trainer-only) is always tried first, automatically. If
+        // it's already taken, the player chooses between slot 6
+        // (Backdrop/Trainer) and slot 7 (Prop/Trainer) — bumping whichever
+        // they pick — or sending the newly acquired Trainer to reserve
+        // instead. (Madame Barre's passive still widens this to any of the
+        // 8 mat slots, same as every other acquisition while she's active.)
+        if (p.slots[7] == null) {
+          slot = 7;
+        } else {
+          const trainerAllowed = trainerActive(state, seat, TRAINERS.BARRE) ? allowed : [5, 6];
+          pushPending(state, 'placement', seat, { cardId, allowedSlots: trainerAllowed, allowReserve: true });
           return;
         }
       } else {
+        // Backdrop/Prop: a single natural slot. If it's already occupied,
+        // offer the same bump-or-reserve choice as everything else above.
         slot = SLOTS_FOR_TYPE[c.cardType][0];
+        if (p.slots[slot] != null) {
+          pushPending(state, 'placement', seat, { cardId, allowedSlots: allowed, allowReserve: true });
+          return;
+        }
       }
       placeAcquiredCard(state, seat, cardId, slot);
       return;
@@ -589,9 +613,9 @@ function acquireCard(state, seat, cardId, chosenSlot) {
 
 // Place a freshly-acquired (drafted/bought/drawn) card, then offer any
 // "acquired cards may be immediately discarded to..." Trainer reactions that
-// apply to it (Professor Stainglass / Amara the Reliquary / Jonas
-// Quickfinger / Wendell the Propmaster). Not used for refills or rearranges
-// — only genuine new acquisitions.
+// apply to it (Professor Stainglass / Jonas Quickfinger / Wendell the
+// Propmaster). Not used for refills or rearranges — only genuine new
+// acquisitions.
 function placeAcquiredCard(state, seat, cardId, slot) {
   placeInSlot(state, seat, cardId, slot);
   offerPostAcquireDiscard(state, seat, cardId);
@@ -601,11 +625,6 @@ function offerPostAcquireDiscard(state, seat, cardId) {
   const c = card(cardId);
   const choices = [];
   if (trainerActive(state, seat, TRAINERS.STAINGLASS)) choices.push('stainglass');
-  if (c.cardType === 'performer' && trainerActive(state, seat, TRAINERS.AMARA)) {
-    const avail = state.hearts[cardId] || 0;
-    const otherTargets = heartTargets(state, seat).filter((id) => id !== cardId);
-    if (avail > 0 && otherTargets.length > 0) choices.push('amara');
-  }
   if (c.cardType === 'performer' && trainerActive(state, seat, TRAINERS.JONAS)) choices.push('jonas');
   if ((c.cardType === 'backdrop' || c.cardType === 'prop') && trainerActive(state, seat, TRAINERS.WENDELL)) {
     const altAvailable = state.discard.some((id) => id !== cardId && card(id).cardType === c.cardType);
@@ -773,6 +792,7 @@ function startDicePhase(state) {
     tomatoLocked: false, // the batch is finalized — hits may now be applied
     mesmeraRerollUsed: false,
     tomatoTotal: Math.min(state.round, MAX_TOMATO_DICE),
+    reviewOpened: false, // true once this round's post-dice diceResultsReview prompts have been pushed — see stepDice's 'review' stage
   };
   log(state, `— Dice phase, round ${state.round} —`);
 }
@@ -813,6 +833,22 @@ function stepDice(state) {
       }
       if (!d.tomatoLocked) return;
       for (const n of d.tomatoResults) resolveTomatoDie(state, n);
+      d.stage = 'review';
+      return;
+    }
+    // Both the round's 5 shared Collection Dice and its Tomato batch have
+    // now fully resolved. Give every player a moment to actually look at the
+    // results (the earned-resources table, hearts lost, etc.) before the
+    // round moves on — a blocking 'diceResultsReview' pending item per seat,
+    // same pattern as the pre-roll Press Pass window. Bots close theirs
+    // immediately (see bot.js); a human clicks "Continue" in the client. The
+    // round doesn't advance to refill until every seat has closed theirs.
+    case 'review': {
+      if (!d.reviewOpened) {
+        d.reviewOpened = true;
+        for (const pl of state.players) pushPending(state, 'diceResultsReview', pl.seat, {});
+        return;
+      }
       d.stage = 'refill';
       return;
     }
@@ -1175,11 +1211,11 @@ export function applyAction(state, action) {
       if (c.cardType !== 'reroll') throw new Error('That is not a Press Pass card.');
       p.reserve.splice(idx, 1);
       state.discard.push(action.cardId);
-      // Delphine Silvertongue: this seat's Press Pass roll count is tripled.
+      // Delphine Silvertongue: this seat's Press Pass roll count is doubled.
       const delphine = trainerActive(state, seat, TRAINERS.DELPHINE);
-      const n = c.count * (delphine ? 3 : 1);
+      const n = c.count * (delphine ? 2 : 1);
       const results = Array.from({ length: n }, () => rollDie(state, 'collection'));
-      log(state, `${p.name} spends ${c.name} for ${n} private Collection Die roll${n > 1 ? 's' : ''}${delphine ? ' (tripled by Delphine Silvertongue)' : ''}: ${results.join(', ')}.`);
+      log(state, `${p.name} spends ${c.name} for ${n} private Collection Die roll${n > 1 ? 's' : ''}${delphine ? ' (doubled by Delphine Silvertongue)' : ''}: ${results.join(', ')}.`);
       for (const letter of results) resolveCollectionDie(state, letter, seat);
       break;
     }
@@ -1239,6 +1275,13 @@ function resolvePendingItem(state, item, action) {
   const p = state.players[seat];
   switch (item.kind) {
     case 'placement': {
+      if (action.toReserve) {
+        if (!item.data.allowReserve) throw new Error('That card must be placed, not reserved.');
+        removePending(state, item.id);
+        p.reserve.push(item.data.cardId);
+        log(state, `${p.name} sends ${card(item.data.cardId).name} to reserve instead of placing it.`);
+        break;
+      }
       const slot = action.slot;
       if (!item.data.allowedSlots.includes(slot)) throw new Error('Invalid slot for that card.');
       removePending(state, item.id);
@@ -1259,10 +1302,10 @@ function resolvePendingItem(state, item, action) {
       placeAcquiredCard(state, seat, it.cardId, slot);
       break;
     }
-    // Professor Stainglass / Amara the Reliquary / Jonas Quickfinger / Wendell
-    // the Propmaster: right after acquiring a matching card, its owner may
-    // immediately discard it for that Trainer's stated effect instead of
-    // keeping it. See offerPostAcquireDiscard.
+    // Professor Stainglass / Jonas Quickfinger / Wendell the Propmaster:
+    // right after acquiring a matching card, its owner may immediately
+    // discard it for that Trainer's stated effect instead of keeping it. See
+    // offerPostAcquireDiscard.
     case 'postAcquireDiscard': {
       const choice = action.choice;
       if (!item.data.choices.includes(choice) && choice !== 'keep') throw new Error('Invalid choice.');
@@ -1279,11 +1322,6 @@ function resolvePendingItem(state, item, action) {
         discardOwnedCard(state, seat, cardId);
         log(state, `${p.name} discards ${cardName} (Jonas Quickfinger) to collect its resource.`);
         collectResourceUnit(state, seat, c, 'Jonas Quickfinger');
-      } else if (choice === 'amara') {
-        const amount = state.hearts[cardId] || 0;
-        discardOwnedCard(state, seat, cardId);
-        log(state, `${p.name} discards ${cardName} (Amara the Reliquary) — ${amount} heart(s) to place on another card.`);
-        pushPending(state, 'amaraHeartMove', seat, { amount });
       } else if (choice === 'wendell') {
         const slot = p.slots.indexOf(cardId);
         const cType = card(cardId).cardType;
@@ -1291,22 +1329,6 @@ function resolvePendingItem(state, item, action) {
         const options = state.discard.filter((id) => card(id).cardType === cType);
         log(state, `${p.name} discards ${cardName} (Wendell the Propmaster) to take a different one from the discard pile.`);
         pushPending(state, 'wendellSwap', seat, { slot, cardType: cType, options });
-      }
-      break;
-    }
-    case 'amaraHeartMove': {
-      const targetCardId = action.targetCardId;
-      const owns = p.slots.includes(targetCardId) || p.reserve.includes(targetCardId);
-      if (!owns) throw new Error('You can only move hearts onto your own cards.');
-      const capNow = capacityLeft(state, seat, targetCardId);
-      removePending(state, item.id);
-      const amt = Math.min(item.data.amount, capNow);
-      if (amt > 0) {
-        state.hearts[targetCardId] = (state.hearts[targetCardId] || 0) + amt;
-        log(state, `${p.name} moves ${amt} heart(s) onto ${card(targetCardId).name} (Amara the Reliquary).`);
-      }
-      if (amt < item.data.amount) {
-        log(state, `${p.name} forfeits ${item.data.amount - amt} heart(s) — no room.`);
       }
       break;
     }
@@ -1376,6 +1398,12 @@ function resolvePendingItem(state, item, action) {
     // Collection Dice start rolling (advance()'s pressPassWindowActive
     // branch).
     case 'pressPassWindow': {
+      removePending(state, item.id);
+      break;
+    }
+    // Post-dice-roll review: this seat has looked over the round's results
+    // and is ready to move on — see stepDice's 'review' stage.
+    case 'diceResultsReview': {
       removePending(state, item.id);
       break;
     }

@@ -1195,7 +1195,7 @@
     {
       "id": "Delphine-Silvertongue",
       "name": "Delphine Silvertongue",
-      "ability": "Your press pass roll amounts are tripled",
+      "ability": "Your press pass roll amounts are doubled",
       "startingHearts": 3,
       "image": "cards/Trainer Delphine Silvertongue.webp"
     },
@@ -1205,13 +1205,6 @@
       "ability": "Draw 1 coin each time another player resets the market",
       "startingHearts": 2,
       "image": "cards/Trainer Higgins the Pawnbroker.webp"
-    },
-    {
-      "id": "Amara-the-Reliquary",
-      "name": "Amara the Reliquary",
-      "ability": "Acquired performers may be immediately discarded to place their filled hearts on another card",
-      "startingHearts": 3,
-      "image": "cards/Trainer Amara the Reliquary.webp"
     },
     {
       "id": "Jonas-Quickfinger",

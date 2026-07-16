@@ -481,7 +481,9 @@ function promptHtml(s, p, item) {
         <button id="pressPassContinue" class="primary">${myPasses.length > 0 ? "I'm done — roll the dice" : 'Continue — roll the dice'}</button>`);
     }
     case 'placement': {
-      return promptBox(`Place <b>${esc(card(item.data.cardId).name)}</b> — click a highlighted slot on your mat below. The current occupant (if any) moves to your reserve.`);
+      return promptBox(`
+        <div>Place <b>${esc(card(item.data.cardId).name)}</b> — click a highlighted slot on your mat below (the current occupant, if any, moves to your reserve)${item.data.allowReserve ? ', or send it to reserve instead' : ''}.</div>
+        ${item.data.allowReserve ? `<button id="placementToReserve">Send to reserve instead</button>` : ''}`);
     }
     case 'cardResourcePlacement': {
       return promptBox(`
@@ -524,7 +526,6 @@ function promptHtml(s, p, item) {
     case 'postAcquireDiscard': {
       const labels = {
         stainglass: 'Discard it (Professor Stainglass) — draw 1 card',
-        amara: 'Discard it (Amara the Reliquary) — move its hearts to another card',
         jonas: 'Discard it (Jonas Quickfinger) — collect its resource',
         wendell: 'Discard it (Wendell the Propmaster) — take a different one from the discard pile',
       };
@@ -535,20 +536,17 @@ function promptHtml(s, p, item) {
         </div>
         <button id="postAcquireKeep" class="primary">Keep it</button>`);
     }
-    case 'amaraHeartMove': {
-      const targets = [...p.slots.filter(Boolean), ...p.reserve].filter((id) => capLeft(p, id) > 0);
-      return promptBox(`
-        <div>Amara the Reliquary: place ${item.data.amount} heart(s) on another card.</div>
-        <div class="assignrow">
-          ${targets.map((id) => `<div class="pickable" data-amaratarget="${esc(id)}">${cardHtml(id, { size: 'sm', hearts: s.hearts[id] || 0 })}</div>`).join('')}
-        </div>`);
-    }
     case 'wendellSwap': {
       return promptBox(`
         <div>Wendell the Propmaster: take a different one from the discard pile.</div>
         <div class="assignrow">
           ${item.data.options.map((id) => `<div class="pickable" data-wendelloption="${esc(id)}">${cardHtml(id, { size: 'sm' })}</div>`).join('')}
         </div>`);
+    }
+    case 'diceResultsReview': {
+      return promptBox(`
+        <div>This round's Collection Dice and Tomato dice have both finished rolling — take a look at the results above, then continue when you're ready.</div>
+        <button id="diceReviewContinue" class="primary">Continue</button>`);
     }
     case 'refill': {
       const plan = ui.refillPlan ?? defaultRefillPlan(s, p);
@@ -812,14 +810,17 @@ function wireGameEvents(s, p, pending) {
   document.getElementById('cardResourceToReserve')?.addEventListener('click', () =>
     send({ type: 'resolvePending', pendingId: pending.id, toReserve: true })
   );
+  document.getElementById('placementToReserve')?.addEventListener('click', () =>
+    send({ type: 'resolvePending', pendingId: pending.id, toReserve: true })
+  );
+  document.getElementById('diceReviewContinue')?.addEventListener('click', () =>
+    send({ type: 'resolvePending', pendingId: pending.id })
+  );
   document.getElementById('postAcquireKeep')?.addEventListener('click', () =>
     send({ type: 'resolvePending', pendingId: pending.id, choice: 'keep' })
   );
   app.querySelectorAll('[data-postacquire]').forEach((b) =>
     b.addEventListener('click', () => send({ type: 'resolvePending', pendingId: pending.id, choice: b.dataset.postacquire }))
-  );
-  app.querySelectorAll('[data-amaratarget]').forEach((el) =>
-    el.addEventListener('click', () => send({ type: 'resolvePending', pendingId: pending.id, targetCardId: el.dataset.amaratarget }))
   );
   app.querySelectorAll('[data-wendelloption]').forEach((el) =>
     el.addEventListener('click', () => send({ type: 'resolvePending', pendingId: pending.id, cardId: el.dataset.wendelloption }))
