@@ -583,16 +583,15 @@ function acquireCard(state, seat, cardId, chosenSlot) {
           return;
         }
       } else if (c.cardType === 'trainer') {
-        // Slot 8 (Trainer-only) is always tried first, automatically. If
-        // it's already taken, the player chooses between slot 6
-        // (Backdrop/Trainer) and slot 7 (Prop/Trainer) — bumping whichever
-        // they pick — or sending the newly acquired Trainer to reserve
+        // Slot 8 (Trainer-only) is always tried first, automatically. Once
+        // it's taken, the player chooses which of all 3 Trainer slots (6, 7,
+        // or 8) to bump — or sends the newly acquired Trainer to reserve
         // instead. (Madame Barre's passive still widens this to any of the
         // 8 mat slots, same as every other acquisition while she's active.)
         if (p.slots[7] == null) {
           slot = 7;
         } else {
-          const trainerAllowed = trainerActive(state, seat, TRAINERS.BARRE) ? allowed : [5, 6];
+          const trainerAllowed = trainerActive(state, seat, TRAINERS.BARRE) ? allowed : [5, 6, 7];
           pushPending(state, 'placement', seat, { cardId, allowedSlots: trainerAllowed, allowReserve: true });
           return;
         }

@@ -638,7 +638,7 @@ function myMatHtml(s, p, pending) {
   return `<section class="mymat">
     <div class="mat-head">
       <h3>${esc(p.name)} <span class="hint">(you) · stand ${p.stand}</span></h3>
-      <div class="tokens">🪙 ${p.coins} &nbsp; ⭐ ${p.roundStars} <span class="hint">this round (${p.stars} total)</span> &nbsp; 🏆 ${p.trophies}/${s.trophyGoal}</div>
+      <div class="tokens">🪙 ${p.coins} &nbsp; ⭐ ${p.roundStars} <span class="hint">this round</span> &nbsp; 🏆 ${p.trophies}/${s.trophyGoal}</div>
     </div>
     <div class="slots" id="mySlots">
       ${slots.map((id, i) => {
@@ -678,7 +678,7 @@ function opponentHtml(s, p) {
   return `<div class="opponent ${isTurn ? 'active' : ''}">
     <div class="mat-head">
       <h4>${esc(p.name)} ${p.isBot ? '🤖' : ''} <span class="hint">stand ${p.stand}</span></h4>
-      <div class="tokens">🪙 ${p.coins} · ⭐ ${p.roundStars} this round (${p.stars} total) · 🏆 ${p.trophies} · reserve ${p.reserve.length}</div>
+      <div class="tokens">🪙 ${p.coins} · ⭐ ${p.roundStars} this round · 🏆 ${p.trophies} · reserve ${p.reserve.length}</div>
     </div>
     <div class="slots mini">
       ${p.slots.map((id, i) => `

@@ -24,6 +24,7 @@ import {
   TRAINERS,
   hasFullSet,
 } from '../engine/engine.js';
+import { scoreCard } from '../engine/bot.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'assets', 'card_database.json'), 'utf8'));
@@ -224,6 +225,57 @@ test('resource cards resolve immediately and are discarded', () => {
   assert.equal(s.players[seat].coins, before + 3);
   assert.ok(s.discard.includes(coin3));
   assert.ok(!s.players[seat].slots.includes(coin3));
+});
+
+// Regression coverage: a resource card (Star, in particular — reported stuck
+// in reserve rather than resolving) must never linger anywhere other than
+// the discard pile once acquired, across every entry point: a direct draft
+// pick, a market buy, and a nested draw via a "Card" resource.
+test('every resource type resolves and lands in discard, never in reserve, on a direct draft pick', () => {
+  for (const name of ['Resource 1 Coin', 'Resource 2 Stars', 'Resource 3 Coins']) {
+    const s = freshGame(2);
+    const seat = currentSeat(s);
+    const p = s.players[seat];
+    const id = firstOfName(db.resources, name);
+    s.draftRow = [id, s.draftRow[1], s.draftRow[2]];
+    applyAction(s, { type: 'acquireDraft', seat, cardId: id });
+    assert.ok(s.discard.includes(id), `${name} should be in discard`);
+    assert.ok(!p.reserve.includes(id), `${name} should never sit in reserve`);
+    assert.ok(!p.slots.includes(id), `${name} should never occupy a mat slot`);
+  }
+});
+
+test('a Star resource card bought from the market resolves and discards, not reserve', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.coins = 10;
+  const star2 = firstOfName(db.resources, 'Resource 2 Stars');
+  s.market[0] = star2;
+  const before = p.stars;
+  applyAction(s, { type: 'buyMarket', seat, index: 0 });
+  assert.equal(p.stars - before, 2);
+  assert.ok(s.discard.includes(star2));
+  assert.ok(!p.reserve.includes(star2));
+});
+
+test('a resource card drawn via a "Card" resource (nested draw) also resolves and discards, not reserve', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  const draw2 = firstOfName(db.resources, 'Resource 2 Cards');
+  const star2 = firstOfName(db.resources, 'Resource 2 Stars');
+  const coin1 = firstOfName(db.resources, 'Resource 1 Coin');
+  // draw() pops from the end of state.deck, so push the desired cards last.
+  s.deck.push(coin1, star2);
+  s.draftRow = [draw2, s.draftRow[1], s.draftRow[2]];
+  const starsBefore = p.stars;
+  const coinsBefore = p.coins;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: draw2 });
+  assert.equal(p.stars - starsBefore, 2);
+  assert.equal(p.coins - coinsBefore, 1);
+  assert.ok(s.discard.includes(star2) && s.discard.includes(coin1));
+  assert.ok(!p.reserve.includes(star2) && !p.reserve.includes(coin1));
 });
 
 test('card-resource cards fill empty starting slots (assumption #2)', () => {
@@ -1129,7 +1181,7 @@ test('acquiring a Trainer places it straight into slot 8 (Trainer-only) when ope
   assert.equal(s.pending.length, 0, 'no placement prompt needed when slot 8 is open');
 });
 
-test('acquiring a Trainer with slot 8 full offers a choice of slot 6 or 7, or reserve', () => {
+test('acquiring a Trainer with slot 8 full offers a choice of slot 6, 7, or 8, or reserve', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
@@ -1138,11 +1190,11 @@ test('acquiring a Trainer with slot 8 full offers a choice of slot 6 or 7, or re
   applyAction(s, { type: 'acquireDraft', seat, cardId: TRAINERS.AURIC });
   const pending = s.pending.find((x) => x.kind === 'placement');
   assert.ok(pending, 'expected a placement prompt with slot 8 full');
-  assert.deepEqual(pending.data.allowedSlots.sort(), [5, 6], 'choice is limited to slot 6 or 7 (indices 5/6) — slot 8 stays put');
+  assert.deepEqual(pending.data.allowedSlots.sort(), [5, 6, 7], 'all 3 Trainer slots are bumpable, including slot 8');
   assert.ok(pending.data.allowReserve, 'reserve is also offered');
-  applyAction(s, { type: 'resolvePending', seat, pendingId: pending.id, slot: 5 });
-  assert.equal(p.slots[5], TRAINERS.AURIC);
-  assert.equal(p.slots[7], TRAINERS.COEUR, 'slot 8 is untouched');
+  applyAction(s, { type: 'resolvePending', seat, pendingId: pending.id, slot: 7 });
+  assert.equal(p.slots[7], TRAINERS.AURIC, 'slot 8 itself can be bumped once it was the one already occupied');
+  assert.ok(p.reserve.includes(TRAINERS.COEUR));
 });
 
 test('acquiring a Trainer with slot 8 full can be sent to reserve instead of bumping', () => {
@@ -1328,6 +1380,51 @@ test('Ezra the Sleight-of-Hand: receives the draft\'s leftover card if he has an
   applyAction(s, { type: 'rearrange', seat, slots: [...p.slots], reserve: [...p.reserve] });
   assert.ok(p.reserve.includes(leftover), 'Ezra receives the leftover draft card into reserve instead of it being discarded');
   assert.ok(!s.discard.includes(leftover));
+});
+
+// ---- AI draft valuation heuristics (scoreCard) ------------------------------
+
+test('scoreCard: a Star resource card is valued highly when the round is genuinely in contention', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const other = s.players.find((x) => x.seat !== seat).seat;
+  s.players[seat].slots = [null, null, null, null, null, null, null, null];
+  s.players[other].slots = [null, null, null, null, null, null, null, null];
+  s.players[seat].roundStars = 0;
+  s.players[other].roundStars = 1; // close race — well within reach
+  const star3 = firstOfName(db.resources, 'Resource 3 Stars');
+  const coin3 = firstOfName(db.resources, 'Resource 3 Coins');
+  const starScore = scoreCard(s, seat, star3);
+  const coinScore = scoreCard(s, seat, coin3);
+  assert.ok(starScore > coinScore, 'a contested round should still prioritize the swing Star card over a same-size Coin card');
+});
+
+test('scoreCard: a Star resource card is devalued when the seat has no realistic shot at the round trophy', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const other = s.players.find((x) => x.seat !== seat).seat;
+  s.players[seat].slots = [null, null, null, null, null, null, null, null];
+  s.players[other].slots = [null, null, null, null, null, null, null, null];
+  s.players[seat].roundStars = 0;
+  s.players[other].roundStars = 100; // hopelessly out of reach this round
+  const star3 = firstOfName(db.resources, 'Resource 3 Stars');
+  const coin3 = firstOfName(db.resources, 'Resource 3 Coins');
+  const starScore = scoreCard(s, seat, star3);
+  const coinScore = scoreCard(s, seat, coin3);
+  assert.ok(starScore < coinScore, 'a hopeless round should no longer chase the Star card over an equally-sized Coin card');
+});
+
+test('scoreCard: Draw-2/3 "Card" resources are valued a bit above their linear face value', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const draw1 = firstOfName(db.resources, 'Resource 1 Card');
+  const draw2 = firstOfName(db.resources, 'Resource 2 Cards');
+  const draw3 = firstOfName(db.resources, 'Resource 3 Cards');
+  const s1 = scoreCard(s, seat, draw1);
+  const s2 = scoreCard(s, seat, draw2);
+  const s3 = scoreCard(s, seat, draw3);
+  assert.ok(s2 > s1 * 2, 'Resource 2 Cards should score more than double the 1-card version');
+  assert.ok(s3 > s1 * 3, 'Resource 3 Cards should score more than triple the 1-card version');
 });
 
 console.log(`\nrules.test.js: ${passed} passing${process.exitCode ? ' (with failures)' : ''}`);
