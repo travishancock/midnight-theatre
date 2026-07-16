@@ -1,6 +1,6 @@
 // Full simulated games: AI bots in every seat, for 2-5 players across several
 // seeds. Asserts each game completes without throwing, reaches a valid win
-// state, and that every one of the 154 cards stays accounted for throughout.
+// state, and that every one of the 151 cards stays accounted for throughout.
 // Run with: node test/fullgame.test.js
 
 import assert from 'assert';
@@ -16,7 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'assets', 'card_database.json'), 'utf8'));
 initCards(db);
 
-const TOTAL_CARDS = 154;
+const TOTAL_CARDS = 151;
 
 function cardCount(s) {
   let n = s.deck.length + s.discard.length + s.market.length + s.draftRow.length;
@@ -31,12 +31,14 @@ function cardCount(s) {
 
 // The dice phase pauses at two points that are NOT `pending` prompts (so
 // seatsNeedingInput reports nothing owed): a rolled-but-unlocked Collection
-// Die (pure reveal pacing — Press Pass cards are spent proactively during
-// the draft phase instead, before any of this round's dice roll at all) and
-// a rolled-but-unlocked Tomato batch (awaiting a possible Mesmera reaction).
-// In production the server paces these with real timers, after letting any
-// bot decide its reaction synchronously; this test drives the same two
-// steps immediately.
+// Die (pure reveal pacing) and a rolled-but-unlocked Tomato batch (awaiting
+// a possible Mesmera reaction). In production the server paces these with
+// real timers, after letting any bot decide its reaction synchronously; this
+// test drives the same two steps immediately. The pre-roll Press Pass
+// window (opened just before these 5 shared dice, once the draft phase
+// ends) IS a normal `pending` prompt per eligible seat, so it's handled by
+// the main seatsNeedingInput/botAction loop below like any other prompt —
+// no special driving needed here.
 function driveDicePauseIfAny(s) {
   if (s.dieEvent && s.dieEvent.awaitingLock) {
     lockCollectionDie(s);

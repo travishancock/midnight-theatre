@@ -12,6 +12,7 @@ import express from 'express';
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
 
@@ -28,20 +29,40 @@ const PORT = process.env.PORT || 3000;
 const cardDb = JSON.parse(fs.readFileSync(path.join(ROOT, 'assets', 'card_database.json'), 'utf8'));
 initCards(cardDb);
 
+// A content hash of every file in assets/cards (name + size + mtime), so the
+// client can cache-bust its image URLs (?v=<hash>) whenever the art actually
+// changes — including a "the same filename now points at different art"
+// deploy, which a filename-based cache alone can't detect. Computed once at
+// startup; a fresh deploy always restarts the process, so this is
+// recomputed (and changes, if any art changed) on every deploy.
+function computeAssetVersion() {
+  const dir = path.join(ROOT, 'assets', 'cards');
+  const hash = crypto.createHash('sha1');
+  for (const f of fs.readdirSync(dir).sort()) {
+    const st = fs.statSync(path.join(dir, f));
+    hash.update(`${f}:${st.size}:${st.mtimeMs}\n`);
+  }
+  return hash.digest('hex').slice(0, 10);
+}
+const ASSET_VERSION = computeAssetVersion();
+
 // ---- HTTP ------------------------------------------------------------------
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
-app.get('/api/cards', (req, res) => res.json(cardDb));
+app.get('/api/cards', (req, res) => res.json({ ...cardDb, assetVersion: ASSET_VERSION }));
 // No long-lived cache here: card art filenames don't change when the art
-// itself is updated (no cache-busting hash in the client's imgUrl()), so a
-// long maxAge (this used to be 7d) meant browsers kept serving stale card
-// art for up to a week after a deploy that changed a card's image, with no
-// way for the user to see the fix short of a hard-refresh. etag stays on
-// (express.static's default) so unchanged images still get a cheap 304
-// instead of a full re-download — just always revalidated.
+// itself is updated, so a long maxAge (this used to be 7d) meant browsers
+// kept serving stale card art for up to a week after a deploy that changed
+// a card's image, with no way for the user to see the fix short of a hard
+// refresh. etag stays on (express.static's default) so unchanged images
+// still get a cheap 304 instead of a full re-download — just always
+// revalidated. The client also appends ?v=<ASSET_VERSION> (see
+// GET /api/cards above and the client's imgUrl()) so a browser that ignores
+// revalidation entirely still fetches fresh art under a new URL whenever
+// the art actually changes.
 app.use('/cards', express.static(path.join(ROOT, 'assets', 'cards'), { maxAge: 0 }));
 
 const clientDist = path.join(ROOT, 'client', 'dist');

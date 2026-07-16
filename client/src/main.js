@@ -13,6 +13,7 @@ let socket = null;
 let cards = new Map(); // id -> card data (from /api/cards)
 let my = { code: null, seat: null, name: '' };
 let view = { lobby: null, state: null };
+let assetVersion = ''; // from /api/cards — appended to card image URLs so a browser always fetches fresh art after a deploy that changes it, even under an unchanged filename
 
 // Transient UI state
 let ui = {
@@ -32,6 +33,7 @@ const SLOT_NAMES = ['Performer 1', 'Performer 2', 'Performer 3', 'Performer 4', 
 
 async function boot() {
   const db = await fetch('/api/cards').then((r) => r.json());
+  assetVersion = db.assetVersion || '';
   for (const key of ['performers', 'propsAndBackdrops', 'trainers', 'resources', 'favors', 'rerolls']) {
     for (const c of db[key]) {
       const cardType =
@@ -163,7 +165,7 @@ function render() {
 }
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
-const imgUrl = (c) => '/' + encodeURI(c.image);
+const imgUrl = (c) => '/' + encodeURI(c.image) + (assetVersion ? `?v=${assetVersion}` : '');
 
 function cardHtml(id, { size = 'md', extra = '', badge = null, hearts = null, dim = false } = {}) {
   const c = card(id);
@@ -472,6 +474,12 @@ function waitingNoteHtml(s, p, pending) {
 
 function promptHtml(s, p, item) {
   switch (item.kind) {
+    case 'pressPassWindow': {
+      const myPasses = p.reserve.filter((id) => card(id).cardType === 'reroll');
+      return promptBox(`
+        <div>Before this round's 5 shared Collection Dice roll, you may spend any Press Pass card${myPasses.length === 1 ? '' : 's'} below for private roll${myPasses.length === 1 ? '' : 's'} of your own. Click one to spend it, or continue whenever you're ready.</div>
+        <button id="pressPassContinue" class="primary">${myPasses.length > 0 ? "I'm done — roll the dice" : 'Continue — roll the dice'}</button>`);
+    }
     case 'placement': {
       return promptBox(`Place <b>${esc(card(item.data.cardId).name)}</b> — click a highlighted slot on your mat below. The current occupant (if any) moves to your reserve.`);
     }
@@ -609,12 +617,14 @@ function favorReadyNow(s, p, id) {
   return c.triggerAfterTurn === 1 ? p.turns === 0 : p.turns >= 1;
 }
 
-// A Press Pass card can be spent at any point during the draft phase — not
-// turn-gated (see engine.js's usePressPass action) — to roll that many
-// private Collection Die(s) before the round's 5 shared dice. Never a
-// forced prompt; just clickable like a Favor.
+// A Press Pass card can be spent only during this player's own pre-roll
+// window — a pending 'pressPassWindow' prompt that opens the instant the
+// draft ends, before the round's 5 shared Collection Dice roll (see
+// engine.js's openPressPassWindow/usePressPass). Never a forced choice
+// within that window — the card is just clickable, like a Favor — but not
+// spendable at any other time.
 function pressPassReadyNow(s, p, id) {
-  if (s.phase !== 'draft') return false;
+  if (!s.pending.some((x) => x.kind === 'pressPassWindow' && x.seat === my.seat)) return false;
   return card(id).cardType === 'reroll';
 }
 
@@ -794,6 +804,9 @@ function wireGameEvents(s, p, pending) {
     ui.heartPlan = {};
     send({ type: 'resolvePending', pendingId: pending.id, assignments });
   });
+  document.getElementById('pressPassContinue')?.addEventListener('click', () =>
+    send({ type: 'resolvePending', pendingId: pending.id })
+  );
   document.getElementById('mesmeraBtn')?.addEventListener('click', () => send({ type: 'mesmeraRerollTomato' }));
   document.getElementById('keepTomatoBtn')?.addEventListener('click', () => send({ type: 'keepTomatoRoll' }));
   document.getElementById('cardResourceToReserve')?.addEventListener('click', () =>

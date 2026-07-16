@@ -105,7 +105,7 @@ test('setup: coins by draft stand, row sizes, trophy goal', () => {
   const s5 = freshGame(5);
   assert.equal(s5.trophyGoal, 3); // 4-5 players -> 3 trophies
   assert.equal(s5.draftRow.length, 11);
-  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, 154);
+  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, 151);
 });
 
 test('acquiring a performer fills the lowest empty slot with printed hearts', () => {
@@ -712,7 +712,7 @@ test('wildcard Prop/Backdrop boost is dormant until the player has one of each T
   }
 });
 
-test('usePressPass: spending a Press Pass immediately rolls that many private Collection Die(s), crediting only the spender, on top of the round\'s 5 shared dice', () => {
+test('usePressPass: a pre-roll window opens once the draft ends, letting eligible seats roll private Collection Die(s) before the round\'s 5 shared dice', () => {
   const s = freshGame(2, 555);
   const seat = currentSeat(s);
   const other = s.players.find((x) => x.seat !== seat).seat;
@@ -726,6 +726,21 @@ test('usePressPass: spending a Press Pass immediately rolls that many private Co
   s.players[other].reserve = ['PressPass-3-1'];
   s.players[seat].reserve = [];
 
+  // Nothing is spendable before the draft ends — no window is open yet.
+  assert.throws(() => applyAction(s, { type: 'usePressPass', seat: other, cardId: 'PressPass-3-1' }), /pre-roll window/);
+
+  // End the draft (only 1 card left in the row after this acquisition).
+  const filler = performer((c) => c.resource === 'Coin');
+  s.draftRow = [filler, db.performers.find((c) => c.id !== filler).id];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+
+  // The dice haven't started yet — `other` (the only Press Pass holder) now
+  // has an open pre-roll window; `seat` (holding none) does not.
+  assert.equal(s.phase, 'draft', 'still awaiting the pre-roll window(s) to close');
+  const window = s.pending.find((x) => x.kind === 'pressPassWindow' && x.seat === other);
+  assert.ok(window, 'expected a pressPassWindow prompt for the Press Pass holder');
+  assert.ok(!s.pending.some((x) => x.kind === 'pressPassWindow' && x.seat === seat));
+
   const rngNow = 1;
   s.rng = rngNow;
   const seq = predict(rngNow, [20, 20, 20]).map((i) => COLLECTION_FACES[i]);
@@ -735,39 +750,45 @@ test('usePressPass: spending a Press Pass immediately rolls that many private Co
   const otherStarsBefore = s.players[other].stars;
   const seatStarsBefore = s.players[seat].stars;
 
-  // Not turn-gated: `other` may spend it even though it's `seat`'s turn.
   applyAction(s, { type: 'usePressPass', seat: other, cardId: 'PressPass-3-1' });
 
-  assert.equal(s.phase, 'draft', 'spending a Press Pass does not advance the phase');
+  assert.equal(s.phase, 'draft', 'spending inside the window does not by itself advance the phase');
   assert.ok(s.discard.includes('PressPass-3-1'), 'spent immediately');
   assert.ok(!s.players[other].reserve.includes('PressPass-3-1'));
   assert.equal(s.players[other].stars - otherStarsBefore, aCount, 'private rolls credit the spender exactly as a normal Collection Die would');
   assert.equal(s.players[seat].stars, seatStarsBefore, 'private rolls never benefit anyone but the spender');
 
-  // The round's 5 shared dice still roll normally afterward, in addition to
-  // the private roll(s) already resolved above.
-  const filler = performer((c) => c.resource === 'Coin');
-  s.draftRow = [filler, db.performers.find((c) => c.id !== filler).id];
-  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+  // Closing the window (the only one open) lets the round's 5 shared dice
+  // start rolling immediately, in addition to the private roll(s) above.
+  applyAction(s, { type: 'resolvePending', seat: other, pendingId: window.id });
   assert.equal(s.phase, 'dice', 'the round now proceeds into its normal 5 shared Collection Dice');
   driveDicePhase(s);
   assert.equal(s.round, 2, 'round completed normally afterward');
 });
 
-test('usePressPass: only legal during the draft phase, for a Press Pass actually in the spender\'s own reserve', () => {
+test('usePressPass: only legal during that seat\'s own open pre-roll window, for a Press Pass actually in their reserve', () => {
   const s = freshGame(2, 555);
   const seat = currentSeat(s);
   const other = s.players.find((x) => x.seat !== seat).seat;
   const favor = db.favors[0].id;
   s.players[other].reserve = ['PressPass-1-1', favor];
 
-  // Not in that seat's reserve at all.
-  assert.throws(() => applyAction(s, { type: 'usePressPass', seat, cardId: 'PressPass-1-1' }), /not in your reserve/);
+  // Before the draft ends, no one's window is open yet.
+  assert.throws(() => applyAction(s, { type: 'usePressPass', seat: other, cardId: 'PressPass-1-1' }), /pre-roll window/);
+
+  for (const p of s.players) p.slots = [null, null, null, null, null, null, null, null];
+  const filler = performer((c) => c.resource === 'Coin');
+  s.draftRow = [filler, db.performers.find((c) => c.id !== filler).id];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+
+  assert.equal(s.phase, 'draft', 'still awaiting the pre-roll window to close');
+  // `seat` (holding no Press Pass) never got a window of their own, so they
+  // still cannot spend — even a card that exists in someone else's reserve.
+  assert.throws(() => applyAction(s, { type: 'usePressPass', seat, cardId: 'PressPass-1-1' }), /pre-roll window/);
+  // `other`'s window is open, but this card isn't in their reserve.
+  assert.throws(() => applyAction(s, { type: 'usePressPass', seat: other, cardId: 'PressPass-2-1' }), /not in your reserve/);
   // In reserve, but not a Press Pass (reroll) card.
   assert.throws(() => applyAction(s, { type: 'usePressPass', seat: other, cardId: favor }), /not a Press Pass card/);
-
-  s.phase = 'dice';
-  assert.throws(() => applyAction(s, { type: 'usePressPass', seat: other, cardId: 'PressPass-1-1' }), /Collection Dice roll/);
 });
 
 test('Mesmera the Veiled may re-roll the whole Tomato batch once, before it locks', () => {
@@ -987,13 +1008,13 @@ test('state.turnsCompleted increments once per finished turn (drives the server\
   assert.equal(s.turnsCompleted, 1);
 });
 
-test('a full 2-player round keeps every one of the 154 cards accounted for', () => {
+test('a full 2-player round keeps every one of the 151 cards accounted for', () => {
   const s = freshGame(2, 31337);
   // count every card location
   const total = (st) =>
     st.deck.length + st.discard.length + st.market.length + st.draftRow.length +
     st.players.reduce((a, p) => a + p.slots.filter(Boolean).length + p.reserve.length, 0);
-  assert.equal(total(s), 154);
+  assert.equal(total(s), 151);
 });
 
 // ---- multi-trainer slots (5/6/7 all accept Trainer) ------------------------
@@ -1070,6 +1091,14 @@ test('Delphine Silvertongue triples a spent Press Pass\'s private roll count', (
   s.players[other].reserve = ['PressPass-3-1'];
   s.players[other].slots[7] = TRAINERS.DELPHINE;
   s.players[seat].reserve = [];
+  for (const p of s.players) p.slots = p.slots.map((id, i) => (i === 7 ? p.slots[7] : null));
+
+  const filler = performer((c) => c.resource === 'Coin');
+  s.draftRow = [filler, db.performers.find((c) => c.id !== filler).id];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+
+  const window = s.pending.find((x) => x.kind === 'pressPassWindow' && x.seat === other);
+  assert.ok(window, 'Delphine holder with a Press Pass gets a pre-roll window');
 
   applyAction(s, { type: 'usePressPass', seat: other, cardId: 'PressPass-3-1' });
 

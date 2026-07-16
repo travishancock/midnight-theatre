@@ -69,6 +69,19 @@ function resolvePrompt(state, seat, item) {
       return { ...base, assignments: chooseHeartAssignments(state, seat, item.data.amount) };
     case 'refill':
       return { ...base, assignments: chooseRefill(state, seat) };
+    // Pre-roll Press Pass window: spend an eligible Press Pass card if we
+    // have a Performer on board to actually benefit from a private roll
+    // (mirrors wantsPressPassOffer's old threshold — little downside to
+    // spending since these are close to free value), otherwise close the
+    // window. Called repeatedly by the driver loop until this seat has
+    // nothing left it wants to spend.
+    case 'pressPassWindow': {
+      const passes = eligiblePressPasses(state, seat);
+      if (passes.length > 0 && boardLetterCount(state, seat) >= 1) {
+        return { type: 'usePressPass', seat, cardId: passes[0] };
+      }
+      return { ...base };
+    }
     case 'auricGainChoice':
       return { ...base, ...chooseAuricConversion(state, seat, item.data) };
     // Professor Stainglass / Amara the Reliquary / Jonas Quickfinger / Wendell
@@ -228,16 +241,6 @@ function draftTurn(state, seat) {
   if (!state.turn.mainDone) {
     const usable = eligibleFavors(state, seat);
     if (usable.length > 0) return { type: 'useFavor', seat, cardId: usable[0] };
-  }
-
-  // Spend any eligible Press Pass(es) for private Collection Die roll(s)
-  // before acting, same click-anytime pattern as Favors. Only worth it once
-  // we have at least one Performer on board to actually collect from a
-  // private roll — a handful of extra rolls is close to free value, so
-  // never hoard these either.
-  if (!state.turn.mainDone && boardLetterCount(state, seat) >= 1) {
-    const passes = eligiblePressPasses(state, seat);
-    if (passes.length > 0) return { type: 'usePressPass', seat, cardId: passes[0] };
   }
 
   // Maximillian follow-up buys: buy again only if a market card scores well

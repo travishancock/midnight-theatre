@@ -105,6 +105,7 @@ export function createGame({ players, seed }) {
     log: [],
     turnsCompleted: 0, // incremented once per finished turn — lets a driver (e.g. the server's bot loop) detect "a turn just ended" without re-deriving it from seat/phase changes
     tilted: {}, // cardId -> true, Atlas the Steadfast: immune to collecting/losing hearts this round; cleared each round
+    pressPassWindowActive: false, // true while waiting on one or more seats' 'pressPassWindow' pending items to close — see openPressPassWindow
   };
 
   state.deck = shuffle(state, allCardIds().slice());
@@ -248,13 +249,44 @@ export function eligibleFavors(state, seat) {
   });
 }
 
-// Press Pass cards held in this seat's reserve, spendable right now: legal
-// any time the draft phase is in progress (not turn-gated — see the
-// usePressPass action), so this simply lists every 'reroll' card in reserve.
+// Is there an open pre-roll Press Pass window pending for this seat right
+// now? Opened once the draft phase ends, before the round's 5 shared
+// Collection Dice roll — see openPressPassWindow — and closed when the seat
+// resolves their 'pressPassWindow' pending item.
+function pressPassWindowOpenFor(state, seat) {
+  return state.pending.some((x) => x.kind === 'pressPassWindow' && x.seat === seat);
+}
+
+function hasPressPassCards(state, seat) {
+  return state.players[seat].reserve.some((id) => card(id).cardType === 'reroll');
+}
+
+// Press Pass cards held in this seat's reserve, spendable right now: only
+// during that seat's open pre-roll window (see pressPassWindowOpenFor) —
+// not turn-gated within that window (not a forced choice, just clickable,
+// like a Favor), but not usable at any other time either.
 export function eligiblePressPasses(state, seat) {
-  if (state.phase !== 'draft') return [];
+  if (!pressPassWindowOpenFor(state, seat)) return [];
   const p = state.players[seat];
   return p.reserve.filter((id) => card(id).cardType === 'reroll');
+}
+
+// Opens the instant the draft phase ends, before the round's 5 shared
+// Collection Dice roll: every seat holding at least one Press Pass card gets
+// a pending 'pressPassWindow' item, offering the option (never forced) to
+// spend any number of their Press Pass cards for private rolls first. The
+// round's shared dice don't actually start rolling until every such seat has
+// closed their window (see advance()'s pressPassWindowActive branch). If no
+// one holds a Press Pass, the dice phase starts immediately, same as before.
+function openPressPassWindow(state) {
+  const eligible = state.players.filter((p) => hasPressPassCards(state, p.seat));
+  if (eligible.length === 0) {
+    startDicePhase(state);
+    return;
+  }
+  log(state, "Before this round's Collection Dice roll, players holding a Press Pass may spend it for private rolls.");
+  state.pressPassWindowActive = true;
+  for (const p of eligible) pushPending(state, 'pressPassWindow', p.seat, {});
 }
 
 function pushPending(state, kind, seat, data = {}) {
@@ -704,7 +736,7 @@ function finishTurn(state) {
     } else {
       log(state, 'The draft row is empty — the draft ends.');
     }
-    startDicePhase(state);
+    openPressPassWindow(state);
     return;
   }
 
@@ -890,7 +922,19 @@ function advance(state) {
       continue;
     }
     if (state.phase === 'draft') {
-      if (!state.turn) return;
+      if (!state.turn) {
+        // The draft just ended and the pre-roll Press Pass window (see
+        // openPressPassWindow) has now fully closed — every eligible seat's
+        // 'pressPassWindow' pending item resolved (we only get here once
+        // state.pending is empty, per the check above). Start the round's 5
+        // shared Collection Dice.
+        if (state.pressPassWindowActive) {
+          state.pressPassWindowActive = false;
+          startDicePhase(state);
+          continue;
+        }
+        return;
+      }
       if (state.turn.done) {
         finishTurn(state);
         continue;
@@ -1113,15 +1157,17 @@ export function applyAction(state, action) {
       log(state, `${p.name} tilts ${card(p.slots[slot]).name} (Atlas the Steadfast) — it cannot collect or lose hearts for the rest of the round.`);
       break;
     }
-    // ----- dice-phase proactive resources --------------------------------
-    // Press Pass: discard from reserve at any point during the draft phase,
-    // before the round's 5 shared Collection Dice roll, for N private
-    // Collection Die rolls (N = the card's printed number) that only this
-    // seat benefits from. Never a forced prompt — just a clickable reserve
-    // card, like a Favor. Not turn-gated (doesn't consume a turn or affect
-    // turn order), so it's legal any time the draft phase is in progress.
+    // ----- pre-roll Press Pass window ------------------------------------
+    // Press Pass: discard from reserve, during this seat's open pre-roll
+    // window (see openPressPassWindow — opened once the draft ends, before
+    // the round's 5 shared Collection Dice roll), for N private Collection
+    // Die rolls (N = the card's printed number) that only this seat
+    // benefits from. Never a forced choice — just a clickable reserve card,
+    // like a Favor — but only legal while that seat's window is open.
     case 'usePressPass': {
-      if (state.phase !== 'draft') throw new Error('Press Pass cards can only be spent before the round\'s Collection Dice roll.');
+      if (!pressPassWindowOpenFor(state, seat)) {
+        throw new Error("Press Pass cards can only be spent during the pre-roll window, just before the round's Collection Dice roll.");
+      }
       const p = state.players[seat];
       const idx = p.reserve.indexOf(action.cardId);
       if (idx === -1) throw new Error('That card is not in your reserve.');
@@ -1322,6 +1368,15 @@ function resolvePendingItem(state, item, action) {
         log(state, `${p.name} transmutes ${bits.join(' and ')} (Auric).`);
       }
       creditCoinsAndHearts(state, seat, finalCoins, finalHearts, reason);
+      break;
+    }
+    // Pre-roll Press Pass window: this seat is done deciding (whether or not
+    // they spent anything) — see openPressPassWindow/usePressPass. Once
+    // every eligible seat's window is closed, the round's 5 shared
+    // Collection Dice start rolling (advance()'s pressPassWindowActive
+    // branch).
+    case 'pressPassWindow': {
+      removePending(state, item.id);
       break;
     }
     case 'refill': {
