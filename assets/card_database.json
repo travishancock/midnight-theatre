@@ -1568,63 +1568,63 @@
     {
       "id": "PressPass-1-1",
       "name": "Press Pass 1",
-      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 1 private Collection Die of your own \u2014 resolved exactly like a normal Collection Die, but only you collect from it.",
+      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 1 private Collection Die of your own — resolved exactly like a normal Collection Die, but only you collect from it.",
       "image": "cards/Press Pass 1.webp",
       "count": 1
     },
     {
       "id": "PressPass-1-2",
       "name": "Press Pass 1",
-      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 1 private Collection Die of your own \u2014 resolved exactly like a normal Collection Die, but only you collect from it.",
+      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 1 private Collection Die of your own — resolved exactly like a normal Collection Die, but only you collect from it.",
       "image": "cards/Press Pass 1.webp",
       "count": 1
     },
     {
       "id": "PressPass-1-3",
       "name": "Press Pass 1",
-      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 1 private Collection Die of your own \u2014 resolved exactly like a normal Collection Die, but only you collect from it.",
+      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 1 private Collection Die of your own — resolved exactly like a normal Collection Die, but only you collect from it.",
       "image": "cards/Press Pass 1.webp",
       "count": 1
     },
     {
       "id": "PressPass-2-1",
       "name": "Press Pass 2",
-      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 2 private Collection Dies of your own \u2014 resolved exactly like a normal Collection Die, but only you collect from them.",
+      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 2 private Collection Dice of your own — resolved exactly like a normal Collection Die, but only you collect from them.",
       "image": "cards/Press Pass 2.webp",
       "count": 2
     },
     {
       "id": "PressPass-2-2",
       "name": "Press Pass 2",
-      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 2 private Collection Dies of your own \u2014 resolved exactly like a normal Collection Die, but only you collect from them.",
+      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 2 private Collection Dice of your own — resolved exactly like a normal Collection Die, but only you collect from them.",
       "image": "cards/Press Pass 2.webp",
       "count": 2
     },
     {
       "id": "PressPass-2-3",
       "name": "Press Pass 2",
-      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 2 private Collection Dies of your own \u2014 resolved exactly like a normal Collection Die, but only you collect from them.",
+      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 2 private Collection Dice of your own — resolved exactly like a normal Collection Die, but only you collect from them.",
       "image": "cards/Press Pass 2.webp",
       "count": 2
     },
     {
       "id": "PressPass-3-1",
       "name": "Press Pass 3",
-      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 3 private Collection Dies of your own \u2014 resolved exactly like a normal Collection Die, but only you collect from them.",
+      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 3 private Collection Dice of your own — resolved exactly like a normal Collection Die, but only you collect from them.",
       "image": "cards/Press Pass 3.webp",
       "count": 3
     },
     {
       "id": "PressPass-3-2",
       "name": "Press Pass 3",
-      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 3 private Collection Dies of your own \u2014 resolved exactly like a normal Collection Die, but only you collect from them.",
+      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 3 private Collection Dice of your own — resolved exactly like a normal Collection Die, but only you collect from them.",
       "image": "cards/Press Pass 3.webp",
       "count": 3
     },
     {
       "id": "PressPass-3-3",
       "name": "Press Pass 3",
-      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 3 private Collection Dies of your own \u2014 resolved exactly like a normal Collection Die, but only you collect from them.",
+      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 3 private Collection Dice of your own — resolved exactly like a normal Collection Die, but only you collect from them.",
       "image": "cards/Press Pass 3.webp",
       "count": 3
     }
