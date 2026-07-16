@@ -248,6 +248,15 @@ export function eligibleFavors(state, seat) {
   });
 }
 
+// Press Pass cards held in this seat's reserve, spendable right now: legal
+// any time the draft phase is in progress (not turn-gated — see the
+// usePressPass action), so this simply lists every 'reroll' card in reserve.
+export function eligiblePressPasses(state, seat) {
+  if (state.phase !== 'draft') return [];
+  const p = state.players[seat];
+  return p.reserve.filter((id) => card(id).cardType === 'reroll');
+}
+
 function pushPending(state, kind, seat, data = {}) {
   const item = { id: state.nextPendingId++, kind, seat, data };
   state.pending.push(item);
@@ -300,12 +309,13 @@ function rollDie(state, kind) {
 }
 
 // Start a die event: roll and announce it. `position` (1-5) identifies which
-// of the round's 5 Collection Dice this is, for Press Pass targeting.
+// of the round's 5 shared Collection Dice this is.
 // source: 'phase' (normal dice-phase die), 'tomasso', 'curio'. Only
-// phase-sourced Collection Dice pause (awaitingLock) for a possible Press
-// Pass reaction — the caller (the server, paced for spectators; a test
-// driver, immediately) must call lockCollectionDie() to let it resolve.
-// Everything else resolves the instant advance() sees it, same as before.
+// phase-sourced Collection Dice pause (awaitingLock) — purely for reveal
+// pacing, so spectators can watch each die land — the caller (the server,
+// paced for spectators; a test driver, immediately) must call
+// lockCollectionDie() to let it resolve. Everything else resolves the
+// instant advance() sees it, same as before.
 function startDieEvent(state, { kind, source, position = null, onlySeat = null, excludeSeat = null }) {
   const value = rollDie(state, kind);
   const awaitingLock = source === 'phase' && kind === 'collection';
@@ -719,31 +729,11 @@ function nextSeat(state, afterSeat) {
   log(state, `It is ${nameOf(state, seat)}'s turn.`);
 }
 
-// Every Press Pass sitting in any player's reserve, ordered highest-numbered
-// card first (ties broken by seat order) — the priority order in which
-// players are offered the chance to spend one before the dice start rolling.
-// Only one Press Pass may be spent per round (see stepDice's 'pressPassOffer'
-// stage), so this queue is consumed one candidate at a time.
-function pressPassCandidates(state) {
-  const out = [];
-  for (const p of state.players) {
-    for (const id of p.reserve) {
-      const c = card(id);
-      if (c.cardType === 'reroll') out.push({ seat: p.seat, cardId: id, count: c.count });
-    }
-  }
-  out.sort((a, b) => b.count - a.count || a.seat - b.seat);
-  return out;
-}
-
 function startDicePhase(state) {
   state.phase = 'dice';
   state.turn = null;
-  const queue = pressPassCandidates(state);
   state.dice = {
-    stage: queue.length ? 'pressPassOffer' : 'collection',
-    pressPassQueue: queue,
-    pressPass: null, // { seat, cardId, count, usesLeft } once a player accepts the offer
+    stage: 'collection',
     rolled: 0,
     results: [],
     tomatoResults: [],
@@ -759,21 +749,6 @@ function startDicePhase(state) {
 function stepDice(state) {
   const d = state.dice;
   switch (d.stage) {
-    // Before any Collection Die rolls, offer the round's highest-numbered
-    // Press Pass holder the chance to spend it (see pressPassCandidates).
-    // A real pending prompt (not a proactive click) since it's a genuine
-    // yes/no decision with a clear resolution either way. If declined, the
-    // next-highest candidate is offered in turn; only one Press Pass total
-    // may be spent per round, so acceptance ends the queue immediately.
-    case 'pressPassOffer': {
-      if (d.pressPassQueue.length === 0) {
-        d.stage = 'collection';
-        return;
-      }
-      const next = d.pressPassQueue[0];
-      pushPending(state, 'pressPassOffer', next.seat, { cardId: next.cardId, count: next.count });
-      return;
-    }
     case 'collection': {
       if (d.rolled >= 5) {
         d.stage = 'trophy';
@@ -1139,41 +1114,27 @@ export function applyAction(state, action) {
       break;
     }
     // ----- dice-phase proactive resources --------------------------------
-    // Spend one use from the round's active Press Pass pool (see the
-    // 'pressPassOffer' pending resolution below) to re-roll whichever
-    // Collection Die is currently open (rolled, not yet locked). Never a
-    // forced prompt — the option is just available while relevant. Only the
-    // seat that accepted the pre-roll offer may use it, and only while they
-    // still have uses left; they may spend more than one use on the same
-    // die in a row, or spread them across different dice.
+    // Press Pass: discard from reserve at any point during the draft phase,
+    // before the round's 5 shared Collection Dice roll, for N private
+    // Collection Die rolls (N = the card's printed number) that only this
+    // seat benefits from. Never a forced prompt — just a clickable reserve
+    // card, like a Favor. Not turn-gated (doesn't consume a turn or affect
+    // turn order), so it's legal any time the draft phase is in progress.
     case 'usePressPass': {
-      const ev = state.dieEvent;
-      if (!ev || ev.kind !== 'collection' || ev.source !== 'phase' || !ev.awaitingLock) {
-        throw new Error('No Collection Die is open for a Press Pass right now.');
-      }
-      const d = state.dice;
-      if (!d.pressPass || d.pressPass.seat !== seat) throw new Error('You have no active Press Pass this round.');
-      if (d.pressPass.usesLeft <= 0) throw new Error('No Press Pass re-rolls left this round.');
-      d.pressPass.usesLeft--;
-      ev.value = rollDie(state, 'collection');
-      ev.rerollHistory = [...(ev.rerollHistory || []), ev.value];
+      if (state.phase !== 'draft') throw new Error('Press Pass cards can only be spent before the round\'s Collection Dice roll.');
       const p = state.players[seat];
-      log(state, `${p.name} spends a Press Pass re-roll on Die #${ev.position}: ${ev.value} (${d.pressPass.usesLeft} re-roll${d.pressPass.usesLeft === 1 ? '' : 's'} left this round).`);
-      break;
-    }
-    // Explicit "I'm done deciding" from the round's active Press Pass holder:
-    // keep the die's current result and let it lock immediately, instead of
-    // waiting out the server's reveal timer. Only meaningful for a human —
-    // bots decide synchronously — but legal any time the die is open, even
-    // with 0 uses left, so the client's "keep this result" button always works.
-    case 'lockPressPassDie': {
-      const ev = state.dieEvent;
-      if (!ev || ev.kind !== 'collection' || ev.source !== 'phase' || !ev.awaitingLock) {
-        throw new Error('No Collection Die is open right now.');
-      }
-      const d = state.dice;
-      if (!d.pressPass || d.pressPass.seat !== seat) throw new Error('You have no active Press Pass this round.');
-      ev.awaitingLock = false; // applyAction's own advance() call (below) resolves it from here
+      const idx = p.reserve.indexOf(action.cardId);
+      if (idx === -1) throw new Error('That card is not in your reserve.');
+      const c = card(action.cardId);
+      if (c.cardType !== 'reroll') throw new Error('That is not a Press Pass card.');
+      p.reserve.splice(idx, 1);
+      state.discard.push(action.cardId);
+      // Delphine Silvertongue: this seat's Press Pass roll count is tripled.
+      const delphine = trainerActive(state, seat, TRAINERS.DELPHINE);
+      const n = c.count * (delphine ? 3 : 1);
+      const results = Array.from({ length: n }, () => rollDie(state, 'collection'));
+      log(state, `${p.name} spends ${c.name} for ${n} private Collection Die roll${n > 1 ? 's' : ''}${delphine ? ' (tripled by Delphine Silvertongue)' : ''}: ${results.join(', ')}.`);
+      for (const letter of results) resolveCollectionDie(state, letter, seat);
       break;
     }
     // Mesmera the Veiled: once the round's whole Tomato batch is rolled but
@@ -1231,33 +1192,6 @@ function resolvePendingItem(state, item, action) {
   const seat = item.seat;
   const p = state.players[seat];
   switch (item.kind) {
-    // Offered before the round's Collection Dice start rolling, to the
-    // highest-numbered Press Pass holder first (see pressPassCandidates /
-    // stepDice's 'pressPassOffer' stage). Declining moves on to the next
-    // candidate in priority order; accepting spends the card immediately and
-    // ends the offer queue for the round (only one Press Pass may be active
-    // per round).
-    case 'pressPassOffer': {
-      const d = state.dice;
-      removePending(state, item.id);
-      if (!action.use) {
-        d.pressPassQueue.shift();
-        log(state, `${p.name} declines to spend ${card(item.data.cardId).name} this round.`);
-        break;
-      }
-      const idx = p.reserve.indexOf(item.data.cardId);
-      if (idx === -1) throw new Error('That card is no longer in your reserve.');
-      p.reserve.splice(idx, 1);
-      state.discard.push(item.data.cardId);
-      // Delphine Silvertongue: this seat's Press Pass re-roll count is tripled.
-      const delphine = trainerActive(state, seat, TRAINERS.DELPHINE);
-      const uses = item.data.count * (delphine ? 3 : 1);
-      d.pressPass = { seat, cardId: item.data.cardId, count: item.data.count, usesLeft: uses };
-      d.pressPassQueue = [];
-      d.stage = 'collection';
-      log(state, `${p.name} spends ${card(item.data.cardId).name} — up to ${uses} Collection Die re-roll${uses > 1 ? 's' : ''} available this round${delphine ? ' (tripled by Delphine Silvertongue)' : ''}.`);
-      break;
-    }
     case 'placement': {
       const slot = action.slot;
       if (!item.data.allowedSlots.includes(slot)) throw new Error('Invalid slot for that card.');

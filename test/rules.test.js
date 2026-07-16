@@ -72,10 +72,10 @@ function currentSeat(state) {
 }
 
 // The dice phase pauses mid-flight — a rolled-but-unlocked Collection Die
-// (awaiting a possible Press Pass reaction) and a rolled-but-unlocked Tomato
-// batch (awaiting a possible Mesmera reaction) — so it can be watched and
-// reacted to in real time (the server paces these with real timers; tests
-// just drive them through immediately since they don't care about pacing).
+// (pure reveal pacing) and a rolled-but-unlocked Tomato batch (awaiting a
+// possible Mesmera reaction) — so it can be watched and reacted to in real
+// time (the server paces these with real timers; tests just drive them
+// through immediately since they don't care about pacing).
 function driveDicePhase(s) {
   while (s.phase === 'dice') {
     if (s.dieEvent && s.dieEvent.awaitingLock) { lockCollectionDie(s); continue; }
@@ -105,7 +105,7 @@ test('setup: coins by draft stand, row sizes, trophy goal', () => {
   const s5 = freshGame(5);
   assert.equal(s5.trophyGoal, 3); // 4-5 players -> 3 trophies
   assert.equal(s5.draftRow.length, 11);
-  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, 150);
+  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, 154);
 });
 
 test('acquiring a performer fills the lowest empty slot with printed hearts', () => {
@@ -712,110 +712,62 @@ test('wildcard Prop/Backdrop boost is dormant until the player has one of each T
   }
 });
 
-test('Press Pass: offered before the round\'s Collection Dice roll; accepting grants a shared re-roll pool for any die', () => {
+test('usePressPass: spending a Press Pass immediately rolls that many private Collection Die(s), crediting only the spender, on top of the round\'s 5 shared dice', () => {
   const s = freshGame(2, 555);
   const seat = currentSeat(s);
   const other = s.players.find((x) => x.seat !== seat).seat;
-  s.players[other].reserve = ['PressPass-3'];
-  s.players[seat].reserve = [];
-  // strip boards so nothing else prompts
+  const perfAOther = performer((c) => c.letter === 'A'); // letter A performers are always Star-resource
+  const perfASeat = db.performers.find((c) => c.letter === 'A' && c.id !== perfAOther).id;
   for (const p of s.players) p.slots = [null, null, null, null, null, null, null, null];
+  s.players[other].slots[0] = perfAOther;
+  s.players[seat].slots[0] = perfASeat;
+  s.hearts[perfAOther] = card(perfAOther).startingHearts ?? 0;
+  s.hearts[perfASeat] = card(perfASeat).startingHearts ?? 0;
+  s.players[other].reserve = ['PressPass-3-1'];
+  s.players[seat].reserve = [];
+
+  const rngNow = 1;
+  s.rng = rngNow;
+  const seq = predict(rngNow, [20, 20, 20]).map((i) => COLLECTION_FACES[i]);
+  const aCount = seq.filter((l) => l === 'A').length;
+  assert.ok(aCount >= 1, 'test rng chosen to guarantee at least one A among the 3 private rolls');
+
+  const otherStarsBefore = s.players[other].stars;
+  const seatStarsBefore = s.players[seat].stars;
+
+  // Not turn-gated: `other` may spend it even though it's `seat`'s turn.
+  applyAction(s, { type: 'usePressPass', seat: other, cardId: 'PressPass-3-1' });
+
+  assert.equal(s.phase, 'draft', 'spending a Press Pass does not advance the phase');
+  assert.ok(s.discard.includes('PressPass-3-1'), 'spent immediately');
+  assert.ok(!s.players[other].reserve.includes('PressPass-3-1'));
+  assert.equal(s.players[other].stars - otherStarsBefore, aCount, 'private rolls credit the spender exactly as a normal Collection Die would');
+  assert.equal(s.players[seat].stars, seatStarsBefore, 'private rolls never benefit anyone but the spender');
+
+  // The round's 5 shared dice still roll normally afterward, in addition to
+  // the private roll(s) already resolved above.
   const filler = performer((c) => c.resource === 'Coin');
-  s.draftRow = [filler, db.performers[9].id];
+  s.draftRow = [filler, db.performers.find((c) => c.id !== filler).id];
   applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
-
-  // Before any Collection Die rolls, the Press Pass holder is offered the
-  // chance to spend it — a real pending prompt (unlike the reroll-usage
-  // itself, which stays a proactive click during the open-die window).
-  assert.equal(s.dice.stage, 'pressPassOffer');
-  assert.equal(s.dieEvent, null, 'no die has rolled yet');
-  const offer = s.pending.find((x) => x.kind === 'pressPassOffer');
-  assert.ok(offer, 'expected a pressPassOffer prompt');
-  assert.equal(offer.seat, other);
-  assert.equal(offer.data.count, 3);
-
-  applyAction(s, { type: 'resolvePending', seat: other, pendingId: offer.id, use: true });
-  assert.ok(s.discard.includes('PressPass-3'), 'spent immediately on acceptance');
-  assert.ok(!s.players[other].reserve.includes('PressPass-3'));
-  assert.equal(s.dice.pressPass.seat, other);
-  assert.equal(s.dice.pressPass.usesLeft, 3);
-
-  // Die #1 is now open; the pool can be spent on it (or any later die), more
-  // than once in a row if desired.
-  assert.equal(s.dieEvent.kind, 'collection');
-  assert.equal(s.dieEvent.position, 1);
-  applyAction(s, { type: 'usePressPass', seat: other });
-  assert.equal(s.dice.pressPass.usesLeft, 2, 'one use spent');
-  assert.equal(s.dieEvent.rerollHistory.length, 1);
-  applyAction(s, { type: 'usePressPass', seat: other });
-  assert.equal(s.dice.pressPass.usesLeft, 1, 'a second use spent on the same die');
-  assert.equal(s.dieEvent.rerollHistory.length, 2);
-
-  // Only the seat that accepted the offer may spend from the pool.
-  assert.throws(() => applyAction(s, { type: 'usePressPass', seat }));
-
+  assert.equal(s.phase, 'dice', 'the round now proceeds into its normal 5 shared Collection Dice');
   driveDicePhase(s);
-  assert.equal(s.round, 2, 'the round completed normally once locked');
+  assert.equal(s.round, 2, 'round completed normally afterward');
 });
 
-test('lockPressPassDie: the active Press Pass holder can explicitly keep the open die\'s result', () => {
+test('usePressPass: only legal during the draft phase, for a Press Pass actually in the spender\'s own reserve', () => {
   const s = freshGame(2, 555);
   const seat = currentSeat(s);
   const other = s.players.find((x) => x.seat !== seat).seat;
-  s.players[other].reserve = ['PressPass-3'];
-  s.players[seat].reserve = [];
-  for (const p of s.players) p.slots = [null, null, null, null, null, null, null, null];
-  const filler = performer((c) => c.resource === 'Coin');
-  s.draftRow = [filler, db.performers[9].id];
-  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
-  const offer = s.pending.find((x) => x.kind === 'pressPassOffer');
-  applyAction(s, { type: 'resolvePending', seat: other, pendingId: offer.id, use: true });
+  const favor = db.favors[0].id;
+  s.players[other].reserve = ['PressPass-1-1', favor];
 
-  // Only the active holder may confirm; nobody else, and not while nothing's open.
-  assert.throws(() => applyAction(s, { type: 'lockPressPassDie', seat }));
+  // Not in that seat's reserve at all.
+  assert.throws(() => applyAction(s, { type: 'usePressPass', seat, cardId: 'PressPass-1-1' }), /not in your reserve/);
+  // In reserve, but not a Press Pass (reroll) card.
+  assert.throws(() => applyAction(s, { type: 'usePressPass', seat: other, cardId: favor }), /not a Press Pass card/);
 
-  assert.ok(s.dieEvent.awaitingLock, 'die #1 is open, awaiting a decision');
-  applyAction(s, { type: 'lockPressPassDie', seat: other });
-  // Locking resolves die #1 immediately (advance() then rolls die #2, which
-  // opens its own fresh awaitingLock window — that's the normal dice-phase
-  // pause, not a sign #1 failed to lock).
-  assert.equal(s.dice.rolled, 1, 'die #1 resolved and was recorded');
-  assert.equal(s.dice.pressPass.usesLeft, 3, 'no re-roll was spent by keeping the result');
-
-  driveDicePhase(s);
-  assert.equal(s.round, 2, 'the round completed normally afterward');
-});
-
-test('Press Pass priority: the highest-numbered card is offered first; declining moves to the next', () => {
-  const s = freshGame(2, 777);
-  const seat = currentSeat(s);
-  const other = s.players.find((x) => x.seat !== seat).seat;
-  s.players[seat].reserve = ['PressPass-2'];
-  s.players[other].reserve = ['PressPass-4'];
-  for (const p of s.players) p.slots = [null, null, null, null, null, null, null, null];
-  const filler = performer((c) => c.resource === 'Coin');
-  s.draftRow = [filler, db.performers[9].id];
-  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
-
-  let offer = s.pending.find((x) => x.kind === 'pressPassOffer');
-  assert.equal(offer.seat, other, 'Press Pass 4 outranks Press Pass 2 and is offered first');
-  assert.equal(offer.data.count, 4);
-
-  applyAction(s, { type: 'resolvePending', seat: other, pendingId: offer.id, use: false });
-  assert.ok(s.players[other].reserve.includes('PressPass-4'), 'declined card stays in reserve for a future round');
-
-  offer = s.pending.find((x) => x.kind === 'pressPassOffer');
-  assert.ok(offer, 'expected the next-highest candidate to be offered');
-  assert.equal(offer.seat, seat);
-  assert.equal(offer.data.count, 2);
-
-  applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, use: true });
-  assert.equal(s.dice.pressPass.seat, seat);
-  assert.equal(s.dice.pressPass.usesLeft, 2);
-  assert.equal(s.dice.pressPassQueue.length, 0, 'only one Press Pass may be spent per round');
-
-  driveDicePhase(s);
-  assert.equal(s.round, 2);
+  s.phase = 'dice';
+  assert.throws(() => applyAction(s, { type: 'usePressPass', seat: other, cardId: 'PressPass-1-1' }), /Collection Dice roll/);
 });
 
 test('Mesmera the Veiled may re-roll the whole Tomato batch once, before it locks', () => {
@@ -1035,13 +987,13 @@ test('state.turnsCompleted increments once per finished turn (drives the server\
   assert.equal(s.turnsCompleted, 1);
 });
 
-test('a full 2-player round keeps every one of the 150 cards accounted for', () => {
+test('a full 2-player round keeps every one of the 154 cards accounted for', () => {
   const s = freshGame(2, 31337);
   // count every card location
   const total = (st) =>
     st.deck.length + st.discard.length + st.market.length + st.draftRow.length +
     st.players.reduce((a, p) => a + p.slots.filter(Boolean).length + p.reserve.length, 0);
-  assert.equal(total(s), 150);
+  assert.equal(total(s), 154);
 });
 
 // ---- multi-trainer slots (5/6/7 all accept Trainer) ------------------------
@@ -1111,20 +1063,20 @@ test('Orsino the Headliner: A/B performers collect +2; Cassius: C/D collect +1',
   assert.equal(p.stars - before, aCount * 3, `expected 1 (base) + 2 (Orsino) = 3 stars per A roll (${aCount}x)`);
 });
 
-test('Delphine Silvertongue triples the Press Pass re-roll pool', () => {
+test('Delphine Silvertongue triples a spent Press Pass\'s private roll count', () => {
   const s = freshGame(2, 555);
   const seat = currentSeat(s);
   const other = s.players.find((x) => x.seat !== seat).seat;
-  s.players[other].reserve = ['PressPass-3'];
+  s.players[other].reserve = ['PressPass-3-1'];
   s.players[other].slots[7] = TRAINERS.DELPHINE;
   s.players[seat].reserve = [];
-  for (const p of s.players) p.slots = p.slots.map((id, i) => (i === 7 ? p.slots[7] : null));
-  const filler = performer((c) => c.resource === 'Coin');
-  s.draftRow = [filler, db.performers[9].id];
-  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
-  const offer = s.pending.find((x) => x.kind === 'pressPassOffer');
-  applyAction(s, { type: 'resolvePending', seat: other, pendingId: offer.id, use: true });
-  assert.equal(s.dice.pressPass.usesLeft, 9, 'Press Pass 3 tripled to 9 by Delphine Silvertongue');
+
+  applyAction(s, { type: 'usePressPass', seat: other, cardId: 'PressPass-3-1' });
+
+  const lastLog = s.log[s.log.length - 1];
+  assert.ok(/for 9 private Collection Die rolls/.test(lastLog), 'Press Pass 3 (count 3) tripled to 9 rolls by Delphine Silvertongue');
+  assert.ok(/tripled by Delphine Silvertongue/.test(lastLog));
+  assert.ok(s.discard.includes('PressPass-3-1'));
 });
 
 test('Higgins the Pawnbroker draws 1 coin whenever another player resets the market', () => {

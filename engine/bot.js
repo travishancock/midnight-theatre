@@ -18,6 +18,7 @@ import {
   heartTargets,
   totalCapacityLeft,
   eligibleFavors,
+  eligiblePressPasses,
   marketCost,
   trainerActive,
   hasFullSet,
@@ -68,8 +69,6 @@ function resolvePrompt(state, seat, item) {
       return { ...base, assignments: chooseHeartAssignments(state, seat, item.data.amount) };
     case 'refill':
       return { ...base, assignments: chooseRefill(state, seat) };
-    case 'pressPassOffer':
-      return { ...base, use: wantsPressPassOffer(state, seat) };
     case 'auricGainChoice':
       return { ...base, ...chooseAuricConversion(state, seat, item.data) };
     // Professor Stainglass / Amara the Reliquary / Jonas Quickfinger / Wendell
@@ -112,33 +111,11 @@ function chooseAuricConversion(state, seat, data) {
   return { convertCoinsToHearts, convertHeartsToCoins };
 }
 
-// Offered before the round's Collection Dice roll: accept whenever we have
-// any Performers on board at all, since a handful of re-rolls on a bad
-// letter is close to free value and there's no cost to holding the option
-// open (declining just keeps the card for a future, higher-priority round).
-function wantsPressPassOffer(state, seat) {
-  return boardLetterCount(state, seat) >= 1;
-}
-
 // ---------------------------------------------------------------------------
 // Dice-phase proactive resources (not gated by a pending prompt — driven
 // directly by the server's/tests' dice-phase pacing loop, same pattern as a
 // human clicking the card whenever it's relevant).
 // ---------------------------------------------------------------------------
-
-// A Collection Die is open (rolled, not yet locked): does this seat control
-// the round's active Press Pass pool, still have re-rolls left, and want to
-// spend one on the current die? Re-roll only when the current letter gains
-// us nothing and we have enough performers on board that a new letter
-// probably helps.
-export function botWantsPressPassRerollNow(state, seat) {
-  const ev = state.dieEvent;
-  if (!ev || ev.kind !== 'collection' || ev.source !== 'phase' || !ev.awaitingLock) return false;
-  const d = state.dice;
-  if (!d.pressPass || d.pressPass.seat !== seat || d.pressPass.usesLeft <= 0) return false;
-  if (collectionGain(state, seat, ev.value) > 0) return false;
-  return boardLetterCount(state, seat) >= 3;
-}
 
 // The round's Tomato batch is rolled but not locked: does this seat control
 // Mesmera and want to re-roll the whole batch? Only if the current batch
@@ -206,16 +183,6 @@ function tomatoThreatens(state, seat, value) {
   return (state.hearts[id] || 0) <= 1; // the hit would discard this card
 }
 
-function collectionGain(state, seat, letter) {
-  const p = state.players[seat];
-  let n = 0;
-  for (let i = 0; i < 5; i++) {
-    const id = p.slots[i];
-    if (id && card(id).cardType === 'performer' && card(id).letter === letter) n++;
-  }
-  return n;
-}
-
 function boardLetterCount(state, seat) {
   const p = state.players[seat];
   return p.slots.slice(0, 5).filter((id) => id && card(id).cardType === 'performer').length;
@@ -261,6 +228,16 @@ function draftTurn(state, seat) {
   if (!state.turn.mainDone) {
     const usable = eligibleFavors(state, seat);
     if (usable.length > 0) return { type: 'useFavor', seat, cardId: usable[0] };
+  }
+
+  // Spend any eligible Press Pass(es) for private Collection Die roll(s)
+  // before acting, same click-anytime pattern as Favors. Only worth it once
+  // we have at least one Performer on board to actually collect from a
+  // private roll — a handful of extra rolls is close to free value, so
+  // never hoard these either.
+  if (!state.turn.mainDone && boardLetterCount(state, seat) >= 1) {
+    const passes = eligiblePressPasses(state, seat);
+    if (passes.length > 0) return { type: 'usePressPass', seat, cardId: passes[0] };
   }
 
   // Maximillian follow-up buys: buy again only if a market card scores well

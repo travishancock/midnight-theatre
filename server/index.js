@@ -17,7 +17,7 @@ import { Server } from 'socket.io';
 
 import { initCards } from '../engine/cards.js';
 import { createGame, applyAction, lockCollectionDie, lockTomatoRoll, trainerActive, TRAINERS } from '../engine/engine.js';
-import { botAction, seatsNeedingInput, botWantsPressPassRerollNow, botWantsMesmeraReroll } from '../engine/bot.js';
+import { botAction, seatsNeedingInput, botWantsMesmeraReroll } from '../engine/bot.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -148,14 +148,13 @@ function runOneBotStep(room) {
 // ---- dice-phase driver -------------------------------------------------------
 //
 // The engine pauses mid-dice-phase at two points so the reveal can be watched
-// and reacted to in real time: a Collection Die sits rolled-but-unlocked
-// (state.dieEvent.awaitingLock) so Press Pass holders can react, and the
-// Tomato batch sits rolled-but-unlocked (state.dice.tomatoRolled &&
+// in real time: a Collection Die sits rolled-but-unlocked
+// (state.dieEvent.awaitingLock) purely for reveal pacing, and the Tomato
+// batch sits rolled-but-unlocked (state.dice.tomatoRolled &&
 // !state.dice.tomatoLocked) so Mesmera's holder can react. Neither pause is a
-// `pending` prompt — they're driven proactively, the same way a human would
-// just click the reactive card if they want it. This driver auto-resolves any
-// bot's reaction immediately, then waits DICE_REVEAL_MS (so everyone can see
-// the die/dice on screen) before locking and letting the engine continue.
+// `pending` prompt. This driver auto-resolves any bot's reaction immediately,
+// then waits DICE_REVEAL_MS (so everyone can see the die/dice on screen)
+// before locking and letting the engine continue.
 
 function scheduleDicePhase(room) {
   if (room.diceTimer || !room.game || room.game.phase !== 'dice') return;
@@ -164,16 +163,6 @@ function scheduleDicePhase(room) {
   const ev = state.dieEvent;
   if (ev && ev.awaitingLock) {
     autoResolveBotDiceReactions(room);
-    // If a connected human holds this round's Press Pass pool and still has
-    // a re-roll left, give them real time to decide instead of auto-locking
-    // on a timer — they either spend a re-roll (usePressPass) or confirm
-    // they're keeping this result (lockPressPassDie). Either action goes
-    // through the normal 'action' handler, which calls scheduleDicePhase
-    // again afterward, so the reveal continues the moment they decide.
-    const pp = state.dice.pressPass;
-    const ppSeat = pp ? room.seats[pp.seat] : null;
-    const humanIsDeciding = pp && pp.usesLeft > 0 && ppSeat && !ppSeat.isBot && ppSeat.socketId;
-    if (humanIsDeciding) return;
     room.diceTimer = setTimeout(() => {
       room.diceTimer = null;
       lockCollectionDie(state);
@@ -209,16 +198,6 @@ function autoResolveBotDiceReactions(room) {
   const state = room.game;
   for (let seat = 0; seat < room.seats.length; seat++) {
     if (!room.seats[seat] || !room.seats[seat].isBot) continue;
-    // A bot may spend more than one re-roll on the same stubborn die before
-    // giving up and locking it in, same as a human could.
-    while (botWantsPressPassRerollNow(state, seat)) {
-      try {
-        applyAction(state, { type: 'usePressPass', seat });
-      } catch (err) {
-        console.error(`[room ${room.code}] bot seat ${seat} illegal usePressPass`, err.message);
-        break;
-      }
-    }
     if (botWantsMesmeraReroll(state, seat)) {
       try {
         applyAction(state, { type: 'mesmeraRerollTomato', seat });

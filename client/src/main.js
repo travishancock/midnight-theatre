@@ -117,6 +117,15 @@ function maxHearts(player, id) {
   return c.maxHearts ?? c.startingHearts ?? 0;
 }
 
+// Like maxHearts, but returns null for card types that don't carry hearts at
+// all (favor/reroll/resource) instead of 0, so callers can tell "no capacity"
+// apart from "capacity of zero" when deciding whether to show a hearts badge.
+function cardMaxHeartsFor(id) {
+  const c = card(id);
+  if (!['performer', 'backdrop', 'prop', 'trainer'].includes(c.cardType)) return null;
+  return c.maxHearts ?? c.startingHearts ?? 0;
+}
+
 function capLeft(player, id) {
   return Math.max(0, maxHearts(player, id) - (st().hearts[id] || 0));
 }
@@ -159,10 +168,11 @@ const imgUrl = (c) => '/' + encodeURI(c.image);
 function cardHtml(id, { size = 'md', extra = '', badge = null, hearts = null, dim = false } = {}) {
   const c = card(id);
   const h = hearts != null ? hearts : null;
+  const max = cardMaxHeartsFor(id);
   return `
     <div class="card ${size} ${dim ? 'dim' : ''} ${extra}" data-cardid="${esc(id)}" title="${esc(cardTitle(c))}">
       <img src="${imgUrl(c)}" alt="${esc(c.name)}" loading="lazy" draggable="false"/>
-      ${h != null ? `<span class="hearts">❤ ${h}</span>` : ''}
+      ${h != null ? `<span class="hearts">❤ ${h}${max != null ? `/${max}` : ''}</span>` : ''}
       ${badge ? `<span class="badge">${badge}</span>` : ''}
     </div>`;
 }
@@ -295,31 +305,6 @@ function winnersBanner(s) {
   return `<div class="winners">🏆 ${esc(names)} win${s.winners.length === 1 ? 's' : ''} the game! 🏆</div>`;
 }
 
-// Does this player control the round's active Press Pass pool, with a
-// currently-open (rolled, not yet locked) Collection Die to spend a re-roll
-// on? Proactive — no prompt, just a clickable affordance while relevant.
-// (Whether to spend the Press Pass at all is a separate, earlier pending
-// prompt — see promptHtml's 'pressPassOffer' case.)
-function pressPassUsesLeft(s, p) {
-  const ev = s.dieEvent;
-  const d = s.dice;
-  if (!p || !ev || ev.kind !== 'collection' || ev.source !== 'phase' || !ev.awaitingLock) return 0;
-  if (!d || !d.pressPass || d.pressPass.seat !== p.seat) return 0;
-  return d.pressPass.usesLeft;
-}
-
-// Whoever holds the round's active Press Pass pool gets real (unhurried)
-// time to decide on an open Collection Die — the server skips its usual
-// reveal timer for them (see server's scheduleDicePhase). Everyone else sees
-// a waiting note instead of the die silently sitting there.
-function pressPassDecider(s) {
-  const ev = s.dieEvent;
-  const d = s.dice;
-  if (!ev || ev.kind !== 'collection' || ev.source !== 'phase' || !ev.awaitingLock) return null;
-  if (!d || !d.pressPass || d.pressPass.usesLeft <= 0) return null;
-  return s.players[d.pressPass.seat] || null;
-}
-
 // Mesmera the Veiled: proactive re-roll of the whole Tomato batch, available
 // only in the window after the batch is rolled and before it locks.
 function mesmeraReady(s, p) {
@@ -349,18 +334,9 @@ function diceTray(s, p) {
     : '';
   if (!d && !ev) return `<div class="dicetray"><span class="hint">Dice are rolled after the draft. ${tomatoForecast(s)}</span></div>`;
 
-  const ppUses = pressPassUsesLeft(s, p);
   const mes = mesmeraReady(s, p);
-  const decider = pressPassDecider(s);
   const mDecider = mesmeraDecider(s);
-  const reactionHtml = ppUses > 0
-    ? `<div class="dice-reaction">
-         <button id="usePressPassBtn" class="primary">Press Pass — re-roll Die #${ev.position} (${ppUses} left)</button>
-         <button id="lockPressPassBtn">Keep this result</button>
-       </div>`
-    : decider && (!p || decider.seat !== p.seat)
-    ? `<div class="dice-reaction"><span class="hint">Waiting for ${esc(decider.name)} to decide on Die #${ev.position} (Press Pass)…</span></div>`
-    : mes
+  const reactionHtml = mes
     ? `<div class="dice-reaction">
          <button id="mesmeraBtn" class="primary">Mesmera: re-roll all Tomato dice</button>
          <button id="keepTomatoBtn">Keep this result</button>
@@ -496,13 +472,6 @@ function waitingNoteHtml(s, p, pending) {
 
 function promptHtml(s, p, item) {
   switch (item.kind) {
-    case 'pressPassOffer': {
-      const c = card(item.data.cardId);
-      return promptBox(`
-        <div>Spend <b>${esc(c.name)}</b> before this round's Collection Dice start rolling? If you do, you'll get up to <b>${item.data.count}</b> re-roll${item.data.count > 1 ? 's' : ''} to use on any Collection Die this round, while it's rolled but not yet locked.</div>
-        <button id="pressPassYes" class="primary">Spend it</button>
-        <button id="pressPassNo">Keep it in reserve</button>`);
-    }
     case 'placement': {
       return promptBox(`Place <b>${esc(card(item.data.cardId).name)}</b> — click a highlighted slot on your mat below. The current occupant (if any) moves to your reserve.`);
     }
@@ -640,6 +609,15 @@ function favorReadyNow(s, p, id) {
   return c.triggerAfterTurn === 1 ? p.turns === 0 : p.turns >= 1;
 }
 
+// A Press Pass card can be spent at any point during the draft phase — not
+// turn-gated (see engine.js's usePressPass action) — to roll that many
+// private Collection Die(s) before the round's 5 shared dice. Never a
+// forced prompt; just clickable like a Favor.
+function pressPassReadyNow(s, p, id) {
+  if (s.phase !== 'draft') return false;
+  return card(id).cardType === 'reroll';
+}
+
 function myMatHtml(s, p, pending) {
   const placing = pending?.kind === 'placement' || pending?.kind === 'cardResourcePlacement';
   const allowed = placing ? pending.data.allowedSlots : [];
@@ -647,6 +625,7 @@ function myMatHtml(s, p, pending) {
   const slots = r ? r.slots : p.slots;
   const reserve = r ? r.reserve : p.reserve;
   const anyFavorReady = !r && reserve.some((id) => favorReadyNow(s, p, id));
+  const anyPressPassReady = !r && reserve.some((id) => pressPassReadyNow(s, p, id));
 
   return `<section class="mymat">
     <div class="mat-head">
@@ -665,12 +644,20 @@ function myMatHtml(s, p, pending) {
     </div>
     <div class="reserve">
       <h4>Reserve (${reserve.length}) <span class="hint">favor & re-roll cards live here; bumped cards wait here</span>
-        ${anyFavorReady ? '<span class="hint gold">— click a Favor below for an extra turn</span>' : ''}</h4>
+        ${anyFavorReady ? '<span class="hint gold">— click a Favor below for an extra turn</span>' : ''}
+        ${anyPressPassReady ? '<span class="hint gold">— click a Press Pass below for private die roll(s)</span>' : ''}</h4>
       <div class="cardrow" id="myReserve">
         ${reserve.map((id, i) => {
           const sel = r?.picked?.zone === 'reserve' && r.picked.index === i;
           const favorReady = !r && favorReadyNow(s, p, id);
-          return `<div class="pickable ${sel ? 'selected' : ''} ${favorReady ? 'favor-ready' : ''}" data-reserve="${i}" ${favorReady ? 'title="Click to spend this Favor for an extra turn"' : ''}>${cardHtml(id, { size: 'sm', hearts: (s.hearts[id] || 0) || null })}</div>`;
+          const pressPassReady = !r && pressPassReadyNow(s, p, id);
+          const ready = favorReady || pressPassReady;
+          const title = favorReady
+            ? 'Click to spend this Favor for an extra turn'
+            : pressPassReady
+            ? 'Click to spend this Press Pass for private Collection Die roll(s)'
+            : '';
+          return `<div class="pickable ${sel ? 'selected' : ''} ${ready ? 'favor-ready' : ''}" data-reserve="${i}" ${title ? `title="${title}"` : ''}>${cardHtml(id, { size: 'sm', hearts: cardMaxHeartsFor(id) != null ? (s.hearts[id] || 0) : null })}</div>`;
         }).join('') || (r ? '' : '<span class="hint">empty</span>')}
         ${r ? '<div class="pickable droptarget" data-reserve="-1">⤓ move here</div>' : ''}
       </div>
@@ -785,6 +772,8 @@ function wireGameEvents(s, p, pending) {
     if (ui.mode === 'rearrange') return pickForSwap('reserve', i);
     if (!ui.mode && i >= 0 && favorReadyNow(s, p, p.reserve[i])) {
       send({ type: 'useFavor', cardId: p.reserve[i] });
+    } else if (!ui.mode && i >= 0 && pressPassReadyNow(s, p, p.reserve[i])) {
+      send({ type: 'usePressPass', cardId: p.reserve[i] });
     }
   });
 
@@ -805,16 +794,8 @@ function wireGameEvents(s, p, pending) {
     ui.heartPlan = {};
     send({ type: 'resolvePending', pendingId: pending.id, assignments });
   });
-  document.getElementById('usePressPassBtn')?.addEventListener('click', () => send({ type: 'usePressPass' }));
-  document.getElementById('lockPressPassBtn')?.addEventListener('click', () => send({ type: 'lockPressPassDie' }));
   document.getElementById('mesmeraBtn')?.addEventListener('click', () => send({ type: 'mesmeraRerollTomato' }));
   document.getElementById('keepTomatoBtn')?.addEventListener('click', () => send({ type: 'keepTomatoRoll' }));
-  document.getElementById('pressPassYes')?.addEventListener('click', () =>
-    send({ type: 'resolvePending', pendingId: pending.id, use: true })
-  );
-  document.getElementById('pressPassNo')?.addEventListener('click', () =>
-    send({ type: 'resolvePending', pendingId: pending.id, use: false })
-  );
   document.getElementById('cardResourceToReserve')?.addEventListener('click', () =>
     send({ type: 'resolvePending', pendingId: pending.id, toReserve: true })
   );
