@@ -16,15 +16,15 @@ let view = { lobby: null, state: null };
 
 // Transient UI state
 let ui = {
-  mode: null, // null | 'rearrange' | 'discardDraft' | 'placeSlot'
+  mode: null, // null | 'rearrange' | 'atlasTilt'
+  rearrangeFree: false, // true when the current 'rearrange' mode is Madame Barre's free (non-turn-consuming) rearrange
   rearrange: null, // { slots, reserve, picked: {zone, index} | null }
   heartPlan: {}, // cardId -> amount, for heartAssign prompt
   refillPlan: null, // [{slot, cardId}]
   logOpen: true,
 };
 
-const SLOT_NAMES = ['Performer 1', 'Performer 2', 'Performer 3', 'Performer 4', 'Performer 5', 'Backdrop', 'Prop', 'Trainer'];
-const TRAINER_DISCARDERS = ['Tomasso-the-Terrible', 'Madame-Curio', 'Professor-Stainglass'];
+const SLOT_NAMES = ['Performer 1', 'Performer 2', 'Performer 3', 'Performer 4', 'Performer 5', 'Backdrop / Trainer', 'Prop / Trainer', 'Trainer'];
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -88,6 +88,7 @@ function announceTrophies(newLines) {
 
 function resetTransientUi() {
   ui.mode = null;
+  ui.rearrangeFree = false;
   ui.rearrange = null;
   ui.heartPlan = {};
   ui.refillPlan = null;
@@ -102,7 +103,12 @@ const st = () => view.state;
 const me = () => st()?.players?.[my.seat];
 
 function trainerIs(player, id) {
-  return player.slots[7] === id;
+  return player.slots[5] === id || player.slots[6] === id || player.slots[7] === id;
+}
+
+// All Trainer ids currently active on a player's board (0-3 of them).
+function activeTrainerIds(player) {
+  return [player.slots[5], player.slots[6], player.slots[7]].filter((id) => id && card(id).cardType === 'trainer');
 }
 
 function maxHearts(player, id) {
@@ -397,11 +403,10 @@ function tomatoForecast(s) {
 
 function draftRowHtml(s, p, pending) {
   const clickable = isMyTurn() && !ui.mode;
-  const discardMode = ui.mode === 'discardDraft';
   return `<div class="zone">
     <h3>Draft row <span class="hint">(free — ends when 1 card remains)</span></h3>
-    <div class="cardrow ${clickable || discardMode ? 'clickable' : ''}" id="draftRow">
-      ${s.draftRow.map((id) => cardHtml(id, { size: 'md', extra: discardMode ? 'danger' : '' })).join('') || '<span class="hint">empty</span>'}
+    <div class="cardrow ${clickable ? 'clickable' : ''}" id="draftRow">
+      ${s.draftRow.map((id) => cardHtml(id, { size: 'md' })).join('') || '<span class="hint">empty</span>'}
     </div>
   </div>`;
 }
@@ -426,30 +431,48 @@ function marketHtml(s, p) {
   </div>`;
 }
 
+function dancerCountOf(p) {
+  return p.slots.slice(0, 5).filter((id) => id && card(id).type === 'Dancer').length;
+}
+
 function turnBarHtml(s, p) {
   if (!p) return '';
   if (s.phase !== 'draft' || !s.turn) return '';
   if (s.turn.seat !== my.seat || s.turn.done || s.pending.length > 0) return '';
 
   const t = s.turn;
-  const trainerId = p.slots[7];
+  const trainers = activeTrainerIds(p);
   const buttons = [];
 
   if (ui.mode === 'rearrange') {
-    buttons.push(`<button id="confirmRearrange" class="primary">Confirm arrangement (ends turn)</button>`);
+    buttons.push(ui.rearrangeFree
+      ? `<button id="confirmRearrange" class="primary">Confirm free rearrangement (Madame Barre)</button>`
+      : `<button id="confirmRearrange" class="primary">Confirm arrangement (ends turn)</button>`);
     buttons.push(`<button id="cancelMode">Cancel</button>`);
-  } else if (ui.mode === 'discardDraft') {
-    buttons.push(`<span class="hint">Click a draft-row card to discard it (${esc(card(trainerId)?.name || '')})</span>`);
+  } else if (ui.mode === 'atlasTilt') {
+    buttons.push(`<span class="hint">Click one of your mat cards below to tilt it (Atlas the Steadfast)</span>`);
     buttons.push(`<button id="cancelMode">Cancel</button>`);
   } else {
     if (!t.mainDone) {
       buttons.push(`<span class="yourturn">Your turn — click a draft card to take it, buy from the market, or:</span>`);
       buttons.push(`<button id="rearrangeBtn">Rearrange troupe (uses turn)</button>`);
-      if (trainerId && TRAINER_DISCARDERS.includes(trainerId) && !t.trainerDiscardUsed && s.draftRow.length >= 2) {
-        buttons.push(`<button id="trainerDiscardBtn">${esc(card(trainerId).name)}: discard a draft card</button>`);
+      if (trainers.includes('Tomasso-the-Terrible')) {
+        const n = dancerCountOf(p);
+        buttons.push(`<button id="tomassoBtn" ${n >= 1 ? '' : 'disabled'} title="${n < 1 ? 'You need at least 1 Dancer on your board' : ''}">Tomasso the Terrible: roll ${n} Tomato ${n === 1 ? 'die' : 'dice'} (uses turn)</button>`);
       }
-      if (trainerId === 'The-Vanishing-Valentino' && p.valentinoAvailable) {
-        buttons.push(`<button id="valentinoBtn">Vanishing Valentino: clear the draft row (once per game)</button>`);
+      if (trainers.includes('Madame-Barre')) {
+        buttons.push(`<button id="freeRearrangeBtn">Madame Barre: freely rearrange (free)</button>`);
+      }
+      if (trainers.includes('The-Vanishing-Valentino')) {
+        buttons.push(`<button id="valentinoBtn">The Vanishing Valentino: end the draft (free)</button>`);
+      }
+      if (trainers.includes('Celestine-the-Stargazer') && !t.celestineUsed) {
+        for (const n of [1, 2, 3]) {
+          buttons.push(`<button class="small" data-celestine="${n}" ${p.coins >= n * 2 ? '' : 'disabled'}>Celestine: buy ${n}⭐ (${n * 2}🪙)</button>`);
+        }
+      }
+      if (trainers.includes('Atlas-the-Steadfast') && !t.atlasUsed) {
+        buttons.push(`<button id="atlasBtn">Atlas the Steadfast: tilt a card (free)</button>`);
       }
     }
     if (t.open) buttons.push(`<button id="endTurnBtn" class="primary">End turn (Maximillian)</button>`);
@@ -521,6 +544,35 @@ function promptHtml(s, p, item) {
         </div>
         <button id="auricGainConfirm" class="primary">Confirm</button>`);
     }
+    case 'postAcquireDiscard': {
+      const labels = {
+        stainglass: 'Discard it (Professor Stainglass) — draw 1 card',
+        amara: 'Discard it (Amara the Reliquary) — move its hearts to another card',
+        jonas: 'Discard it (Jonas Quickfinger) — collect its resource',
+        wendell: 'Discard it (Wendell the Propmaster) — take a different one from the discard pile',
+      };
+      return promptBox(`
+        <div>You just acquired <b>${esc(item.data.cardName)}</b> — keep it, or discard it right now for a Trainer effect?</div>
+        <div class="assignrow">
+          ${item.data.choices.map((ch) => `<button data-postacquire="${esc(ch)}">${labels[ch]}</button>`).join('')}
+        </div>
+        <button id="postAcquireKeep" class="primary">Keep it</button>`);
+    }
+    case 'amaraHeartMove': {
+      const targets = [...p.slots.filter(Boolean), ...p.reserve].filter((id) => capLeft(p, id) > 0);
+      return promptBox(`
+        <div>Amara the Reliquary: place ${item.data.amount} heart(s) on another card.</div>
+        <div class="assignrow">
+          ${targets.map((id) => `<div class="pickable" data-amaratarget="${esc(id)}">${cardHtml(id, { size: 'sm', hearts: s.hearts[id] || 0 })}</div>`).join('')}
+        </div>`);
+    }
+    case 'wendellSwap': {
+      return promptBox(`
+        <div>Wendell the Propmaster: take a different one from the discard pile.</div>
+        <div class="assignrow">
+          ${item.data.options.map((id) => `<div class="pickable" data-wendelloption="${esc(id)}">${cardHtml(id, { size: 'sm' })}</div>`).join('')}
+        </div>`);
+    }
     case 'refill': {
       const plan = ui.refillPlan ?? defaultRefillPlan(s, p);
       ui.refillPlan = plan;
@@ -546,9 +598,16 @@ function promptBox(inner) {
   return `<div class="prompt">${inner}</div>`;
 }
 
+function wantTypesForSlot(slot) {
+  if (slot <= 4) return ['performer'];
+  if (slot === 5) return ['backdrop', 'trainer'];
+  if (slot === 6) return ['prop', 'trainer'];
+  return ['trainer'];
+}
+
 function suitableFor(p, slot) {
-  const wantType = slot <= 4 ? 'performer' : slot === 5 ? 'backdrop' : slot === 6 ? 'prop' : 'trainer';
-  return p.reserve.filter((id) => card(id).cardType === wantType);
+  const wantTypes = wantTypesForSlot(slot);
+  return p.reserve.filter((id) => wantTypes.includes(card(id).cardType));
 }
 
 function defaultRefillPlan(s, p) {
@@ -556,8 +615,8 @@ function defaultRefillPlan(s, p) {
   const plan = [];
   for (let slot = 0; slot < 8; slot++) {
     if (p.slots[slot] != null) continue;
-    const wantType = slot <= 4 ? 'performer' : slot === 5 ? 'backdrop' : slot === 6 ? 'prop' : 'trainer';
-    const idx = remaining.findIndex((id) => card(id).cardType === wantType);
+    const wantTypes = wantTypesForSlot(slot);
+    const idx = remaining.findIndex((id) => wantTypes.includes(card(id).cardType));
     if (idx >= 0) {
       plan.push({ slot, cardId: remaining[idx] });
       remaining.splice(idx, 1);
@@ -645,15 +704,12 @@ function wireGameEvents(s, p, pending) {
     render();
   });
 
-  // Draft-row clicks: acquire, or trainer-discard.
+  // Draft-row clicks: acquire.
   document.getElementById('draftRow')?.addEventListener('click', (e) => {
     const el = e.target.closest('[data-cardid]');
     if (!el) return;
     const id = el.dataset.cardid;
-    if (ui.mode === 'discardDraft') {
-      ui.mode = null;
-      send({ type: 'trainerDiscardDraft', cardId: id });
-    } else if (isMyTurn() && !ui.mode && !s.turn.mainDone) {
+    if (isMyTurn() && !ui.mode && !s.turn.mainDone) {
       send({ type: 'acquireDraft', cardId: id });
     }
   });
@@ -667,28 +723,42 @@ function wireGameEvents(s, p, pending) {
   // Turn bar.
   document.getElementById('rearrangeBtn')?.addEventListener('click', () => {
     ui.mode = 'rearrange';
+    ui.rearrangeFree = false;
+    ui.rearrange = { slots: [...p.slots], reserve: [...p.reserve], picked: null };
+    render();
+  });
+  document.getElementById('freeRearrangeBtn')?.addEventListener('click', () => {
+    ui.mode = 'rearrange';
+    ui.rearrangeFree = true;
     ui.rearrange = { slots: [...p.slots], reserve: [...p.reserve], picked: null };
     render();
   });
   document.getElementById('cancelMode')?.addEventListener('click', () => {
     ui.mode = null;
+    ui.rearrangeFree = false;
     ui.rearrange = null;
     render();
   });
   document.getElementById('confirmRearrange')?.addEventListener('click', () => {
     const r = ui.rearrange;
+    const free = ui.rearrangeFree;
     ui.mode = null;
+    ui.rearrangeFree = false;
     ui.rearrange = null;
-    send({ type: 'rearrange', slots: r.slots, reserve: r.reserve });
+    send({ type: free ? 'freeRearrange' : 'rearrange', slots: r.slots, reserve: r.reserve });
   });
-  document.getElementById('trainerDiscardBtn')?.addEventListener('click', () => {
-    ui.mode = 'discardDraft';
+  document.getElementById('tomassoBtn')?.addEventListener('click', () => send({ type: 'tomassoRoll' }));
+  document.getElementById('valentinoBtn')?.addEventListener('click', () => send({ type: 'valentinoEndDraft' }));
+  document.getElementById('atlasBtn')?.addEventListener('click', () => {
+    ui.mode = 'atlasTilt';
     render();
   });
-  document.getElementById('valentinoBtn')?.addEventListener('click', () => send({ type: 'valentino' }));
+  app.querySelectorAll('[data-celestine]').forEach((b) =>
+    b.addEventListener('click', () => send({ type: 'celestineBuyStars', count: +b.dataset.celestine }))
+  );
   document.getElementById('endTurnBtn')?.addEventListener('click', () => send({ type: 'endTurn' }));
 
-  // My mat: placement prompt, rearrange swaps.
+  // My mat: placement prompt, rearrange swaps, Atlas tilt.
   document.getElementById('mySlots')?.addEventListener('click', (e) => {
     const slotEl = e.target.closest('[data-slot]');
     if (!slotEl) return;
@@ -701,6 +771,12 @@ function wireGameEvents(s, p, pending) {
       return;
     }
     if (ui.mode === 'rearrange') return pickForSwap('slot', i);
+    if (ui.mode === 'atlasTilt') {
+      if (!p.slots[i]) return;
+      ui.mode = null;
+      send({ type: 'atlasTilt', slot: i });
+      return;
+    }
   });
   document.getElementById('myReserve')?.addEventListener('click', (e) => {
     const el = e.target.closest('[data-reserve]');
@@ -741,6 +817,18 @@ function wireGameEvents(s, p, pending) {
   );
   document.getElementById('cardResourceToReserve')?.addEventListener('click', () =>
     send({ type: 'resolvePending', pendingId: pending.id, toReserve: true })
+  );
+  document.getElementById('postAcquireKeep')?.addEventListener('click', () =>
+    send({ type: 'resolvePending', pendingId: pending.id, choice: 'keep' })
+  );
+  app.querySelectorAll('[data-postacquire]').forEach((b) =>
+    b.addEventListener('click', () => send({ type: 'resolvePending', pendingId: pending.id, choice: b.dataset.postacquire }))
+  );
+  app.querySelectorAll('[data-amaratarget]').forEach((el) =>
+    el.addEventListener('click', () => send({ type: 'resolvePending', pendingId: pending.id, targetCardId: el.dataset.amaratarget }))
+  );
+  app.querySelectorAll('[data-wendelloption]').forEach((el) =>
+    el.addEventListener('click', () => send({ type: 'resolvePending', pendingId: pending.id, cardId: el.dataset.wendelloption }))
   );
   document.getElementById('auricGainConfirm')?.addEventListener('click', () => {
     const convertCoinsToHearts = !!document.getElementById('auricConvertCoins')?.checked;

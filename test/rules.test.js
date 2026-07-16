@@ -105,7 +105,7 @@ test('setup: coins by draft stand, row sizes, trophy goal', () => {
   const s5 = freshGame(5);
   assert.equal(s5.trophyGoal, 3); // 4-5 players -> 3 trophies
   assert.equal(s5.draftRow.length, 11);
-  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, 139);
+  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, 150);
 });
 
 test('acquiring a performer fills the lowest empty slot with printed hearts', () => {
@@ -455,36 +455,68 @@ test('Auric the Alchemist: converting received hearts into coins skips heart pla
   assert.ok(!s.pending.some((x) => x.kind === 'heartAssign'), 'no heart-placement prompt — they were converted, not kept as hearts');
 });
 
-test('Professor Stainglass: discard a draft card to draw one into reserve', () => {
+test('Professor Stainglass: acquired cards may be immediately discarded to draw 1', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.STAINGLASS;
-  const victim = s.draftRow[0];
+  const perf = performer((c) => c.startingHearts != null);
+  s.draftRow[0] = perf;
   const deckTop = s.deck[s.deck.length - 1];
-  applyAction(s, { type: 'trainerDiscardDraft', seat, cardId: victim });
-  assert.ok(s.discard.includes(victim));
-  assert.ok(p.reserve.includes(deckTop));
-  // Using the ability consumes the whole turn, so a second use isn't just
-  // blocked by the once-per-turn flag — play has already moved on.
-  assert.notEqual(s.turn?.seat, seat);
-  assert.throws(() => applyAction(s, { type: 'trainerDiscardDraft', seat, cardId: s.draftRow[0] }), /not your turn/);
+  applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
+  assert.equal(p.slots[0], perf, 'placed normally first');
+  const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
+  assert.ok(offer, 'expected a postAcquireDiscard prompt');
+  assert.deepEqual(offer.data.choices, ['stainglass']);
+  applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, choice: 'stainglass' });
+  assert.ok(s.discard.includes(perf), 'discarded');
+  assert.equal(p.slots[0], null);
+  assert.ok(p.reserve.includes(deckTop), 'drew the top card into reserve');
 });
 
-test('The Vanishing Valentino clears the draft row once, consuming trainer and turn', () => {
+test('Professor Stainglass: "keep" leaves the card exactly as placed', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.STAINGLASS;
+  const perf = performer((c) => c.startingHearts != null);
+  s.draftRow[0] = perf;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
+  const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
+  applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, choice: 'keep' });
+  assert.equal(p.slots[0], perf);
+});
+
+test('The Vanishing Valentino ends the draft immediately, at no turn cost, and is unlimited-use', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.VALENTINO;
   const rowBefore = [...s.draftRow];
-  applyAction(s, { type: 'valentino', seat });
-  assert.equal(p.slots[7], null);
+  applyAction(s, { type: 'valentinoEndDraft', seat });
   for (const id of rowBefore) assert.ok(s.discard.includes(id));
+  assert.equal(p.slots[7], TRAINERS.VALENTINO, 'the trainer itself is not discarded (only 1 heart now, no self-discard clause)');
   // The draft ended (row empty); with empty boards the dice phase runs
   // through (pausing at each open die/tomato-batch window) and round 2 begins.
   driveDicePhase(s);
   assert.equal(s.round, 2);
-  assert.equal(p.valentinoAvailable, false);
+});
+
+test('freeRearrange: Madame Barre may rearrange for free (any slot), without ending the turn', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.BARRE;
+  const perf = db.performers[0].id;
+  p.slots[0] = perf;
+  applyAction(s, {
+    type: 'freeRearrange', seat,
+    slots: [null, null, null, null, null, null, perf, TRAINERS.BARRE],
+    reserve: [],
+  });
+  assert.equal(p.slots[6], perf, 'Barre allows any card in any slot');
+  assert.equal(s.turn.seat, seat, 'still the same turn — free rearrange does not end it');
+  assert.equal(s.turn.mainDone, false);
 });
 
 test('rearrange must conserve cards and respect slot types', () => {
@@ -911,14 +943,62 @@ test('Performer heart capacity is independent of starting fill (regression: capa
   assert.ok(capacityLeft(s, seat, sample.id) > 0, 'a performer below its printed max must have room for more hearts');
 });
 
-test('Trainer draft-discard abilities (Tomasso/Curio/Stainglass) consume the whole turn', () => {
+test('Tomasso the Terrible: rolls 1 Tomato die per own Dancer, consumes the turn, spares self', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
+  const other = s.players.find((x) => x.seat !== seat);
   const p = s.players[seat];
-  p.slots[7] = TRAINERS.STAINGLASS;
-  const victim = s.draftRow[0];
-  applyAction(s, { type: 'trainerDiscardDraft', seat, cardId: victim });
+  p.slots[7] = TRAINERS.TOMASSO;
+  // No Dancers yet: the ability is unusable.
+  assert.throws(() => applyAction(s, { type: 'tomassoRoll', seat }), /at least one Dancer/);
+  const dancer1 = performer((c) => c.type === 'Dancer');
+  const dancer2 = performer((c) => c.type === 'Dancer' && c.id !== dancer1);
+  p.slots[0] = dancer1;
+  p.slots[1] = dancer2;
+  s.hearts[dancer1] = 5;
+  s.hearts[dancer2] = 5;
+  const otherPerf = db.performers.find((c) => c.id !== dancer1 && c.id !== dancer2).id;
+  other.slots[0] = otherPerf;
+  s.hearts[otherPerf] = 5;
+  applyAction(s, { type: 'tomassoRoll', seat });
   assert.notEqual(s.turn?.seat, seat, 'using the ability ended the turn — play moved to the next stand');
+  // Self is never hit; own Dancer hearts unchanged.
+  assert.equal(s.hearts[dancer1], 5);
+  assert.equal(s.hearts[dancer2], 5);
+});
+
+test('Madame Curio: automatic free Collection Die at the start of her holder\'s turn, Acrobats only, letter-gated', () => {
+  const s = freshGame(2, 8675309);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.CURIO;
+  const acro = performer((c) => c.type === 'Acrobat' && c.resource === 'Coin');
+  p.slots[0] = acro;
+  s.hearts[acro] = card(acro).startingHearts ?? 0;
+  p.coins = 5;
+  // Game creation already resolved curioDone for this very turn (before
+  // Curio was equipped, so it was a no-op) — reset it and force the next
+  // randInt(20) to land on this Acrobat's letter, then trigger advance()
+  // via a turn-preserving action (resetMarket doesn't end the turn).
+  s.turn.curioDone = false;
+  s.rng = rngForLetter(card(acro).letter);
+  applyAction(s, { type: 'resetMarket', seat });
+  assert.equal(s.turn.seat, seat, 'still the same turn — the auto-roll does not end it');
+  assert.equal(p.coins, 5 - 1 + 1, 'paid 1 coin to reset the market, gained 1 coin from the Acrobat collecting (Curio)');
+
+  // A non-Acrobat matching the same letter must NOT collect from Curio's roll.
+  const s2 = freshGame(2, 8675309);
+  const seat2 = currentSeat(s2);
+  const p2 = s2.players[seat2];
+  p2.slots[7] = TRAINERS.CURIO;
+  const nonAcro = performer((c) => c.type !== 'Acrobat' && c.resource === 'Coin');
+  p2.slots[0] = nonAcro;
+  s2.hearts[nonAcro] = card(nonAcro).startingHearts ?? 0;
+  p2.coins = 5;
+  s2.turn.curioDone = false;
+  s2.rng = rngForLetter(card(nonAcro).letter);
+  applyAction(s2, { type: 'resetMarket', seat: seat2 });
+  assert.equal(p2.coins, 4, 'only paid the 1-coin reset cost — no collection for a non-Acrobat');
 });
 
 test('Multiple eligible Favors can be spent in the same turn window, queuing multiple bonus turns', () => {
@@ -955,13 +1035,239 @@ test('state.turnsCompleted increments once per finished turn (drives the server\
   assert.equal(s.turnsCompleted, 1);
 });
 
-test('a full 2-player round keeps every one of the 139 cards accounted for', () => {
+test('a full 2-player round keeps every one of the 150 cards accounted for', () => {
   const s = freshGame(2, 31337);
   // count every card location
   const total = (st) =>
     st.deck.length + st.discard.length + st.market.length + st.draftRow.length +
     st.players.reduce((a, p) => a + p.slots.filter(Boolean).length + p.reserve.length, 0);
-  assert.equal(total(s), 139);
+  assert.equal(total(s), 150);
+});
+
+// ---- multi-trainer slots (5/6/7 all accept Trainer) ------------------------
+
+test('SLOTS_FOR_TYPE: slot 7 is Trainer-only, slots 5/6 accept their natural card OR a Trainer', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  assert.deepEqual(allowedSlots(s, seat, TRAINERS.AURIC), [5, 6, 7]);
+  assert.deepEqual(allowedSlots(s, seat, 'Prop-Graceful'), [6]);
+  assert.deepEqual(allowedSlots(s, seat, 'Backdrop-Graceful'), [5]);
+});
+
+test('trainerActive scans all 3 trainer slots — up to 3 Trainers active at once', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[5] = TRAINERS.BARNABY;
+  p.slots[6] = TRAINERS.MAXIMILLIAN;
+  p.slots[7] = TRAINERS.COEUR;
+  assert.equal(marketCost(s, seat, 0), 1, 'Barnaby active from slot 5');
+  s.players[seat].coins = 10;
+  s.market = db.performers.slice(40, 44).map((c) => c.id); // pin to plain performers
+  applyAction(s, { type: 'buyMarket', seat, index: 0 });
+  assert.equal(s.turn.open, true, 'Maximillian active from slot 6 keeps the turn open after a buy');
+});
+
+test('acquiring a 4th Trainer (all 3 slots full) prompts a placement choice', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[5] = TRAINERS.BARNABY;
+  p.slots[6] = TRAINERS.MAXIMILLIAN;
+  p.slots[7] = TRAINERS.COEUR;
+  s.draftRow[0] = TRAINERS.AURIC;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: TRAINERS.AURIC });
+  const pending = s.pending.find((x) => x.kind === 'placement');
+  assert.ok(pending, 'expected a placement prompt with all 3 Trainer slots full');
+  assert.deepEqual(pending.data.allowedSlots.sort(), [5, 6, 7]);
+  applyAction(s, { type: 'resolvePending', seat, pendingId: pending.id, slot: 5 });
+  assert.equal(p.slots[5], TRAINERS.AURIC);
+  assert.ok(p.reserve.includes(TRAINERS.BARNABY));
+});
+
+// ---- new trainers -----------------------------------------------------------
+
+test('Orsino the Headliner: A/B performers collect +2; Cassius: C/D collect +1', () => {
+  const s = freshGame(2, 1234);
+  const seat = currentSeat(s);
+  const other = s.players.find((x) => x.seat !== seat).seat;
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.ORSINO;
+  const perfA = performer((c) => c.letter === 'A'); // letter A performers are always Star-resource
+  p.slots[0] = perfA;
+  s.hearts[perfA] = card(perfA).startingHearts ?? 0;
+  s.players[other].slots = [null, null, null, null, null, null, null, null];
+  p.reserve = [];
+  s.players[other].reserve = [];
+  const filler = performer((c) => c.letter === 'B' && c.resource === 'Coin' && c.id !== perfA);
+  s.draftRow = [filler, db.performers.find((c) => c.id !== perfA && c.id !== filler).id];
+  const rngNow = 999;
+  s.rng = rngNow;
+  const seq = predict(rngNow, [20, 20, 20, 20, 20, 1000, 1000, 8]);
+  const aCount = seq.slice(0, 5).map((i) => COLLECTION_FACES[i]).filter((l) => l === 'A').length;
+  const before = p.stars;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+  driveDicePhase(s);
+  assert.equal(p.stars - before, aCount * 3, `expected 1 (base) + 2 (Orsino) = 3 stars per A roll (${aCount}x)`);
+});
+
+test('Delphine Silvertongue triples the Press Pass re-roll pool', () => {
+  const s = freshGame(2, 555);
+  const seat = currentSeat(s);
+  const other = s.players.find((x) => x.seat !== seat).seat;
+  s.players[other].reserve = ['PressPass-3'];
+  s.players[other].slots[7] = TRAINERS.DELPHINE;
+  s.players[seat].reserve = [];
+  for (const p of s.players) p.slots = p.slots.map((id, i) => (i === 7 ? p.slots[7] : null));
+  const filler = performer((c) => c.resource === 'Coin');
+  s.draftRow = [filler, db.performers[9].id];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+  const offer = s.pending.find((x) => x.kind === 'pressPassOffer');
+  applyAction(s, { type: 'resolvePending', seat: other, pendingId: offer.id, use: true });
+  assert.equal(s.dice.pressPass.usesLeft, 9, 'Press Pass 3 tripled to 9 by Delphine Silvertongue');
+});
+
+test('Higgins the Pawnbroker draws 1 coin whenever another player resets the market', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const other = s.players.find((x) => x.seat !== seat).seat;
+  s.players[other].slots[7] = TRAINERS.HIGGINS;
+  s.players[other].coins = 0;
+  s.players[seat].coins = 3;
+  applyAction(s, { type: 'resetMarket', seat });
+  assert.equal(s.players[other].coins, 1, 'Higgins holder draws 1 coin from someone else\'s market reset');
+});
+
+test('Amara the Reliquary: discard an acquired performer to move its hearts to another card', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.AMARA;
+  const target = db.performers.find((c) => c.maxHearts >= 2).id;
+  p.slots[1] = target;
+  s.hearts[target] = 0;
+  const perf = performer((c) => c.startingHearts >= 1 && c.id !== target);
+  s.draftRow[0] = perf;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
+  const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
+  assert.ok(offer.data.choices.includes('amara'));
+  applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, choice: 'amara' });
+  const move = s.pending.find((x) => x.kind === 'amaraHeartMove');
+  assert.ok(move, 'expected an amaraHeartMove prompt');
+  assert.equal(move.data.amount, card(perf).startingHearts);
+  applyAction(s, { type: 'resolvePending', seat, pendingId: move.id, targetCardId: target });
+  assert.equal(s.hearts[target], Math.min(card(perf).startingHearts, card(target).maxHearts));
+  assert.ok(s.discard.includes(perf));
+});
+
+test('Jonas Quickfinger: discard an acquired performer to collect its resource', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.JONAS;
+  p.coins = 0;
+  const perf = performer((c) => c.resource === 'Coin');
+  s.draftRow[0] = perf;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
+  const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
+  assert.ok(offer.data.choices.includes('jonas'));
+  applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, choice: 'jonas' });
+  assert.equal(p.coins, 1);
+  assert.ok(s.discard.includes(perf));
+  assert.equal(p.slots[0], null);
+});
+
+test('Wendell the Propmaster: discard an acquired backdrop/prop for a different one from the discard pile', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.WENDELL;
+  s.discard.push('Prop-Powerful');
+  s.draftRow[0] = 'Prop-Graceful';
+  applyAction(s, { type: 'acquireDraft', seat, cardId: 'Prop-Graceful' });
+  assert.equal(p.slots[6], 'Prop-Graceful');
+  const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
+  assert.ok(offer.data.choices.includes('wendell'));
+  applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, choice: 'wendell' });
+  const swap = s.pending.find((x) => x.kind === 'wendellSwap');
+  assert.ok(swap);
+  assert.ok(swap.data.options.includes('Prop-Powerful'));
+  applyAction(s, { type: 'resolvePending', seat, pendingId: swap.id, cardId: 'Prop-Powerful' });
+  assert.equal(p.slots[6], 'Prop-Powerful');
+  assert.ok(s.discard.includes('Prop-Graceful'));
+});
+
+test('Celestine the Stargazer: to start your turn, buy up to 3 stars for 2 coins each', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.CELESTINE;
+  p.coins = 6;
+  applyAction(s, { type: 'celestineBuyStars', seat, count: 3 });
+  assert.equal(p.coins, 0);
+  assert.equal(p.stars, 3);
+  assert.throws(() => applyAction(s, { type: 'celestineBuyStars', seat, count: 1 }), /already used/);
+});
+
+test('Atlas the Steadfast: tilting a card protects it from collecting and losing hearts this round', () => {
+  const s = freshGame(2, 1234);
+  const seat = currentSeat(s);
+  const other = s.players.find((x) => x.seat !== seat).seat;
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.ATLAS;
+  const perfH = performer((c) => c.letter === 'H' && c.resource === 'Star' && c.characteristic === 'Graceful');
+  p.slots[0] = perfH;
+  s.hearts[perfH] = 3;
+  s.players[other].slots = [null, null, null, null, null, null, null, null];
+  s.players[other].reserve = [];
+  p.reserve = [];
+  applyAction(s, { type: 'atlasTilt', seat, slot: 0 });
+  assert.ok(s.tilted[perfH]);
+  const filler = performer((c) => c.letter === 'B' && c.resource === 'Coin');
+  s.draftRow = [filler, db.performers[3].id];
+  const rngNow = 999;
+  s.rng = rngNow;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+  driveDicePhase(s);
+  assert.equal(p.stars, 0, 'tilted card never collects, even on a matching roll');
+  assert.equal(s.hearts[perfH], 3, 'tilted card never loses hearts (trophy fatigue or tomato) this round');
+});
+
+test('Bellacanto the Choirmistress: Singers in reserve also collect, letter-gated', () => {
+  const s = freshGame(2, 1234);
+  const seat = currentSeat(s);
+  const other = s.players.find((x) => x.seat !== seat).seat;
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.BELLACANTO;
+  const singerH = performer((c) => c.letter === 'H' && c.type === 'Singer'); // letter H performers are always Star-resource
+  p.reserve = [singerH];
+  s.hearts[singerH] = card(singerH).startingHearts ?? 0;
+  s.players[other].slots = [null, null, null, null, null, null, null, null];
+  s.players[other].reserve = [];
+  const filler = performer((c) => c.letter === 'B' && c.resource === 'Coin' && c.id !== singerH);
+  s.draftRow = [filler, db.performers.find((c) => c.id !== singerH && c.id !== filler).id];
+  const rngNow = 999;
+  s.rng = rngNow;
+  const seq = predict(rngNow, [20, 20, 20, 20, 20, 1000, 1000, 8]);
+  const hCount = seq.slice(0, 5).map((i) => COLLECTION_FACES[i]).filter((l) => l === 'H').length;
+  const before = p.stars;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+  driveDicePhase(s);
+  assert.equal(p.stars - before, hCount, 'reserve Singer collected 1 star per matching H roll (Bellacanto)');
+});
+
+test('Ezra the Sleight-of-Hand: receives the draft\'s leftover card if he has an Illusionist', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.EZRA;
+  const illusionist = performer((c) => c.type === 'Illusionist');
+  p.slots[0] = illusionist;
+  const leftover = db.performers.find((c) => c.id !== illusionist).id;
+  s.draftRow = [leftover];
+  applyAction(s, { type: 'rearrange', seat, slots: [...p.slots], reserve: [...p.reserve] });
+  assert.ok(p.reserve.includes(leftover), 'Ezra receives the leftover draft card into reserve instead of it being discarded');
+  assert.ok(!s.discard.includes(leftover));
 });
 
 console.log(`\nrules.test.js: ${passed} passing${process.exitCode ? ' (with failures)' : ''}`);

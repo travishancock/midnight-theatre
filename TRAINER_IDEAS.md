@@ -115,7 +115,8 @@ Grounded against the live implementation (`engine/engine.js`, `engine/bot.js`, `
 ### 18. Madame Fortuna
 - **Ability:** Before your acquire decision, look at and reorder the top 3 cards of the deck. Your market resets cost 0.
 - **Category:** Market-economy hook + light scry. [NEW PATTERN] (deck-peek/reorder) — modest addition.
-- **Combos:** Free resets make **Barnaby** (existing) and **Maximillian** (existing) far stronger — churn the market cheaply until the card you want appears. Also feeds **#19 The Archivist**'s appetite for deck manipulation.
+- **Combos:** Free resets make **Barnaby** 
+(existing) and **Maximillian** (existing) far stronger — churn the market cheaply until the card you want appears. Also feeds **#19 The Archivist**'s appetite for deck manipulation.
 
 ### 19. The Archivist (Brother Cassius)
 - **Ability:** Discard 1 card from the draft row to draw the top 2 cards of the deck to your reserve, then discard one of them.

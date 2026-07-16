@@ -72,6 +72,21 @@ function resolvePrompt(state, seat, item) {
       return { ...base, use: wantsPressPassOffer(state, seat) };
     case 'auricGainChoice':
       return { ...base, ...chooseAuricConversion(state, seat, item.data) };
+    // Professor Stainglass / Amara the Reliquary / Jonas Quickfinger / Wendell
+    // the Propmaster: the bot never proactively discards a just-acquired
+    // card for these (keeps AI behavior simple and non-regressive — the old
+    // engine's bot never used the equivalent discard abilities either).
+    case 'postAcquireDiscard':
+      return { ...base, choice: 'keep' };
+    // Defensive fallbacks — unreachable in practice since the bot always
+    // keeps rather than choosing 'amara'/'wendell' above, but resolved
+    // sensibly rather than left to throw if that ever changes.
+    case 'amaraHeartMove': {
+      const targets = heartTargets(state, seat);
+      return { ...base, targetCardId: targets[0] ?? null };
+    }
+    case 'wendellSwap':
+      return { ...base, cardId: item.data.options[0] ?? null };
     default:
       // Unknown prompt kind: decline/no-op resolution keeps the game moving.
       return { ...base };
@@ -213,12 +228,12 @@ function chooseRefill(state, seat) {
   const out = [];
   for (let slot = 0; slot < 8; slot++) {
     if (p.slots[slot] != null) continue;
-    const wantType = slot <= 4 ? 'performer' : slot === 5 ? 'backdrop' : slot === 6 ? 'prop' : 'trainer';
+    const wantTypes = slot <= 4 ? ['performer'] : slot === 5 ? ['backdrop', 'trainer'] : slot === 6 ? ['prop', 'trainer'] : ['trainer'];
     let bestIdx = -1;
     let bestVal = -Infinity;
     for (let i = 0; i < remaining.length; i++) {
       const c = card(remaining[i]);
-      if (c.cardType !== wantType) continue;
+      if (!wantTypes.includes(c.cardType)) continue;
       const v = (state.hearts[remaining[i]] || 0) * 2 + (c.cardType === 'performer' ? LETTER_FREQ[c.letter] || 0 : 1);
       if (v > bestVal) {
         bestVal = v;
@@ -324,7 +339,8 @@ function scoreCard(state, seat, id) {
     }
     case 'trainer': {
       let s = 2.4;
-      if (p.slots[7] == null) s += 2;
+      const emptyTrainerSlot = [5, 6, 7].some((i) => p.slots[i] == null);
+      if (emptyTrainerSlot) s += 2;
       else s -= 1.5;
       return s;
     }

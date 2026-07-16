@@ -11,7 +11,7 @@
       "startingHearts": 0,
       "powerDots": 1,
       "image": "cards/Graceful Acrobat M A.webp",
-      "maxHearts": 2
+      "maxHearts": 1
     },
     {
       "id": "Graceful-Acrobat-F-C",
@@ -21,7 +21,7 @@
       "gender": "Female",
       "letter": "C",
       "resource": "Coin",
-      "startingHearts": 2,
+      "startingHearts": 3,
       "powerDots": 2,
       "image": "cards/Graceful Acrobat F C.webp",
       "maxHearts": 3
@@ -34,7 +34,7 @@
       "gender": "Female",
       "letter": "E",
       "resource": "Star",
-      "startingHearts": 0,
+      "startingHearts": 1,
       "powerDots": 3,
       "image": "cards/Graceful Acrobat F E.webp",
       "maxHearts": 1
@@ -47,7 +47,7 @@
       "gender": "Male",
       "letter": "G",
       "resource": "Heart",
-      "startingHearts": 0,
+      "startingHearts": 2,
       "powerDots": 4,
       "image": "cards/Graceful Acrobat M G.webp",
       "maxHearts": 3
@@ -60,10 +60,10 @@
       "gender": "Male",
       "letter": "B",
       "resource": "Coin",
-      "startingHearts": 1,
+      "startingHearts": 0,
       "powerDots": 1,
       "image": "cards/Graceful Dancer M B.webp",
-      "maxHearts": 1
+      "maxHearts": 2
     },
     {
       "id": "Graceful-Dancer-F-D",
@@ -76,7 +76,7 @@
       "startingHearts": 1,
       "powerDots": 2,
       "image": "cards/Graceful Dancer F D.webp",
-      "maxHearts": 2
+      "maxHearts": 3
     },
     {
       "id": "Graceful-Dancer-F-F",
@@ -89,7 +89,7 @@
       "startingHearts": 1,
       "powerDots": 3,
       "image": "cards/Graceful Dancer F F.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Graceful-Dancer-M-H",
@@ -99,10 +99,10 @@
       "gender": "Male",
       "letter": "H",
       "resource": "Star",
-      "startingHearts": 2,
+      "startingHearts": 0,
       "powerDots": 4,
       "image": "cards/Graceful Dancer M H.webp",
-      "maxHearts": 2
+      "maxHearts": 3
     },
     {
       "id": "Graceful-Singer-M-A",
@@ -112,10 +112,10 @@
       "gender": "Male",
       "letter": "A",
       "resource": "Star",
-      "startingHearts": 0,
+      "startingHearts": 2,
       "powerDots": 1,
       "image": "cards/Graceful Singer M A.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Graceful-Singer-F-C",
@@ -138,10 +138,10 @@
       "gender": "Female",
       "letter": "E",
       "resource": "Star",
-      "startingHearts": 0,
+      "startingHearts": 3,
       "powerDots": 3,
       "image": "cards/Graceful Singer F E.webp",
-      "maxHearts": 2
+      "maxHearts": 3
     },
     {
       "id": "Graceful-Singer-M-G",
@@ -164,7 +164,7 @@
       "gender": "Male",
       "letter": "B",
       "resource": "Heart",
-      "startingHearts": 1,
+      "startingHearts": 2,
       "powerDots": 1,
       "image": "cards/Graceful Illusionist M B.webp",
       "maxHearts": 3
@@ -177,10 +177,10 @@
       "gender": "Female",
       "letter": "D",
       "resource": "Star",
-      "startingHearts": 1,
+      "startingHearts": 0,
       "powerDots": 2,
       "image": "cards/Graceful Illusionist F D.webp",
-      "maxHearts": 1
+      "maxHearts": 2
     },
     {
       "id": "Graceful-Illusionist-F-F",
@@ -193,7 +193,7 @@
       "startingHearts": 1,
       "powerDots": 3,
       "image": "cards/Graceful Illusionist F F.webp",
-      "maxHearts": 2
+      "maxHearts": 3
     },
     {
       "id": "Graceful-Illusionist-M-H",
@@ -206,7 +206,7 @@
       "startingHearts": 1,
       "powerDots": 4,
       "image": "cards/Graceful Illusionist M H.webp",
-      "maxHearts": 1
+      "maxHearts": 2
     },
     {
       "id": "Powerful-Acrobat-F-B",
@@ -216,10 +216,10 @@
       "gender": "Female",
       "letter": "B",
       "resource": "Heart",
-      "startingHearts": 1,
+      "startingHearts": 0,
       "powerDots": 1,
       "image": "cards/Powerful Acrobat F B.webp",
-      "maxHearts": 1
+      "maxHearts": 3
     },
     {
       "id": "Powerful-Acrobat-M-D",
@@ -232,7 +232,7 @@
       "startingHearts": 2,
       "powerDots": 2,
       "image": "cards/Powerful Acrobat M D.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Powerful-Acrobat-M-F",
@@ -255,10 +255,10 @@
       "gender": "Female",
       "letter": "H",
       "resource": "Star",
-      "startingHearts": 2,
+      "startingHearts": 3,
       "powerDots": 4,
       "image": "cards/Powerful Acrobat F H.webp",
-      "maxHearts": 2
+      "maxHearts": 3
     },
     {
       "id": "Powerful-Dancer-F-A",
@@ -268,10 +268,10 @@
       "gender": "Female",
       "letter": "A",
       "resource": "Star",
-      "startingHearts": 0,
+      "startingHearts": 1,
       "powerDots": 1,
       "image": "cards/Powerful Dancer F A.webp",
-      "maxHearts": 3
+      "maxHearts": 1
     },
     {
       "id": "Powerful-Dancer-M-C",
@@ -281,10 +281,10 @@
       "gender": "Male",
       "letter": "C",
       "resource": "Coin",
-      "startingHearts": 1,
+      "startingHearts": 2,
       "powerDots": 2,
       "image": "cards/Powerful Dancer M C.webp",
-      "maxHearts": 2
+      "maxHearts": 3
     },
     {
       "id": "Powerful-Dancer-M-E",
@@ -294,10 +294,10 @@
       "gender": "Male",
       "letter": "E",
       "resource": "Star",
-      "startingHearts": 1,
+      "startingHearts": 0,
       "powerDots": 3,
       "image": "cards/Powerful Dancer M E.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Powerful-Dancer-F-G",
@@ -310,7 +310,7 @@
       "startingHearts": 1,
       "powerDots": 4,
       "image": "cards/Powerful Dancer F G.webp",
-      "maxHearts": 1
+      "maxHearts": 3
     },
     {
       "id": "Powerful-Singer-F-B",
@@ -320,7 +320,7 @@
       "gender": "Female",
       "letter": "B",
       "resource": "Coin",
-      "startingHearts": 2,
+      "startingHearts": 1,
       "powerDots": 1,
       "image": "cards/Powerful Singer F B.webp",
       "maxHearts": 2
@@ -336,7 +336,7 @@
       "startingHearts": 0,
       "powerDots": 2,
       "image": "cards/Powerful Singer M D.webp",
-      "maxHearts": 1
+      "maxHearts": 3
     },
     {
       "id": "Powerful-Singer-M-F",
@@ -346,7 +346,7 @@
       "gender": "Male",
       "letter": "F",
       "resource": "Heart",
-      "startingHearts": 0,
+      "startingHearts": 2,
       "powerDots": 3,
       "image": "cards/Powerful Singer M F.webp",
       "maxHearts": 2
@@ -359,10 +359,10 @@
       "gender": "Female",
       "letter": "H",
       "resource": "Star",
-      "startingHearts": 2,
+      "startingHearts": 0,
       "powerDots": 4,
       "image": "cards/Powerful Singer F H.webp",
-      "maxHearts": 3
+      "maxHearts": 1
     },
     {
       "id": "Powerful-Illusionist-F-A",
@@ -372,10 +372,10 @@
       "gender": "Female",
       "letter": "A",
       "resource": "Star",
-      "startingHearts": 0,
+      "startingHearts": 3,
       "powerDots": 1,
       "image": "cards/Powerful Illusionist F A.webp",
-      "maxHearts": 2
+      "maxHearts": 3
     },
     {
       "id": "Powerful-Illusionist-M-C",
@@ -398,10 +398,10 @@
       "gender": "Male",
       "letter": "E",
       "resource": "Star",
-      "startingHearts": 1,
+      "startingHearts": 2,
       "powerDots": 3,
       "image": "cards/Powerful Illusionist M E.webp",
-      "maxHearts": 2
+      "maxHearts": 3
     },
     {
       "id": "Powerful-Illusionist-F-G",
@@ -414,7 +414,7 @@
       "startingHearts": 0,
       "powerDots": 4,
       "image": "cards/Powerful Illusionist F G.webp",
-      "maxHearts": 3
+      "maxHearts": 2
     },
     {
       "id": "Dramatic-Acrobat-M-A",
@@ -427,7 +427,7 @@
       "startingHearts": 1,
       "powerDots": 1,
       "image": "cards/Dramatic Acrobat M A.webp",
-      "maxHearts": 1
+      "maxHearts": 3
     },
     {
       "id": "Dramatic-Acrobat-F-C",
@@ -450,7 +450,7 @@
       "gender": "Female",
       "letter": "E",
       "resource": "Star",
-      "startingHearts": 1,
+      "startingHearts": 0,
       "powerDots": 3,
       "image": "cards/Dramatic Acrobat F E.webp",
       "maxHearts": 3
@@ -479,7 +479,7 @@
       "startingHearts": 0,
       "powerDots": 1,
       "image": "cards/Dramatic Dancer M B.webp",
-      "maxHearts": 3
+      "maxHearts": 1
     },
     {
       "id": "Dramatic-Dancer-F-D",
@@ -489,10 +489,10 @@
       "gender": "Female",
       "letter": "D",
       "resource": "Star",
-      "startingHearts": 0,
+      "startingHearts": 3,
       "powerDots": 2,
       "image": "cards/Dramatic Dancer F D.webp",
-      "maxHearts": 1
+      "maxHearts": 3
     },
     {
       "id": "Dramatic-Dancer-F-F",
@@ -502,10 +502,10 @@
       "gender": "Female",
       "letter": "F",
       "resource": "Coin",
-      "startingHearts": 0,
+      "startingHearts": 1,
       "powerDots": 3,
       "image": "cards/Dramatic Dancer F F.webp",
-      "maxHearts": 2
+      "maxHearts": 1
     },
     {
       "id": "Dramatic-Dancer-M-H",
@@ -515,10 +515,10 @@
       "gender": "Male",
       "letter": "H",
       "resource": "Star",
-      "startingHearts": 1,
+      "startingHearts": 2,
       "powerDots": 4,
       "image": "cards/Dramatic Dancer M H.webp",
-      "maxHearts": 1
+      "maxHearts": 3
     },
     {
       "id": "Dramatic-Singer-M-A",
@@ -528,7 +528,7 @@
       "gender": "Male",
       "letter": "A",
       "resource": "Star",
-      "startingHearts": 2,
+      "startingHearts": 0,
       "powerDots": 1,
       "image": "cards/Dramatic Singer M A.webp",
       "maxHearts": 2
@@ -557,7 +557,7 @@
       "startingHearts": 1,
       "powerDots": 3,
       "image": "cards/Dramatic Singer F E.webp",
-      "maxHearts": 1
+      "maxHearts": 2
     },
     {
       "id": "Dramatic-Singer-M-G",
@@ -567,7 +567,7 @@
       "gender": "Male",
       "letter": "G",
       "resource": "Heart",
-      "startingHearts": 2,
+      "startingHearts": 0,
       "powerDots": 4,
       "image": "cards/Dramatic Singer M G.webp",
       "maxHearts": 3
@@ -580,7 +580,7 @@
       "gender": "Male",
       "letter": "B",
       "resource": "Coin",
-      "startingHearts": 0,
+      "startingHearts": 2,
       "powerDots": 1,
       "image": "cards/Dramatic Illusionist M B.webp",
       "maxHearts": 2
@@ -593,10 +593,10 @@
       "gender": "Female",
       "letter": "D",
       "resource": "Star",
-      "startingHearts": 2,
+      "startingHearts": 0,
       "powerDots": 2,
       "image": "cards/Dramatic Illusionist F D.webp",
-      "maxHearts": 3
+      "maxHearts": 1
     },
     {
       "id": "Dramatic-Illusionist-F-F",
@@ -606,10 +606,10 @@
       "gender": "Female",
       "letter": "F",
       "resource": "Heart",
-      "startingHearts": 0,
+      "startingHearts": 3,
       "powerDots": 3,
       "image": "cards/Dramatic Illusionist F F.webp",
-      "maxHearts": 1
+      "maxHearts": 3
     },
     {
       "id": "Dramatic-Illusionist-M-H",
@@ -619,10 +619,10 @@
       "gender": "Male",
       "letter": "H",
       "resource": "Star",
-      "startingHearts": 0,
+      "startingHearts": 1,
       "powerDots": 4,
       "image": "cards/Dramatic Illusionist M H.webp",
-      "maxHearts": 3
+      "maxHearts": 1
     },
     {
       "id": "Haunting-Acrobat-F-B",
@@ -632,7 +632,7 @@
       "gender": "Female",
       "letter": "B",
       "resource": "Coin",
-      "startingHearts": 0,
+      "startingHearts": 2,
       "powerDots": 1,
       "image": "cards/Haunting Acrobat F B.webp",
       "maxHearts": 3
@@ -645,7 +645,7 @@
       "gender": "Male",
       "letter": "D",
       "resource": "Star",
-      "startingHearts": 1,
+      "startingHearts": 0,
       "powerDots": 2,
       "image": "cards/Haunting Acrobat M D.webp",
       "maxHearts": 2
@@ -674,7 +674,7 @@
       "startingHearts": 1,
       "powerDots": 4,
       "image": "cards/Haunting Acrobat F H.webp",
-      "maxHearts": 1
+      "maxHearts": 2
     },
     {
       "id": "Haunting-Dancer-F-A",
@@ -684,10 +684,10 @@
       "gender": "Female",
       "letter": "A",
       "resource": "Star",
-      "startingHearts": 2,
+      "startingHearts": 0,
       "powerDots": 1,
       "image": "cards/Haunting Dancer F A.webp",
-      "maxHearts": 2
+      "maxHearts": 3
     },
     {
       "id": "Haunting-Dancer-M-C",
@@ -697,10 +697,10 @@
       "gender": "Male",
       "letter": "C",
       "resource": "Heart",
-      "startingHearts": 0,
+      "startingHearts": 2,
       "powerDots": 2,
       "image": "cards/Haunting Dancer M C.webp",
-      "maxHearts": 1
+      "maxHearts": 2
     },
     {
       "id": "Haunting-Dancer-M-E",
@@ -713,7 +713,7 @@
       "startingHearts": 0,
       "powerDots": 3,
       "image": "cards/Haunting Dancer M E.webp",
-      "maxHearts": 2
+      "maxHearts": 1
     },
     {
       "id": "Haunting-Dancer-F-G",
@@ -723,7 +723,7 @@
       "gender": "Female",
       "letter": "G",
       "resource": "Coin",
-      "startingHearts": 2,
+      "startingHearts": 3,
       "powerDots": 4,
       "image": "cards/Haunting Dancer F G.webp",
       "maxHearts": 3
@@ -749,7 +749,7 @@
       "gender": "Male",
       "letter": "D",
       "resource": "Star",
-      "startingHearts": 1,
+      "startingHearts": 2,
       "powerDots": 2,
       "image": "cards/Haunting Singer M D.webp",
       "maxHearts": 3
@@ -762,10 +762,10 @@
       "gender": "Male",
       "letter": "F",
       "resource": "Coin",
-      "startingHearts": 1,
+      "startingHearts": 0,
       "powerDots": 3,
       "image": "cards/Haunting Singer M F.webp",
-      "maxHearts": 1
+      "maxHearts": 2
     },
     {
       "id": "Haunting-Singer-F-H",
@@ -778,7 +778,7 @@
       "startingHearts": 1,
       "powerDots": 4,
       "image": "cards/Haunting Singer F H.webp",
-      "maxHearts": 2
+      "maxHearts": 3
     },
     {
       "id": "Haunting-Illusionist-F-A",
@@ -791,7 +791,7 @@
       "startingHearts": 1,
       "powerDots": 1,
       "image": "cards/Haunting Illusionist F A.webp",
-      "maxHearts": 1
+      "maxHearts": 2
     },
     {
       "id": "Haunting-Illusionist-M-C",
@@ -801,7 +801,7 @@
       "gender": "Male",
       "letter": "C",
       "resource": "Coin",
-      "startingHearts": 2,
+      "startingHearts": 0,
       "powerDots": 2,
       "image": "cards/Haunting Illusionist M C.webp",
       "maxHearts": 3
@@ -814,10 +814,10 @@
       "gender": "Male",
       "letter": "E",
       "resource": "Star",
-      "startingHearts": 0,
+      "startingHearts": 2,
       "powerDots": 3,
       "image": "cards/Haunting Illusionist M E.webp",
-      "maxHearts": 1
+      "maxHearts": 2
     },
     {
       "id": "Haunting-Illusionist-F-G",
@@ -827,10 +827,10 @@
       "gender": "Female",
       "letter": "G",
       "resource": "Heart",
-      "startingHearts": 2,
+      "startingHearts": 0,
       "powerDots": 4,
       "image": "cards/Haunting Illusionist F G.webp",
-      "maxHearts": 2
+      "maxHearts": 1
     }
   ],
   "propsAndBackdrops": [
@@ -1111,28 +1111,28 @@
     {
       "id": "Madame-Coeur",
       "name": "Madame Coeur",
-      "ability": "Your acquired cards start with all hearts filled in",
+      "ability": "Acquired cards start with their max hearts",
       "startingHearts": 3,
       "image": "cards/Trainer Madame Coeur.webp"
     },
     {
       "id": "Tomasso-the-Terrible",
       "name": "Tomasso the Terrible",
-      "ability": "Discard 1 draft card to roll 1 tomato die; only affects other players",
-      "startingHearts": 3,
+      "ability": "You may spend your turn to roll 1 tomato die per Dancer; only other players are affected",
+      "startingHearts": 2,
       "image": "cards/Trainer Tomasso the Terrible.webp"
     },
     {
       "id": "Madame-Curio",
       "name": "Madame Curio",
-      "ability": "Discard 1 draft card to roll 1 collection die; only you collect",
+      "ability": "To start your turn roll 1 collection die. Only you collect on all Acrobats.",
       "startingHearts": 3,
       "image": "cards/Trainer Madame Curio.webp"
     },
     {
       "id": "Professor-Stainglass",
       "name": "Professor Stainglass",
-      "ability": "Discard 1 draft card to draw 1 from the deck",
+      "ability": "Acquired cards may be immediately discarded to draw 1 card from the deck",
       "startingHearts": 3,
       "image": "cards/Trainer Professor Stainglass.webp"
     },
@@ -1153,7 +1153,7 @@
     {
       "id": "Madame-Barre",
       "name": "Madame Barre",
-      "ability": "You may place cards in any slot on your board",
+      "ability": "To start your turn you may freely rearrange your cards, and place them in any slot",
       "startingHearts": 3,
       "image": "cards/Trainer Madame Barre.webp"
     },
@@ -1167,16 +1167,93 @@
     {
       "id": "Mesmera-the-Veiled",
       "name": "Mesmera the Veiled",
-      "ability": "You may re-roll all tomato dice one time each round.",
+      "ability": "You may re-roll all Tomato dice after viewing the result",
       "startingHearts": 3,
       "image": "cards/Trainer Mesmera the Veiled.webp"
     },
     {
       "id": "The-Vanishing-Valentino",
       "name": "The Vanishing Valentino",
-      "ability": "You may use turn to discard this trainer (if active) to discard all cards in the draft",
-      "startingHearts": 3,
+      "ability": "To start your turn you may end the draft",
+      "startingHearts": 1,
       "image": "cards/Trainer The Vanishing Valentino.webp"
+    },
+    {
+      "id": "Orsino-the-Headliner",
+      "name": "Orsino the Headliner",
+      "ability": "Your A and B performers collect +2 when rolled",
+      "startingHearts": 3,
+      "image": "cards/Trainer Orsino the Headliner.webp"
+    },
+    {
+      "id": "Cassius-the-Second-Act",
+      "name": "Cassius the Second Act",
+      "ability": "Your C and D performers collect +1 when rolled",
+      "startingHearts": 3,
+      "image": "cards/Trainer Cassius the Second Act.webp"
+    },
+    {
+      "id": "Delphine-Silvertongue",
+      "name": "Delphine Silvertongue",
+      "ability": "Your press pass roll amounts are tripled",
+      "startingHearts": 3,
+      "image": "cards/Trainer Delphine Silvertongue.webp"
+    },
+    {
+      "id": "Higgins-the-Pawnbroker",
+      "name": "Higgins the Pawnbroker",
+      "ability": "Draw 1 coin each time another player resets the market",
+      "startingHearts": 2,
+      "image": "cards/Trainer Higgins the Pawnbroker.webp"
+    },
+    {
+      "id": "Amara-the-Reliquary",
+      "name": "Amara the Reliquary",
+      "ability": "Acquired performers may be immediately discarded to place their filled hearts on another card",
+      "startingHearts": 3,
+      "image": "cards/Trainer Amara the Reliquary.webp"
+    },
+    {
+      "id": "Jonas-Quickfinger",
+      "name": "Jonas Quickfinger",
+      "ability": "Acquired performers may be immediately discarded to collect their resource",
+      "startingHearts": 3,
+      "image": "cards/Trainer Jonas Quickfinger.webp"
+    },
+    {
+      "id": "Wendell-the-Propmaster",
+      "name": "Wendell the Propmaster",
+      "ability": "Acquired backdrops or props may be immediately discarded to take a different one from the discard pile",
+      "startingHearts": 3,
+      "image": "cards/Trainer Wendell the Propmaster.webp"
+    },
+    {
+      "id": "Celestine-the-Stargazer",
+      "name": "Celestine the Stargazer",
+      "ability": "To start your turn you may buy up to 3 stars for 2 coins each",
+      "startingHearts": 3,
+      "image": "cards/Trainer Celestine the Stargazer.webp"
+    },
+    {
+      "id": "Atlas-the-Steadfast",
+      "name": "Atlas the Steadfast",
+      "ability": "To start your turn you may tilt one of your starting cards; It will not collect and can not lose hearts this round.",
+      "startingHearts": 3,
+      "image": "cards/Trainer Atlas the Steadfast.webp"
+    },
+    {
+      "id": "Bellacanto-the-Choirmistress",
+      "name": "Bellacanto the Choirmistress",
+      "ability": "You collect from all Singers in your reserve",
+      "startingHearts": 3,
+      "image": "cards/Trainer Bellacanto the Choirmistress.webp"
+    },
+    {
+      "id": "Ezra-the-Sleight-of-Hand",
+      "name": "Ezra the Sleight-of-Hand",
+      "ability": "If you have at least one Illusionist, you receive the leftover card from the draft",
+      "startingHearts": 3,
+      "image": "cards/Trainer Ezra the Sleight-of-Hand.webp"
     }
   ],
   "resources": [

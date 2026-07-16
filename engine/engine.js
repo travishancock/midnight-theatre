@@ -21,16 +21,19 @@ export const COLLECTION_FACES = [
 ];
 export const LETTER_FREQ = { A: 1, B: 1, C: 2, D: 2, E: 3, F: 3, G: 4, H: 4 };
 
-// Mat slots: indices 0-4 Performers, 5 Backdrop, 6 Prop, 7 Trainer.
+// Mat slots: indices 0-4 Performers, 5 Backdrop/Trainer, 6 Prop/Trainer, 7 Trainer.
+// Slots 5 and 6 can each hold either their natural card (Backdrop/Prop) or a
+// Trainer instead; slot 7 is Trainer-only. Up to 3 Trainers can be active on
+// a board at once as a result.
 export const SLOT_NAMES = [
   'Performer 1', 'Performer 2', 'Performer 3', 'Performer 4', 'Performer 5',
-  'Backdrop', 'Prop', 'Trainer',
+  'Backdrop / Trainer', 'Prop / Trainer', 'Trainer',
 ];
 export const SLOTS_FOR_TYPE = {
   performer: [0, 1, 2, 3, 4],
   backdrop: [5],
   prop: [6],
-  trainer: [7],
+  trainer: [5, 6, 7],
 };
 
 export const TRAINERS = {
@@ -44,6 +47,17 @@ export const TRAINERS = {
   MAXIMILLIAN: 'Maximillian-the-Magnate',
   MESMERA: 'Mesmera-the-Veiled',
   VALENTINO: 'The-Vanishing-Valentino',
+  ORSINO: 'Orsino-the-Headliner',
+  CASSIUS: 'Cassius-the-Second-Act',
+  DELPHINE: 'Delphine-Silvertongue',
+  HIGGINS: 'Higgins-the-Pawnbroker',
+  AMARA: 'Amara-the-Reliquary',
+  JONAS: 'Jonas-Quickfinger',
+  WENDELL: 'Wendell-the-Propmaster',
+  CELESTINE: 'Celestine-the-Stargazer',
+  ATLAS: 'Atlas-the-Steadfast',
+  BELLACANTO: 'Bellacanto-the-Choirmistress',
+  EZRA: 'Ezra-the-Sleight-of-Hand',
 };
 
 const MAX_TOMATO_DICE = 9; // the physical game has 9 tomato dice
@@ -81,9 +95,8 @@ export function createGame({ players, seed }) {
       stand: 0, // draft-order stand 1..n
       slots: [null, null, null, null, null, null, null, null],
       reserve: [],
-      valentinoAvailable: true,
     })),
-    turn: null, // { seat, mainDone, done, open, buys, trainerDiscardUsed, isBonus, bonusTiming }
+    turn: null, // { seat, mainDone, done, open, buys, isBonus, bonusTiming, curioDone, celestineUsed, atlasUsed }
     dice: null, // dice-phase progress
     dieEvent: null, // an in-flight die roll open to re-roll reactions
     pending: [], // decision prompts awaiting player input
@@ -91,6 +104,7 @@ export function createGame({ players, seed }) {
     winners: null,
     log: [],
     turnsCompleted: 0, // incremented once per finished turn — lets a driver (e.g. the server's bot loop) detect "a turn just ended" without re-deriving it from seat/phase changes
+    tilted: {}, // cardId -> true, Atlas the Steadfast: immune to collecting/losing hearts this round; cleared each round
   };
 
   state.deck = shuffle(state, allCardIds().slice());
@@ -109,11 +123,21 @@ export function createGame({ players, seed }) {
   state.turn = newTurn(seatWithStand(state, 1));
   log(state, `Curtain up! ${state.players.length} players, first trophy-holder to ${state.trophyGoal} trophies wins.`);
   log(state, `${nameOf(state, state.turn.seat)} holds Draft Stand 1 and goes first.`);
+  // No one can hold a Trainer yet at true game start, but this still needs to
+  // run so the very first turn's curioDone flag gets resolved the same way
+  // every later turn's does (via finishTurn's continue-loop inside advance) —
+  // otherwise Madame Curio's auto-roll would silently never fire on whatever
+  // seat happens to hold Draft Stand 1 the very first time a Curio-holding
+  // player reaches this exact seat/turn slot after a reshuffle of stands.
+  advance(state);
   return state;
 }
 
 function newTurn(seat, isBonus = false, bonusTiming = null) {
-  return { seat, mainDone: false, done: false, open: false, buys: 0, trainerDiscardUsed: false, isBonus, bonusTiming };
+  return {
+    seat, mainDone: false, done: false, open: false, buys: 0, isBonus, bonusTiming,
+    curioDone: false, celestineUsed: false, atlasUsed: false,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -153,8 +177,15 @@ function draw(state, n) {
 }
 
 export function trainerActive(state, seat, trainerId) {
-  const id = state.players[seat].slots[7];
-  return id != null && id === trainerId;
+  const slots = state.players[seat].slots;
+  return slots[5] === trainerId || slots[6] === trainerId || slots[7] === trainerId;
+}
+
+// All Trainer ids currently active on this seat's board (0-3 of them, since
+// slots 5/6/7 can each independently hold a Trainer).
+export function activeTrainers(state, seat) {
+  const slots = state.players[seat].slots;
+  return [slots[5], slots[6], slots[7]].filter((id) => id && card(id).cardType === 'trainer');
 }
 
 // Max hearts a card can hold. This is its printed capacity — which is NOT
@@ -243,6 +274,10 @@ function heartHit(state, seat, slotIdx, why) {
   const p = state.players[seat];
   const id = p.slots[slotIdx];
   if (!id) return;
+  if (state.tilted && state.tilted[id]) {
+    log(state, `${p.name}'s ${card(id).name} is tilted (Atlas the Steadfast) — protected from losing a heart (${why}).`);
+    return;
+  }
   const h = state.hearts[id] || 0;
   if (h > 0) {
     state.hearts[id] = h - 1;
@@ -363,18 +398,32 @@ function boostCount(state, seat, performer) {
   return n;
 }
 
-function resolveCollectionDie(state, letter, onlySeat = null) {
+// typeFilterFn, if given, further restricts which performers can collect
+// (e.g. Madame Curio's automatic start-of-turn roll only benefits Acrobats).
+function resolveCollectionDie(state, letter, onlySeat = null, typeFilterFn = null, reasonLabel = null) {
   for (const p of state.players) {
     if (onlySeat != null && p.seat !== onlySeat) continue;
     let heartsEarned = 0;
     let coinsEarned = 0;
     const gains = [];
-    for (let i = 0; i < 5; i++) {
-      const id = p.slots[i];
+    // Board performers, plus (Bellacanto the Choirmistress) any Singer
+    // performers sitting in reserve.
+    const sources = [...p.slots.slice(0, 5)];
+    if (trainerActive(state, p.seat, TRAINERS.BELLACANTO)) {
+      for (const id of p.reserve) {
+        const c = card(id);
+        if (c.cardType === 'performer' && c.type === 'Singer') sources.push(id);
+      }
+    }
+    for (const id of sources) {
       if (!id) continue;
+      if (state.tilted && state.tilted[id]) continue;
       const c = card(id);
       if (c.cardType !== 'performer' || c.letter !== letter) continue;
-      const units = 1 + boostCount(state, p.seat, c);
+      if (typeFilterFn && !typeFilterFn(c)) continue;
+      let units = 1 + boostCount(state, p.seat, c);
+      if ((letter === 'A' || letter === 'B') && trainerActive(state, p.seat, TRAINERS.ORSINO)) units += 2;
+      if ((letter === 'C' || letter === 'D') && trainerActive(state, p.seat, TRAINERS.CASSIUS)) units += 1;
       if (c.resource === 'Star') {
         p.stars += units;
         p.roundStars += units;
@@ -387,8 +436,8 @@ function resolveCollectionDie(state, letter, onlySeat = null) {
         gains.push(`${units} heart${units > 1 ? 's' : ''}`);
       }
     }
-    if (gains.length) log(state, `${p.name} collects ${gains.join(', ')} for letter ${letter}.`);
-    grantCoinsAndHearts(state, p.seat, coinsEarned, heartsEarned, `Collection Die ${letter}`);
+    if (gains.length) log(state, `${p.name} collects ${gains.join(', ')} for letter ${letter}${reasonLabel ? ` (${reasonLabel})` : ''}.`);
+    grantCoinsAndHearts(state, p.seat, coinsEarned, heartsEarned, reasonLabel || `Collection Die ${letter}`);
   }
 }
 
@@ -479,13 +528,101 @@ function acquireCard(state, seat, cardId, chosenSlot) {
           pushPending(state, 'placement', seat, { cardId, allowedSlots: allowed.filter((i) => i <= 4 || trainerActive(state, seat, TRAINERS.BARRE)) });
           return;
         }
+      } else if (c.cardType === 'trainer') {
+        // 3 possible homes (slots 5/6/7) — take the first empty one; if all
+        // 3 are occupied, the player chooses which to bump.
+        slot = SLOTS_FOR_TYPE.trainer.find((i) => p.slots[i] == null);
+        if (slot == null) {
+          pushPending(state, 'placement', seat, { cardId, allowedSlots: allowed });
+          return;
+        }
       } else {
         slot = SLOTS_FOR_TYPE[c.cardType][0];
       }
-      placeInSlot(state, seat, cardId, slot);
+      placeAcquiredCard(state, seat, cardId, slot);
       return;
     }
   }
+}
+
+// Place a freshly-acquired (drafted/bought/drawn) card, then offer any
+// "acquired cards may be immediately discarded to..." Trainer reactions that
+// apply to it (Professor Stainglass / Amara the Reliquary / Jonas
+// Quickfinger / Wendell the Propmaster). Not used for refills or rearranges
+// — only genuine new acquisitions.
+function placeAcquiredCard(state, seat, cardId, slot) {
+  placeInSlot(state, seat, cardId, slot);
+  offerPostAcquireDiscard(state, seat, cardId);
+}
+
+function offerPostAcquireDiscard(state, seat, cardId) {
+  const c = card(cardId);
+  const choices = [];
+  if (trainerActive(state, seat, TRAINERS.STAINGLASS)) choices.push('stainglass');
+  if (c.cardType === 'performer' && trainerActive(state, seat, TRAINERS.AMARA)) {
+    const avail = state.hearts[cardId] || 0;
+    const otherTargets = heartTargets(state, seat).filter((id) => id !== cardId);
+    if (avail > 0 && otherTargets.length > 0) choices.push('amara');
+  }
+  if (c.cardType === 'performer' && trainerActive(state, seat, TRAINERS.JONAS)) choices.push('jonas');
+  if ((c.cardType === 'backdrop' || c.cardType === 'prop') && trainerActive(state, seat, TRAINERS.WENDELL)) {
+    const altAvailable = state.discard.some((id) => id !== cardId && card(id).cardType === c.cardType);
+    if (altAvailable) choices.push('wendell');
+  }
+  if (choices.length === 0) return;
+  pushPending(state, 'postAcquireDiscard', seat, { cardId, cardName: c.name, cardType: c.cardType, choices });
+}
+
+// Remove a card the player currently owns (mat slot or reserve) and send it
+// to the discard pile, resetting its printed hearts.
+function discardOwnedCard(state, seat, cardId) {
+  const p = state.players[seat];
+  const slotIdx = p.slots.indexOf(cardId);
+  if (slotIdx !== -1) p.slots[slotIdx] = null;
+  else {
+    const ri = p.reserve.indexOf(cardId);
+    if (ri !== -1) p.reserve.splice(ri, 1);
+  }
+  state.hearts[cardId] = 0;
+  state.discard.push(cardId);
+}
+
+// Jonas Quickfinger: collect exactly 1 unit of a card's printed resource
+// (no boosts — this isn't a Collection Die roll, just a straight cash-in).
+function collectResourceUnit(state, seat, c, reason) {
+  const p = state.players[seat];
+  if (c.resource === 'Star') {
+    p.stars += 1;
+    p.roundStars += 1;
+    log(state, `${p.name} collects 1 star (${reason}).`);
+  } else if (c.resource === 'Coin') {
+    grantCoinsAndHearts(state, seat, 1, 0, reason);
+  } else {
+    grantCoinsAndHearts(state, seat, 0, 1, reason);
+  }
+}
+
+// Tomasso the Terrible: how many Dancer performers this seat has on board —
+// determines how many Tomato dice they may roll (at least 1 required).
+function dancerCount(state, seat) {
+  const p = state.players[seat];
+  let n = 0;
+  for (let i = 0; i < 5; i++) {
+    const id = p.slots[i];
+    if (id && card(id).type === 'Dancer') n++;
+  }
+  return n;
+}
+
+// Ezra the Sleight-of-Hand: does this seat have at least one Illusionist on
+// their board?
+function hasIllusionist(state, seat) {
+  const p = state.players[seat];
+  for (let i = 0; i < 5; i++) {
+    const id = p.slots[i];
+    if (id && card(id).type === 'Illusionist') return true;
+  }
+  return false;
 }
 
 function placeInSlot(state, seat, cardId, slot) {
@@ -520,7 +657,7 @@ function intakeDrawnCard(state, seat, cardId) {
   const natural = SLOTS_FOR_TYPE[c.cardType];
   const emptySlot = natural.find((i) => p.slots[i] == null);
   if (emptySlot != null) {
-    placeInSlot(state, seat, cardId, emptySlot);
+    placeAcquiredCard(state, seat, cardId, emptySlot);
     return;
   }
   const allowed = allowedSlots(state, seat, cardId);
@@ -543,8 +680,17 @@ function finishTurn(state) {
   if (state.draftRow.length <= 1) {
     if (state.draftRow.length === 1) {
       const last = state.draftRow.pop();
-      state.discard.push(last);
-      log(state, `Only ${card(last).name} remains in the draft row — it is discarded. The draft ends.`);
+      // Ezra the Sleight-of-Hand: if its (unique) owner has at least one
+      // Illusionist on their board, the leftover card goes to them instead
+      // of the discard pile.
+      const ezraOwner = state.players.find((pl) => trainerActive(state, pl.seat, TRAINERS.EZRA) && hasIllusionist(state, pl.seat));
+      if (ezraOwner) {
+        ezraOwner.reserve.push(last);
+        log(state, `${card(last).name} remains in the draft row — ${ezraOwner.name} receives it into reserve (Ezra the Sleight-of-Hand). The draft ends.`);
+      } else {
+        state.discard.push(last);
+        log(state, `Only ${card(last).name} remains in the draft row — it is discarded. The draft ends.`);
+      }
     } else {
       log(state, 'The draft row is empty — the draft ends.');
     }
@@ -717,10 +863,17 @@ function assignDraftOrder(state) {
   log(state, `New draft order: ${ranked.map((p) => p.name).join(' → ')}.`);
 }
 
+function wantTypesForSlot(slotIdx) {
+  if (slotIdx <= 4) return ['performer'];
+  if (slotIdx === 5) return ['backdrop', 'trainer'];
+  if (slotIdx === 6) return ['prop', 'trainer'];
+  return ['trainer'];
+}
+
 function suitableReserveCards(state, seat, slotIdx) {
   const p = state.players[seat];
-  const wantType = slotIdx <= 4 ? 'performer' : slotIdx === 5 ? 'backdrop' : slotIdx === 6 ? 'prop' : 'trainer';
-  return p.reserve.filter((id) => card(id).cardType === wantType);
+  const wantTypes = wantTypesForSlot(slotIdx);
+  return p.reserve.filter((id) => wantTypes.includes(card(id).cardType));
 }
 
 function refillIsNeeded(state, seat) {
@@ -734,6 +887,7 @@ function refillIsNeeded(state, seat) {
 function startNextRound(state) {
   state.round++;
   state.dice = null;
+  state.tilted = {}; // Atlas the Steadfast's protection only lasts the round it was used
   for (const p of state.players) {
     p.roundStars = 0;
     p.roundCoins = 0;
@@ -764,6 +918,19 @@ function advance(state) {
       if (!state.turn) return;
       if (state.turn.done) {
         finishTurn(state);
+        continue;
+      }
+      // Madame Curio: an automatic, free Collection Die roll at the very
+      // start of this seat's turn (before they can act) — only Acrobats of
+      // theirs collect on it, and only if the rolled letter matches, same as
+      // a normal Collection Die.
+      if (!state.turn.curioDone) {
+        state.turn.curioDone = true;
+        if (trainerActive(state, state.turn.seat, TRAINERS.CURIO)) {
+          const v = rollDie(state, 'collection');
+          log(state, `Madame Curio rolls automatically for ${nameOf(state, state.turn.seat)}: ${v}.`);
+          resolveCollectionDie(state, v, state.turn.seat, (c) => c.type === 'Acrobat', 'Madame Curio');
+        }
         continue;
       }
       return; // waiting for the current player's turn action
@@ -847,6 +1014,15 @@ export function applyAction(state, action) {
       state.discard.push(...state.market);
       state.market = draw(state, 4);
       log(state, `${p.name} pays 1 coin to reset the market.`);
+      // Higgins the Pawnbroker: every OTHER player who has him active draws
+      // 1 coin whenever anyone resets the market.
+      for (const other of state.players) {
+        if (other.seat === seat) continue;
+        if (trainerActive(state, other.seat, TRAINERS.HIGGINS)) {
+          grantCoinsAndHearts(state, other.seat, 1, 0, 'Higgins the Pawnbroker');
+          log(state, `${other.name} draws 1 coin (Higgins the Pawnbroker).`);
+        }
+      }
       break;
     }
     case 'rearrange': {
@@ -883,51 +1059,83 @@ export function applyAction(state, action) {
       break;
     }
     // ----- trainer abilities --------------------------------------------
-    case 'trainerDiscardDraft': {
+    // Tomasso the Terrible: spend your whole turn to roll 1 Tomato die per
+    // Dancer performer you have on board (at least 1 required); only other
+    // players are affected.
+    case 'tomassoRoll': {
       requireTurn(state, seat);
       if (state.turn.mainDone) throw new Error('You have already acted this turn.');
-      const which = [TRAINERS.TOMASSO, TRAINERS.CURIO, TRAINERS.STAINGLASS].find((t) => trainerActive(state, seat, t));
-      if (!which) throw new Error('Your Trainer has no draft-discard ability.');
-      if (state.turn.trainerDiscardUsed) throw new Error('You already used that ability this turn.');
-      if (state.draftRow.length < 2) throw new Error('Not enough cards left in the draft row.');
-      const idx = state.draftRow.indexOf(action.cardId);
-      if (idx === -1) throw new Error('That card is not in the draft row.');
-      state.draftRow.splice(idx, 1);
-      state.discard.push(action.cardId);
-      state.turn.trainerDiscardUsed = true;
+      if (!trainerActive(state, seat, TRAINERS.TOMASSO)) throw new Error('Tomasso the Terrible is not your active Trainer.');
+      const n = dancerCount(state, seat);
+      if (n < 1) throw new Error('You need at least one Dancer on your board to use Tomasso the Terrible.');
       const p = state.players[seat];
-      log(state, `${p.name} discards ${card(action.cardId).name} from the draft row (${card(which).name}) — this uses their turn.`);
-      if (which === TRAINERS.STAINGLASS) {
-        const drawn = draw(state, 1);
-        p.reserve.push(...drawn);
-        if (drawn.length) log(state, `${p.name} draws ${card(drawn[0]).name} into reserve.`);
-      } else if (which === TRAINERS.TOMASSO) {
-        startDieEvent(state, { kind: 'tomato', source: 'tomasso', excludeSeat: seat });
-      } else {
-        startDieEvent(state, { kind: 'collection', source: 'curio', onlySeat: seat });
-      }
-      // Using this ability is the player's whole turn — same as rearranging
-      // or any other main action, per the owner's ruling.
+      const results = Array.from({ length: n }, () => rollDie(state, 'tomato'));
+      log(state, `${p.name} spends the turn with Tomasso the Terrible — rolling ${n} Tomato ${n === 1 ? 'die' : 'dice'}: ${results.join(', ')} (only other players are affected).`);
+      for (const v of results) resolveTomatoDie(state, v, seat);
       state.turn.mainDone = true;
       state.turn.done = true;
       break;
     }
-    case 'valentino': {
+    // Madame Barre: to start your turn, freely rearrange your board (any
+    // card in any slot) without spending your turn. Her passive "place
+    // anywhere" effect for normal acquisitions still applies separately
+    // (see allowedSlots) — this is an additional, explicit free action.
+    case 'freeRearrange': {
       requireTurn(state, seat);
-      if (state.turn.mainDone) throw new Error('The Vanishing Valentino consumes your whole turn.');
+      if (state.turn.mainDone) throw new Error('This must be used before your main turn action.');
+      if (!trainerActive(state, seat, TRAINERS.BARRE)) throw new Error('Madame Barre is not your active Trainer.');
+      applyRearrange(state, seat, action.slots, action.reserve);
+      log(state, `${nameOf(state, seat)} freely rearranges their troupe (Madame Barre) without using their turn.`);
+      break;
+    }
+    // The Vanishing Valentino: to start your turn, you may end the draft
+    // immediately (discarding whatever remains in the draft row) without
+    // spending your turn. Unlimited uses while active.
+    case 'valentinoEndDraft': {
+      requireTurn(state, seat);
+      if (state.turn.mainDone) throw new Error('This must be used before your main turn action.');
       if (!trainerActive(state, seat, TRAINERS.VALENTINO)) throw new Error('The Vanishing Valentino is not your active Trainer.');
-      if (!state.players[seat].valentinoAvailable) throw new Error('The Vanishing Valentino may only be used once per game.');
       const p = state.players[seat];
-      const id = p.slots[7];
-      p.slots[7] = null;
-      state.hearts[id] = 0;
-      state.discard.push(id);
+      log(state, `${p.name} plays The Vanishing Valentino — the draft ends immediately!`);
       state.discard.push(...state.draftRow);
       state.draftRow = [];
-      p.valentinoAvailable = false;
-      log(state, `${p.name} plays The Vanishing Valentino — the Trainer and the entire draft row vanish!`);
       state.turn.mainDone = true;
       state.turn.done = true;
+      break;
+    }
+    // Celestine the Stargazer: to start your turn, you may buy up to 3
+    // stars for 2 coins each.
+    case 'celestineBuyStars': {
+      requireTurn(state, seat);
+      if (state.turn.mainDone) throw new Error('This must be used before your main turn action.');
+      if (!trainerActive(state, seat, TRAINERS.CELESTINE)) throw new Error('Celestine the Stargazer is not your active Trainer.');
+      if (state.turn.celestineUsed) throw new Error('You have already used that this turn.');
+      const n = action.count;
+      if (!Number.isInteger(n) || n < 1 || n > 3) throw new Error('Choose 1-3 stars.');
+      const p = state.players[seat];
+      const cost = n * 2;
+      if (p.coins < cost) throw new Error(`You need ${cost} coins for that.`);
+      p.coins -= cost;
+      p.stars += n;
+      p.roundStars += n;
+      state.turn.celestineUsed = true;
+      log(state, `${p.name} spends ${cost} coins to buy ${n} star${n > 1 ? 's' : ''} (Celestine the Stargazer).`);
+      break;
+    }
+    // Atlas the Steadfast: to start your turn, you may tilt one of your
+    // board cards — it cannot collect or lose hearts for the rest of the
+    // round.
+    case 'atlasTilt': {
+      requireTurn(state, seat);
+      if (state.turn.mainDone) throw new Error('This must be used before your main turn action.');
+      if (!trainerActive(state, seat, TRAINERS.ATLAS)) throw new Error('Atlas the Steadfast is not your active Trainer.');
+      if (state.turn.atlasUsed) throw new Error('You have already used that this turn.');
+      const p = state.players[seat];
+      const slot = action.slot;
+      if (!Number.isInteger(slot) || slot < 0 || slot > 7 || !p.slots[slot]) throw new Error('Choose one of your occupied slots.');
+      state.tilted[p.slots[slot]] = true;
+      state.turn.atlasUsed = true;
+      log(state, `${p.name} tilts ${card(p.slots[slot]).name} (Atlas the Steadfast) — it cannot collect or lose hearts for the rest of the round.`);
       break;
     }
     // ----- dice-phase proactive resources --------------------------------
@@ -1041,17 +1249,20 @@ function resolvePendingItem(state, item, action) {
       if (idx === -1) throw new Error('That card is no longer in your reserve.');
       p.reserve.splice(idx, 1);
       state.discard.push(item.data.cardId);
-      d.pressPass = { seat, cardId: item.data.cardId, count: item.data.count, usesLeft: item.data.count };
+      // Delphine Silvertongue: this seat's Press Pass re-roll count is tripled.
+      const delphine = trainerActive(state, seat, TRAINERS.DELPHINE);
+      const uses = item.data.count * (delphine ? 3 : 1);
+      d.pressPass = { seat, cardId: item.data.cardId, count: item.data.count, usesLeft: uses };
       d.pressPassQueue = [];
       d.stage = 'collection';
-      log(state, `${p.name} spends ${card(item.data.cardId).name} — up to ${item.data.count} Collection Die re-roll${item.data.count > 1 ? 's' : ''} available this round.`);
+      log(state, `${p.name} spends ${card(item.data.cardId).name} — up to ${uses} Collection Die re-roll${uses > 1 ? 's' : ''} available this round${delphine ? ' (tripled by Delphine Silvertongue)' : ''}.`);
       break;
     }
     case 'placement': {
       const slot = action.slot;
       if (!item.data.allowedSlots.includes(slot)) throw new Error('Invalid slot for that card.');
       removePending(state, item.id);
-      placeInSlot(state, seat, item.data.cardId, slot);
+      placeAcquiredCard(state, seat, item.data.cardId, slot);
       break;
     }
     case 'cardResourcePlacement': {
@@ -1065,7 +1276,68 @@ function resolvePendingItem(state, item, action) {
       const slot = action.slot;
       if (!Number.isInteger(slot) || !it.allowedSlots.includes(slot)) throw new Error('Invalid slot for that card.');
       removePending(state, item.id);
-      placeInSlot(state, seat, it.cardId, slot);
+      placeAcquiredCard(state, seat, it.cardId, slot);
+      break;
+    }
+    // Professor Stainglass / Amara the Reliquary / Jonas Quickfinger / Wendell
+    // the Propmaster: right after acquiring a matching card, its owner may
+    // immediately discard it for that Trainer's stated effect instead of
+    // keeping it. See offerPostAcquireDiscard.
+    case 'postAcquireDiscard': {
+      const choice = action.choice;
+      if (!item.data.choices.includes(choice) && choice !== 'keep') throw new Error('Invalid choice.');
+      const { cardId, cardName } = item.data;
+      removePending(state, item.id);
+      if (choice === 'keep') break;
+      if (choice === 'stainglass') {
+        discardOwnedCard(state, seat, cardId);
+        const drawn = draw(state, 1);
+        p.reserve.push(...drawn);
+        log(state, `${p.name} discards ${cardName} (Professor Stainglass) to draw ${drawn.length ? card(drawn[0]).name : 'nothing — the deck is empty'}.`);
+      } else if (choice === 'jonas') {
+        const c = card(cardId);
+        discardOwnedCard(state, seat, cardId);
+        log(state, `${p.name} discards ${cardName} (Jonas Quickfinger) to collect its resource.`);
+        collectResourceUnit(state, seat, c, 'Jonas Quickfinger');
+      } else if (choice === 'amara') {
+        const amount = state.hearts[cardId] || 0;
+        discardOwnedCard(state, seat, cardId);
+        log(state, `${p.name} discards ${cardName} (Amara the Reliquary) — ${amount} heart(s) to place on another card.`);
+        pushPending(state, 'amaraHeartMove', seat, { amount });
+      } else if (choice === 'wendell') {
+        const slot = p.slots.indexOf(cardId);
+        const cType = card(cardId).cardType;
+        discardOwnedCard(state, seat, cardId);
+        const options = state.discard.filter((id) => card(id).cardType === cType);
+        log(state, `${p.name} discards ${cardName} (Wendell the Propmaster) to take a different one from the discard pile.`);
+        pushPending(state, 'wendellSwap', seat, { slot, cardType: cType, options });
+      }
+      break;
+    }
+    case 'amaraHeartMove': {
+      const targetCardId = action.targetCardId;
+      const owns = p.slots.includes(targetCardId) || p.reserve.includes(targetCardId);
+      if (!owns) throw new Error('You can only move hearts onto your own cards.');
+      const capNow = capacityLeft(state, seat, targetCardId);
+      removePending(state, item.id);
+      const amt = Math.min(item.data.amount, capNow);
+      if (amt > 0) {
+        state.hearts[targetCardId] = (state.hearts[targetCardId] || 0) + amt;
+        log(state, `${p.name} moves ${amt} heart(s) onto ${card(targetCardId).name} (Amara the Reliquary).`);
+      }
+      if (amt < item.data.amount) {
+        log(state, `${p.name} forfeits ${item.data.amount - amt} heart(s) — no room.`);
+      }
+      break;
+    }
+    case 'wendellSwap': {
+      const cardId = action.cardId;
+      if (!item.data.options.includes(cardId)) throw new Error('That card is not available to swap in.');
+      removePending(state, item.id);
+      const idx = state.discard.indexOf(cardId);
+      if (idx === -1) throw new Error('That card is no longer in the discard pile.');
+      state.discard.splice(idx, 1);
+      placeInSlot(state, seat, cardId, item.data.slot);
       break;
     }
     case 'heartAssign': {
@@ -1166,7 +1438,7 @@ function applyRearrange(state, seat, slots, reserve) {
   if (before.length !== after.length || before.some((id, i) => id !== after[i])) {
     throw new Error('Rearranging cannot add or remove cards.');
   }
-  const barre = trainerActive(state, seat, TRAINERS.BARRE) || slots[7] === TRAINERS.BARRE;
+  const barre = trainerActive(state, seat, TRAINERS.BARRE) || slots[5] === TRAINERS.BARRE || slots[6] === TRAINERS.BARRE || slots[7] === TRAINERS.BARRE;
   for (let i = 0; i < 8; i++) {
     const id = slots[i];
     if (!id) continue;
