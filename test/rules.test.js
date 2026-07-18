@@ -1327,7 +1327,7 @@ test('Bellacanto the Choirmistress: Singers in reserve also collect, letter-gate
   assert.equal(p.stars - before, hCount, 'reserve Singer collected 1 star per matching H roll (Bellacanto)');
 });
 
-test('Ezra the Sleight-of-Hand: receives the draft\'s leftover card if he has an Illusionist', () => {
+test('Ezra the Sleight-of-Hand: receives the draft\'s leftover performer card, placed on his board like a normal acquisition', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
@@ -1337,8 +1337,25 @@ test('Ezra the Sleight-of-Hand: receives the draft\'s leftover card if he has an
   const leftover = db.performers.find((c) => c.id !== illusionist).id;
   s.draftRow = [leftover];
   applyAction(s, { type: 'rearrange', seat, slots: [...p.slots], reserve: [...p.reserve] });
-  assert.ok(p.reserve.includes(leftover), 'Ezra receives the leftover draft card into reserve instead of it being discarded');
+  assert.ok(p.slots.includes(leftover), 'Ezra receives the leftover draft card into an empty matching slot, not reserve');
+  assert.ok(!p.reserve.includes(leftover));
   assert.ok(!s.discard.includes(leftover));
+});
+
+test('Ezra the Sleight-of-Hand: a leftover Resource card resolves its effect and discards, instead of sitting unresolved in reserve', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.EZRA;
+  const illusionist = performer((c) => c.type === 'Illusionist');
+  p.slots[0] = illusionist;
+  const leftover = firstOfName(db.resources, 'Resource 2 Coins');
+  const before = p.coins;
+  s.draftRow = [leftover];
+  applyAction(s, { type: 'rearrange', seat, slots: [...p.slots], reserve: [...p.reserve] });
+  assert.equal(p.coins, before + 2, 'the resource effect resolved (+2 coins) instead of the card just sitting in reserve');
+  assert.ok(s.discard.includes(leftover), 'a resolved resource card is discarded, not kept');
+  assert.ok(!p.reserve.includes(leftover));
 });
 
 test('Amara the Reliquary: move a heart from one of your cards to another, once per turn', () => {

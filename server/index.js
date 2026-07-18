@@ -82,7 +82,7 @@ const rooms = new Map(); // code -> room
 const BOT_NAMES = ['Zoltar', 'Colombina', 'Ferrucio', 'Odette', 'Gaspard'];
 const BOT_STEP_MS = 200; // small stagger between a bot's own sub-decisions (e.g. resolving a prompt before its main action)
 const BOT_TURN_PAUSE_MS = 2000; // longer pause after a bot fully completes a turn, so players can follow along
-const DICE_REVEAL_MS = 2200; // how long a rolled die/tomato batch stays on screen (and reactable) before it locks
+const DICE_REVEAL_MS = 1100; // how long a rolled die/tomato batch stays on screen (and reactable) before it locks
 const DISCONNECT_BOT_MS = 60_000; // absent players become bots so games don't stall
 
 function makeCode() {

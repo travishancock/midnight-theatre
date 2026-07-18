@@ -734,11 +734,15 @@ function finishTurn(state) {
       const last = state.draftRow.pop();
       // Ezra the Sleight-of-Hand: if its (unique) owner has at least one
       // Illusionist on their board, the leftover card goes to them instead
-      // of the discard pile.
+      // of the discard pile — resolved exactly like any other acquisition
+      // (resource cards resolve their effect and discard, favor/reroll cards
+      // go to reserve, slottable cards fill an empty matching slot or prompt
+      // a placement choice), via the same intakeDrawnCard dispatch used for
+      // "Card" resource draws.
       const ezraOwner = state.players.find((pl) => trainerActive(state, pl.seat, TRAINERS.EZRA) && hasIllusionist(state, pl.seat));
       if (ezraOwner) {
-        ezraOwner.reserve.push(last);
-        log(state, `${card(last).name} remains in the draft row — ${ezraOwner.name} receives it into reserve (Ezra the Sleight-of-Hand). The draft ends.`);
+        log(state, `${card(last).name} remains in the draft row — ${ezraOwner.name} receives it instead of it being discarded (Ezra the Sleight-of-Hand). The draft ends.`);
+        intakeDrawnCard(state, ezraOwner.seat, last);
       } else {
         state.discard.push(last);
         log(state, `Only ${card(last).name} remains in the draft row — it is discarded. The draft ends.`);
