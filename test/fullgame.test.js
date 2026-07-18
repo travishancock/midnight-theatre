@@ -1,6 +1,6 @@
 // Full simulated games: AI bots in every seat, for 2-5 players across several
 // seeds. Asserts each game completes without throwing, reaches a valid win
-// state, and that every one of the 142 cards stays accounted for throughout.
+// state, and that every one of the 146 cards stays accounted for throughout.
 // Run with: node test/fullgame.test.js
 
 import assert from 'assert';
@@ -16,7 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'assets', 'card_database.json'), 'utf8'));
 initCards(db);
 
-const TOTAL_CARDS = 142;
+const TOTAL_CARDS = 146;
 
 function cardCount(s) {
   let n = s.deck.length + s.discard.length + s.market.length + s.draftRow.length;

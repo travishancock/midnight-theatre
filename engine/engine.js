@@ -14,12 +14,12 @@
 import { card, allCardIds, SLOTTABLE } from './cards.js';
 import { makeSeed, randInt, shuffle } from './rng.js';
 
-// D20 Collection die faces: A,B x1 — C,D x2 — E,F x3 — G,H x4.
+// D20 Collection die faces: A,B x4 — C,D x3 — E,F x2 — G,H x1.
 export const COLLECTION_FACES = [
-  'A', 'B', 'C', 'C', 'D', 'D', 'E', 'E', 'E', 'F',
-  'F', 'F', 'G', 'G', 'G', 'G', 'H', 'H', 'H', 'H',
+  'A', 'A', 'A', 'A', 'B', 'B', 'B', 'B', 'C', 'C',
+  'C', 'D', 'D', 'D', 'E', 'E', 'F', 'F', 'G', 'H',
 ];
-export const LETTER_FREQ = { A: 1, B: 1, C: 2, D: 2, E: 3, F: 3, G: 4, H: 4 };
+export const LETTER_FREQ = { A: 4, B: 4, C: 3, D: 3, E: 2, F: 2, G: 1, H: 1 };
 
 // Mat slots: indices 0-4 Performers, 5 Backdrop/Trainer, 6 Prop/Trainer, 7 Trainer.
 // Slots 5 and 6 can each hold either their natural card (Backdrop/Prop) or a
@@ -50,7 +50,7 @@ export const TRAINERS = {
   ORSINO: 'Orsino-the-Headliner',
   CASSIUS: 'Cassius-the-Second-Act',
   DELPHINE: 'Delphine-Silvertongue',
-  HIGGINS: 'Higgins-the-Pawnbroker',
+  ANNA: 'Anna-the-Reliquary',
   JONAS: 'Jonas-Quickfinger',
   WENDELL: 'Wendell-the-Propmaster',
   CELESTINE: 'Celestine-the-Stargazer',
@@ -99,7 +99,7 @@ export function createGame({ players, seed }) {
       slots: [null, null, null, null, null, null, null, null],
       reserve: [],
     })),
-    turn: null, // { seat, mainDone, done, open, buys, isBonus, bonusTiming, curioDone, celestineUsed }
+    turn: null, // { seat, mainDone, done, open, buys, isBonus, bonusTiming, curioDone, celestineUsed, annaUsed }
     dice: null, // dice-phase progress
     dieEvent: null, // an in-flight die roll open to re-roll reactions
     pending: [], // decision prompts awaiting player input
@@ -140,7 +140,7 @@ export function createGame({ players, seed }) {
 function newTurn(seat, isBonus = false, bonusTiming = null) {
   return {
     seat, mainDone: false, done: false, open: false, buys: 0, isBonus, bonusTiming,
-    curioDone: false, celestineUsed: false,
+    curioDone: false, celestineUsed: false, annaUsed: false,
   };
 }
 
@@ -462,8 +462,8 @@ function resolveCollectionDie(state, letter, onlySeat = null, typeFilterFn = nul
       if (c.cardType !== 'performer' || c.letter !== letter) continue;
       if (typeFilterFn && !typeFilterFn(c)) continue;
       let units = 1 + boostCount(state, p.seat, c);
-      if ((letter === 'A' || letter === 'B') && trainerActive(state, p.seat, TRAINERS.ORSINO)) units += 3;
-      if ((letter === 'C' || letter === 'D') && trainerActive(state, p.seat, TRAINERS.CASSIUS)) units += 1;
+      if ((letter === 'G' || letter === 'H') && trainerActive(state, p.seat, TRAINERS.ORSINO)) units += 3;
+      if ((letter === 'E' || letter === 'F') && trainerActive(state, p.seat, TRAINERS.CASSIUS)) units += 2;
       if (c.resource === 'Star') {
         p.stars += units;
         p.roundStars += units;
@@ -1061,15 +1061,6 @@ export function applyAction(state, action) {
       state.discard.push(...state.market);
       state.market = draw(state, 4);
       log(state, `${p.name} pays 1 coin to reset the market.`);
-      // Higgins the Pawnbroker: every OTHER player who has him active draws
-      // 1 coin whenever anyone resets the market.
-      for (const other of state.players) {
-        if (other.seat === seat) continue;
-        if (trainerActive(state, other.seat, TRAINERS.HIGGINS)) {
-          grantCoinsAndHearts(state, other.seat, 1, 0, 'Higgins the Pawnbroker');
-          log(state, `${other.name} draws 1 coin (Higgins the Pawnbroker).`);
-        }
-      }
       break;
     }
     case 'rearrange': {
@@ -1167,6 +1158,27 @@ export function applyAction(state, action) {
       p.roundStars += n;
       state.turn.celestineUsed = true;
       log(state, `${p.name} spends ${cost} coins to buy ${n} star${n > 1 ? 's' : ''} (Celestine the Stargazer).`);
+      break;
+    }
+    // Anna the Reliquary: to start your turn, you may move one heart from
+    // any of your cards (mat or reserve) to another, capped by the
+    // destination's printed heart capacity.
+    case 'annaMoveHeart': {
+      requireTurn(state, seat);
+      if (state.turn.mainDone) throw new Error('This must be used before your main turn action.');
+      if (!trainerActive(state, seat, TRAINERS.ANNA)) throw new Error('Anna the Reliquary is not your active Trainer.');
+      if (state.turn.annaUsed) throw new Error('You have already used that this turn.');
+      const p = state.players[seat];
+      const { fromCardId, toCardId } = action;
+      const owned = new Set([...p.slots.filter(Boolean), ...p.reserve]);
+      if (!owned.has(fromCardId) || !owned.has(toCardId)) throw new Error('You can only move a heart between your own cards.');
+      if (fromCardId === toCardId) throw new Error('Choose two different cards.');
+      if ((state.hearts[fromCardId] || 0) < 1) throw new Error('That card has no heart to move.');
+      if (capacityLeft(state, seat, toCardId) < 1) throw new Error('That card has no room for another heart.');
+      state.hearts[fromCardId] -= 1;
+      state.hearts[toCardId] = (state.hearts[toCardId] || 0) + 1;
+      state.turn.annaUsed = true;
+      log(state, `${p.name} moves a heart from ${card(fromCardId).name} to ${card(toCardId).name} (Anna the Reliquary).`);
       break;
     }
     // ----- pre-roll Press Pass window ------------------------------------

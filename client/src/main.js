@@ -17,9 +17,10 @@ let assetVersion = ''; // from /api/cards — appended to card image URLs so a b
 
 // Transient UI state
 let ui = {
-  mode: null, // null | 'rearrange'
+  mode: null, // null | 'rearrange' | 'annaMove'
   rearrangeFree: false, // true when the current 'rearrange' mode is Madame Barre's free (non-turn-consuming) rearrange
   rearrange: null, // { slots, reserve, picked: {zone, index} | null }
+  annaMove: null, // { from: cardId | null } — Anna the Reliquary's move-a-heart picker
   heartPlan: {}, // cardId -> amount, for heartAssign prompt
   refillPlan: null, // [{slot, cardId}]
   logOpen: true,
@@ -92,6 +93,7 @@ function resetTransientUi() {
   ui.mode = null;
   ui.rearrangeFree = false;
   ui.rearrange = null;
+  ui.annaMove = null;
   ui.heartPlan = {};
   ui.refillPlan = null;
 }
@@ -130,6 +132,21 @@ function cardMaxHeartsFor(id) {
 
 function capLeft(player, id) {
   return Math.max(0, maxHearts(player, id) - (st().hearts[id] || 0));
+}
+
+// All of a player's mat + reserve card ids — the universe Anna the
+// Reliquary's "any of your cards" move-a-heart ability can pick from.
+function ownedCardIds(p) {
+  return [...p.slots.filter(Boolean), ...p.reserve];
+}
+
+// Is there at least one legal (from, to) pair for Anna's ability right now?
+function anyMovableHeart(p) {
+  const s = st();
+  const ids = ownedCardIds(p);
+  const sources = ids.filter((id) => (s.hearts[id] || 0) > 0);
+  const targets = ids.filter((id) => capLeft(p, id) > 0);
+  return sources.some((from) => targets.some((to) => to !== from));
 }
 
 function marketCost(player, index) {
@@ -427,6 +444,11 @@ function turnBarHtml(s, p) {
       ? `<button id="confirmRearrange" class="primary">Confirm free rearrangement (Madame Barre)</button>`
       : `<button id="confirmRearrange" class="primary">Confirm arrangement (ends turn)</button>`);
     buttons.push(`<button id="cancelMode">Cancel</button>`);
+  } else if (ui.mode === 'annaMove') {
+    buttons.push(`<span class="yourturn">${ui.annaMove?.from
+      ? 'Anna the Reliquary: now click the card to move that heart onto.'
+      : 'Anna the Reliquary: click one of your cards with a ❤ to move it from.'}</span>`);
+    buttons.push(`<button id="cancelMode">Cancel</button>`);
   } else {
     if (!t.mainDone) {
       buttons.push(`<span class="yourturn">Your turn — click a draft card to take it, buy from the market, or:</span>`);
@@ -445,6 +467,10 @@ function turnBarHtml(s, p) {
         for (const n of [1, 2, 3]) {
           buttons.push(`<button class="small" data-celestine="${n}" ${p.coins >= n * 2 ? '' : 'disabled'}>Celestine: buy ${n}⭐ (${n * 2}🪙)</button>`);
         }
+      }
+      if (trainers.includes('Anna-the-Reliquary') && !t.annaUsed) {
+        const has = anyMovableHeart(p);
+        buttons.push(`<button id="annaMoveBtn" ${has ? '' : 'disabled'} title="${has ? '' : 'None of your cards currently hold a heart'}">Anna the Reliquary: move a heart (free)</button>`);
       }
     }
     if (t.open) buttons.push(`<button id="endTurnBtn" class="primary">End turn (Maximillian)</button>`);
@@ -624,10 +650,18 @@ function myMatHtml(s, p, pending) {
   const placing = pending?.kind === 'placement' || pending?.kind === 'cardResourcePlacement';
   const allowed = placing ? pending.data.allowedSlots : [];
   const r = ui.mode === 'rearrange' ? ui.rearrange : null;
+  const annaMove = ui.mode === 'annaMove' ? ui.annaMove : null;
   const slots = r ? r.slots : p.slots;
   const reserve = r ? r.reserve : p.reserve;
   const anyFavorReady = !r && reserve.some((id) => favorReadyNow(s, p, id));
   const anyPressPassReady = !r && reserve.some((id) => pressPassReadyNow(s, p, id));
+  // Anna the Reliquary: highlight hearted cards while picking a source, or
+  // cards with room once a source is picked.
+  const annaEligible = (id) => {
+    if (!annaMove || !id) return false;
+    if (!annaMove.from) return (s.hearts[id] || 0) > 0;
+    return id !== annaMove.from && capLeft(p, id) > 0;
+  };
 
   return `<section class="mymat">
     <div class="mat-head">
@@ -637,8 +671,9 @@ function myMatHtml(s, p, pending) {
     <div class="slots" id="mySlots">
       ${slots.map((id, i) => {
         const sel = r?.picked?.zone === 'slot' && r.picked.index === i;
+        const annaSel = annaMove && id === annaMove.from;
         return `
-        <div class="slot ${placing && allowed.includes(i) ? 'highlight' : ''} ${sel ? 'selected' : ''}" data-slot="${i}">
+        <div class="slot ${placing && allowed.includes(i) ? 'highlight' : ''} ${annaEligible(id) ? 'highlight' : ''} ${sel || annaSel ? 'selected' : ''}" data-slot="${i}">
           <span class="slotname">${SLOT_NAMES[i]}</span>
           ${id ? cardHtml(id, { size: 'lg', hearts: s.hearts[id] || 0 }) : '<div class="empty">empty</div>'}
         </div>`;
@@ -651,6 +686,7 @@ function myMatHtml(s, p, pending) {
       <div class="cardrow" id="myReserve">
         ${reserve.map((id, i) => {
           const sel = r?.picked?.zone === 'reserve' && r.picked.index === i;
+          const annaSel = annaMove && id === annaMove.from;
           const favorReady = !r && favorReadyNow(s, p, id);
           const pressPassReady = !r && pressPassReadyNow(s, p, id);
           const ready = favorReady || pressPassReady;
@@ -659,7 +695,7 @@ function myMatHtml(s, p, pending) {
             : pressPassReady
             ? 'Click to spend this Press Pass for private Collection Die roll(s)'
             : '';
-          return `<div class="pickable ${sel ? 'selected' : ''} ${ready ? 'favor-ready' : ''}" data-reserve="${i}" ${title ? `title="${title}"` : ''}>${cardHtml(id, { size: 'sm', hearts: cardMaxHeartsFor(id) != null ? (s.hearts[id] || 0) : null })}</div>`;
+          return `<div class="pickable ${sel || annaSel ? 'selected' : ''} ${ready ? 'favor-ready' : ''} ${annaEligible(id) ? 'highlight' : ''}" data-reserve="${i}" ${title ? `title="${title}"` : ''}>${cardHtml(id, { size: 'sm', hearts: cardMaxHeartsFor(id) != null ? (s.hearts[id] || 0) : null })}</div>`;
         }).join('') || (r ? '' : '<span class="hint">empty</span>')}
         ${r ? '<div class="pickable droptarget" data-reserve="-1">⤓ move here</div>' : ''}
       </div>
@@ -726,6 +762,12 @@ function wireGameEvents(s, p, pending) {
     ui.mode = null;
     ui.rearrangeFree = false;
     ui.rearrange = null;
+    ui.annaMove = null;
+    render();
+  });
+  document.getElementById('annaMoveBtn')?.addEventListener('click', () => {
+    ui.mode = 'annaMove';
+    ui.annaMove = { from: null };
     render();
   });
   document.getElementById('confirmRearrange')?.addEventListener('click', () => {
@@ -756,12 +798,14 @@ function wireGameEvents(s, p, pending) {
       return;
     }
     if (ui.mode === 'rearrange') return pickForSwap('slot', i);
+    if (ui.mode === 'annaMove' && p.slots[i]) return pickForAnnaMove(p, p.slots[i]);
   });
   document.getElementById('myReserve')?.addEventListener('click', (e) => {
     const el = e.target.closest('[data-reserve]');
     if (!el) return;
     const i = +el.dataset.reserve;
     if (ui.mode === 'rearrange') return pickForSwap('reserve', i);
+    if (ui.mode === 'annaMove' && i >= 0) return pickForAnnaMove(p, p.reserve[i]);
     if (!ui.mode && i >= 0 && favorReadyNow(s, p, p.reserve[i])) {
       send({ type: 'useFavor', cardId: p.reserve[i] });
     } else if (!ui.mode && i >= 0 && pressPassReadyNow(s, p, p.reserve[i])) {
@@ -859,6 +903,28 @@ function pickForSwap(zone, index) {
   // Compact the reserve (no holes).
   r.reserve = r.reserve.filter((x) => x != null);
   render();
+}
+
+// Anna the Reliquary: first click picks the source (must currently hold a
+// heart), second click picks the destination (must have room) and fires
+// the action. Clicking the already-picked source again deselects it.
+function pickForAnnaMove(p, cardId) {
+  const move = ui.annaMove;
+  const s = st();
+  if (!move.from) {
+    if ((s.hearts[cardId] || 0) < 1) return;
+    move.from = cardId;
+    return render();
+  }
+  if (cardId === move.from) {
+    move.from = null;
+    return render();
+  }
+  if (capLeft(p, cardId) < 1) return;
+  const fromCardId = move.from;
+  ui.mode = null;
+  ui.annaMove = null;
+  send({ type: 'annaMoveHeart', fromCardId, toCardId: cardId });
 }
 
 // ---------------------------------------------------------------------------

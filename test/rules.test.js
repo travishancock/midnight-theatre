@@ -112,7 +112,7 @@ test('setup: coins by draft stand, row sizes, trophy goal', () => {
   const s5 = freshGame(5);
   assert.equal(s5.trophyGoal, 3); // 5 players -> 3 trophies
   assert.equal(s5.draftRow.length, 11);
-  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, 142);
+  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, 146);
   assert.equal(freshGame(2).trophyGoal, 6); // 2 players -> 6 trophies
   assert.equal(freshGame(4).trophyGoal, 4); // 4 players -> 4 trophies
 });
@@ -650,9 +650,9 @@ test('deterministic dice phase: collection matches, boosts, trophies, tomato hit
   const other = s.players.find((p) => p.seat !== seat).seat;
   const p = s.players[seat];
 
-  // Board: a Graceful performer with letter H that yields Stars, plus a
-  // matching Prop (boost -> 2 stars per H rolled). Empty opposing board.
-  const perfH = performer((c) => c.letter === 'H' && c.resource === 'Star' && c.characteristic === 'Graceful');
+  // Board: a Graceful performer with letter C that yields Stars, plus a
+  // matching Prop (boost -> 2 stars per C rolled). Empty opposing board.
+  const perfH = performer((c) => c.letter === 'C' && c.resource === 'Star' && c.characteristic === 'Graceful');
   p.slots[0] = perfH;
   s.hearts[perfH] = 3;
   p.slots[6] = 'Prop-Graceful';
@@ -673,7 +673,7 @@ test('deterministic dice phase: collection matches, boosts, trophies, tomato hit
   const seq = predict(rngNow, [20, 20, 20, 20, 20, 1000, 1000, 8]);
   const letters = seq.slice(0, 5).map((i) => COLLECTION_FACES[i]);
   const tomato = seq[7] + 1;
-  const hCount = letters.filter((l) => l === 'H').length;
+  const hCount = letters.filter((l) => l === 'C').length;
   const bCount = letters.filter((l) => l === 'B').length;
 
   const starsBefore = p.stars;
@@ -684,7 +684,7 @@ test('deterministic dice phase: collection matches, boosts, trophies, tomato hit
   driveDicePhase(s);
 
   assert.equal(s.round, 2, 'a full round elapsed');
-  assert.equal(p.stars - starsBefore, hCount * 2, `H rolled ${hCount}x -> ${hCount * 2} stars (boosted)`);
+  assert.equal(p.stars - starsBefore, hCount * 2, `C rolled ${hCount}x -> ${hCount * 2} stars (boosted)`);
   assert.equal(s.players[other].stars, 0);
 
   // Trophy: p had the most stars (or tied at 0 and tied coins decides/all take one).
@@ -787,7 +787,7 @@ test('wildcard Prop/Backdrop boost is dormant until the player has one of each T
     const seat = currentSeat(s);
     const other = s.players.find((x) => x.seat !== seat).seat;
     const p = s.players[seat];
-    const perfH = performer((c) => c.letter === 'H' && c.resource === 'Star' && c.characteristic === 'Graceful');
+    const perfH = performer((c) => c.letter === 'C' && c.resource === 'Star' && c.characteristic === 'Graceful');
     p.slots = [perfH, null, null, null, null, null, 'Prop-Any-Type', null];
     s.hearts[perfH] = 3;
     s.hearts['Prop-Any-Type'] = 1;
@@ -798,8 +798,8 @@ test('wildcard Prop/Backdrop boost is dormant until the player has one of each T
     s.draftRow = [filler, db.performers[3].id];
     s.rng = rngNow;
     const seq = predict(rngNow, [20, 20, 20, 20, 20, 1000, 1000, 8]);
-    const hCount = seq.slice(0, 5).map((i) => COLLECTION_FACES[i]).filter((l) => l === 'H').length;
-    assert.ok(hCount > 0, 'test setup expects at least 1 H roll this round (seed 999)');
+    const hCount = seq.slice(0, 5).map((i) => COLLECTION_FACES[i]).filter((l) => l === 'C').length;
+    assert.ok(hCount > 0, 'test setup expects at least 1 C roll this round (seed 999)');
     const starsBefore = p.stars;
     applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
     driveDicePhase(s);
@@ -812,9 +812,9 @@ test('wildcard Prop/Backdrop boost is dormant until the player has one of each T
     const seat = currentSeat(s);
     const other = s.players.find((x) => x.seat !== seat).seat;
     const p = s.players[seat];
-    const perfH = performer((c) => c.letter === 'H' && c.resource === 'Star' && c.characteristic === 'Graceful');
+    const perfH = performer((c) => c.letter === 'C' && c.resource === 'Star' && c.characteristic === 'Graceful');
     const perfType = card(perfH).type;
-    const fillers = otherTypes(perfType).map((t) => performer((c) => c.type === t && c.resource === 'Coin' && c.letter !== 'H'));
+    const fillers = otherTypes(perfType).map((t) => performer((c) => c.type === t && c.resource === 'Coin' && c.letter !== 'C'));
     p.slots = [perfH, fillers[0], fillers[1], fillers[2], null, null, 'Prop-Any-Type', null];
     s.hearts[perfH] = 3;
     for (const f of fillers) s.hearts[f] = card(f).startingHearts ?? 0;
@@ -826,12 +826,12 @@ test('wildcard Prop/Backdrop boost is dormant until the player has one of each T
     s.draftRow = [filler, db.performers[3].id];
     s.rng = rngNow;
     const seq = predict(rngNow, [20, 20, 20, 20, 20, 1000, 1000, 8]);
-    const hCount = seq.slice(0, 5).map((i) => COLLECTION_FACES[i]).filter((l) => l === 'H').length;
+    const hCount = seq.slice(0, 5).map((i) => COLLECTION_FACES[i]).filter((l) => l === 'C').length;
     assert.ok(hasFullSet(s, seat, 'type'), 'test setup expects one of each Type active on board');
     const starsBefore = p.stars;
     applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
     driveDicePhase(s);
-    assert.equal(p.stars - starsBefore, hCount * 2, 'wildcard Prop active — +1 boosted unit per H roll');
+    assert.equal(p.stars - starsBefore, hCount * 2, 'wildcard Prop active — +1 boosted unit per C roll');
   }
 });
 
@@ -1131,13 +1131,13 @@ test('state.turnsCompleted increments once per finished turn (drives the server\
   assert.equal(s.turnsCompleted, 1);
 });
 
-test('a full 2-player round keeps every one of the 142 cards accounted for', () => {
+test('a full 2-player round keeps every one of the 146 cards accounted for', () => {
   const s = freshGame(2, 31337);
   // count every card location
   const total = (st) =>
     st.deck.length + st.discard.length + st.market.length + st.draftRow.length +
     st.players.reduce((a, p) => a + p.slots.filter(Boolean).length + p.reserve.length, 0);
-  assert.equal(total(s), 142);
+  assert.equal(total(s), 146);
 });
 
 // ---- multi-trainer slots (5/6/7 all accept Trainer) ------------------------
@@ -1206,28 +1206,52 @@ test('acquiring a Trainer with slot 8 full can be sent to reserve instead of bum
 
 // ---- new trainers -----------------------------------------------------------
 
-test('Orsino the Headliner: A/B performers collect +3; Cassius: C/D collect +1', () => {
+test('Orsino the Headliner: G and H performers collect +3 when rolled', () => {
   const s = freshGame(2, 1234);
   const seat = currentSeat(s);
   const other = s.players.find((x) => x.seat !== seat).seat;
   const p = s.players[seat];
   p.slots[7] = TRAINERS.ORSINO;
-  const perfA = performer((c) => c.letter === 'A'); // letter A performers are always Star-resource
-  p.slots[0] = perfA;
-  s.hearts[perfA] = card(perfA).startingHearts ?? 0;
+  const perfG = performer((c) => c.letter === 'G' && c.resource === 'Star');
+  p.slots[0] = perfG;
+  s.hearts[perfG] = card(perfG).startingHearts ?? 0;
   s.players[other].slots = [null, null, null, null, null, null, null, null];
   p.reserve = [];
   s.players[other].reserve = [];
-  const filler = performer((c) => c.letter === 'B' && c.resource === 'Coin' && c.id !== perfA);
-  s.draftRow = [filler, db.performers.find((c) => c.id !== perfA && c.id !== filler).id];
+  const filler = performer((c) => c.letter === 'B' && c.resource === 'Coin' && c.id !== perfG);
+  s.draftRow = [filler, db.performers.find((c) => c.id !== perfG && c.id !== filler).id];
   const rngNow = 999;
   s.rng = rngNow;
   const seq = predict(rngNow, [20, 20, 20, 20, 20, 1000, 1000, 8]);
-  const aCount = seq.slice(0, 5).map((i) => COLLECTION_FACES[i]).filter((l) => l === 'A').length;
+  const gCount = seq.slice(0, 5).map((i) => COLLECTION_FACES[i]).filter((l) => l === 'G').length;
   const before = p.stars;
   applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
   driveDicePhase(s);
-  assert.equal(p.stars - before, aCount * 4, `expected 1 (base) + 3 (Orsino) = 4 stars per A roll (${aCount}x)`);
+  assert.equal(p.stars - before, gCount * 4, `expected 1 (base) + 3 (Orsino) = 4 stars per G roll (${gCount}x)`);
+});
+
+test('Cassius the Second Act: E and F performers collect +2 when rolled', () => {
+  const s = freshGame(2, 1234);
+  const seat = currentSeat(s);
+  const other = s.players.find((x) => x.seat !== seat).seat;
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.CASSIUS;
+  const perfE = performer((c) => c.letter === 'E' && c.resource === 'Star');
+  p.slots[0] = perfE;
+  s.hearts[perfE] = card(perfE).startingHearts ?? 0;
+  s.players[other].slots = [null, null, null, null, null, null, null, null];
+  p.reserve = [];
+  s.players[other].reserve = [];
+  const filler = performer((c) => c.letter === 'B' && c.resource === 'Coin' && c.id !== perfE);
+  s.draftRow = [filler, db.performers.find((c) => c.id !== perfE && c.id !== filler).id];
+  const rngNow = 999;
+  s.rng = rngNow;
+  const seq = predict(rngNow, [20, 20, 20, 20, 20, 1000, 1000, 8]);
+  const eCount = seq.slice(0, 5).map((i) => COLLECTION_FACES[i]).filter((l) => l === 'E').length;
+  const before = p.stars;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+  driveDicePhase(s);
+  assert.equal(p.stars - before, eCount * 3, `expected 1 (base) + 2 (Cassius) = 3 stars per E roll (${eCount}x)`);
 });
 
 test('Delphine Silvertongue doubles a spent Press Pass\'s private roll count', () => {
@@ -1252,17 +1276,6 @@ test('Delphine Silvertongue doubles a spent Press Pass\'s private roll count', (
   assert.ok(/for 6 private Collection Die rolls/.test(lastLog), 'Press Pass 3 (count 3) doubled to 6 rolls by Delphine Silvertongue');
   assert.ok(/doubled by Delphine Silvertongue/.test(lastLog));
   assert.ok(s.discard.includes('PressPass-3-1'));
-});
-
-test('Higgins the Pawnbroker draws 1 coin whenever another player resets the market', () => {
-  const s = freshGame(2);
-  const seat = currentSeat(s);
-  const other = s.players.find((x) => x.seat !== seat).seat;
-  s.players[other].slots[7] = TRAINERS.HIGGINS;
-  s.players[other].coins = 0;
-  s.players[seat].coins = 3;
-  applyAction(s, { type: 'resetMarket', seat });
-  assert.equal(s.players[other].coins, 1, 'Higgins holder draws 1 coin from someone else\'s market reset');
 });
 
 test('Jonas Quickfinger: discard an acquired performer to collect its resource', () => {
@@ -1350,6 +1363,49 @@ test('Ezra the Sleight-of-Hand: receives the draft\'s leftover card if he has an
   applyAction(s, { type: 'rearrange', seat, slots: [...p.slots], reserve: [...p.reserve] });
   assert.ok(p.reserve.includes(leftover), 'Ezra receives the leftover draft card into reserve instead of it being discarded');
   assert.ok(!s.discard.includes(leftover));
+});
+
+test('Anna the Reliquary: move one heart from any of your cards to another, once per turn', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.ANNA;
+  const perfA = performer((c) => c.maxHearts >= 2);
+  const perfB = performer((c) => c.id !== perfA && c.maxHearts >= 1);
+  p.slots[0] = perfA;
+  p.slots[1] = perfB;
+  s.hearts[perfA] = 2;
+  s.hearts[perfB] = 0;
+  applyAction(s, { type: 'annaMoveHeart', seat, fromCardId: perfA, toCardId: perfB });
+  assert.equal(s.hearts[perfA], 1, 'source card lost a heart');
+  assert.equal(s.hearts[perfB], 1, 'destination card gained a heart');
+  assert.throws(
+    () => applyAction(s, { type: 'annaMoveHeart', seat, fromCardId: perfA, toCardId: perfB }),
+    /already used/,
+    'only usable once per turn'
+  );
+});
+
+test('Anna the Reliquary: cannot move a heart from an empty card or onto a full one', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.ANNA;
+  const perfA = performer((c) => c.maxHearts >= 1);
+  const perfFull = performer((c) => c.id !== perfA && c.maxHearts >= 1);
+  p.slots[0] = perfA;
+  p.slots[1] = perfFull;
+  s.hearts[perfA] = 0;
+  s.hearts[perfFull] = card(perfFull).maxHearts;
+  assert.throws(
+    () => applyAction(s, { type: 'annaMoveHeart', seat, fromCardId: perfA, toCardId: perfFull }),
+    /no heart to move/
+  );
+  s.hearts[perfA] = 1;
+  assert.throws(
+    () => applyAction(s, { type: 'annaMoveHeart', seat, fromCardId: perfA, toCardId: perfFull }),
+    /no room/
+  );
 });
 
 // ---- AI draft valuation heuristics (scoreCard) ------------------------------
