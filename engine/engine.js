@@ -54,12 +54,11 @@ export const TRAINERS = {
   JONAS: 'Jonas-Quickfinger',
   WENDELL: 'Wendell-the-Propmaster',
   CELESTINE: 'Celestine-the-Stargazer',
-  ATLAS: 'Atlas-the-Steadfast',
   BELLACANTO: 'Bellacanto-the-Choirmistress',
   EZRA: 'Ezra-the-Sleight-of-Hand',
 };
 
-const MAX_TOMATO_DICE = 7; // rolled dice cap at 7 from round 7 onward (physical set has 9 tomato dice)
+const MAX_TOMATO_DICE = 8; // rolled dice cap at 8 from round 8 onward (physical set has 9 tomato dice)
 
 // First trophy-holder to this many Trophies wins. Fewer players means fewer
 // people splitting the round-by-round trophies, so the threshold rises as
@@ -100,7 +99,7 @@ export function createGame({ players, seed }) {
       slots: [null, null, null, null, null, null, null, null],
       reserve: [],
     })),
-    turn: null, // { seat, mainDone, done, open, buys, isBonus, bonusTiming, curioDone, celestineUsed, atlasUsed }
+    turn: null, // { seat, mainDone, done, open, buys, isBonus, bonusTiming, curioDone, celestineUsed }
     dice: null, // dice-phase progress
     dieEvent: null, // an in-flight die roll open to re-roll reactions
     pending: [], // decision prompts awaiting player input
@@ -108,19 +107,19 @@ export function createGame({ players, seed }) {
     winners: null,
     log: [],
     turnsCompleted: 0, // incremented once per finished turn — lets a driver (e.g. the server's bot loop) detect "a turn just ended" without re-deriving it from seat/phase changes
-    tilted: {}, // cardId -> true, Atlas the Steadfast: immune to collecting/losing hearts this round; cleared each round
     pressPassWindowActive: false, // true while waiting on one or more seats' 'pressPassWindow' pending items to close — see openPressPassWindow
   };
 
   state.deck = shuffle(state, allCardIds().slice());
 
   // Randomly pick the first player; stands go clockwise from them.
-  // Stand 1 starts with 0 coins, each later stand starts with 2 more.
+  // Starting coins are 2x the draft stand number: stand 1 starts with 2
+  // coins, stand 2 with 4, stand 3 with 6, and so on.
   const first = randInt(state, players.length);
   for (let i = 0; i < players.length; i++) {
     const p = state.players[(first + i) % players.length];
     p.stand = i + 1;
-    p.coins = i * 2;
+    p.coins = p.stand * 2;
   }
 
   state.market = draw(state, 4);
@@ -141,7 +140,7 @@ export function createGame({ players, seed }) {
 function newTurn(seat, isBonus = false, bonusTiming = null) {
   return {
     seat, mainDone: false, done: false, open: false, buys: 0, isBonus, bonusTiming,
-    curioDone: false, celestineUsed: false, atlasUsed: false,
+    curioDone: false, celestineUsed: false,
   };
 }
 
@@ -319,10 +318,6 @@ function heartHit(state, seat, slotIdx, why) {
   const p = state.players[seat];
   const id = p.slots[slotIdx];
   if (!id) return;
-  if (state.tilted && state.tilted[id]) {
-    log(state, `${p.name}'s ${card(id).name} is tilted (Atlas the Steadfast) — protected from losing a heart (${why}).`);
-    return;
-  }
   const h = state.hearts[id] || 0;
   if (h > 0) {
     state.hearts[id] = h - 1;
@@ -463,12 +458,11 @@ function resolveCollectionDie(state, letter, onlySeat = null, typeFilterFn = nul
     }
     for (const id of sources) {
       if (!id) continue;
-      if (state.tilted && state.tilted[id]) continue;
       const c = card(id);
       if (c.cardType !== 'performer' || c.letter !== letter) continue;
       if (typeFilterFn && !typeFilterFn(c)) continue;
       let units = 1 + boostCount(state, p.seat, c);
-      if ((letter === 'A' || letter === 'B') && trainerActive(state, p.seat, TRAINERS.ORSINO)) units += 2;
+      if ((letter === 'A' || letter === 'B') && trainerActive(state, p.seat, TRAINERS.ORSINO)) units += 3;
       if ((letter === 'C' || letter === 'D') && trainerActive(state, p.seat, TRAINERS.CASSIUS)) units += 1;
       if (c.resource === 'Star') {
         p.stars += units;
@@ -929,7 +923,6 @@ function refillIsNeeded(state, seat) {
 function startNextRound(state) {
   state.round++;
   state.dice = null;
-  state.tilted = {}; // Atlas the Steadfast's protection only lasts the round it was used
   for (const p of state.players) {
     p.roundStars = 0;
     p.roundCoins = 0;
@@ -1174,22 +1167,6 @@ export function applyAction(state, action) {
       p.roundStars += n;
       state.turn.celestineUsed = true;
       log(state, `${p.name} spends ${cost} coins to buy ${n} star${n > 1 ? 's' : ''} (Celestine the Stargazer).`);
-      break;
-    }
-    // Atlas the Steadfast: to start your turn, you may tilt one of your
-    // board cards — it cannot collect or lose hearts for the rest of the
-    // round.
-    case 'atlasTilt': {
-      requireTurn(state, seat);
-      if (state.turn.mainDone) throw new Error('This must be used before your main turn action.');
-      if (!trainerActive(state, seat, TRAINERS.ATLAS)) throw new Error('Atlas the Steadfast is not your active Trainer.');
-      if (state.turn.atlasUsed) throw new Error('You have already used that this turn.');
-      const p = state.players[seat];
-      const slot = action.slot;
-      if (!Number.isInteger(slot) || slot < 0 || slot > 7 || !p.slots[slot]) throw new Error('Choose one of your occupied slots.');
-      state.tilted[p.slots[slot]] = true;
-      state.turn.atlasUsed = true;
-      log(state, `${p.name} tilts ${card(p.slots[slot]).name} (Atlas the Steadfast) — it cannot collect or lose hearts for the rest of the round.`);
       break;
     }
     // ----- pre-roll Press Pass window ------------------------------------

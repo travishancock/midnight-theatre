@@ -17,7 +17,7 @@ let assetVersion = ''; // from /api/cards — appended to card image URLs so a b
 
 // Transient UI state
 let ui = {
-  mode: null, // null | 'rearrange' | 'atlasTilt'
+  mode: null, // null | 'rearrange'
   rearrangeFree: false, // true when the current 'rearrange' mode is Madame Barre's free (non-turn-consuming) rearrange
   rearrange: null, // { slots, reserve, picked: {zone, index} | null }
   heartPlan: {}, // cardId -> amount, for heartAssign prompt
@@ -427,9 +427,6 @@ function turnBarHtml(s, p) {
       ? `<button id="confirmRearrange" class="primary">Confirm free rearrangement (Madame Barre)</button>`
       : `<button id="confirmRearrange" class="primary">Confirm arrangement (ends turn)</button>`);
     buttons.push(`<button id="cancelMode">Cancel</button>`);
-  } else if (ui.mode === 'atlasTilt') {
-    buttons.push(`<span class="hint">Click one of your mat cards below to tilt it (Atlas the Steadfast)</span>`);
-    buttons.push(`<button id="cancelMode">Cancel</button>`);
   } else {
     if (!t.mainDone) {
       buttons.push(`<span class="yourturn">Your turn — click a draft card to take it, buy from the market, or:</span>`);
@@ -448,9 +445,6 @@ function turnBarHtml(s, p) {
         for (const n of [1, 2, 3]) {
           buttons.push(`<button class="small" data-celestine="${n}" ${p.coins >= n * 2 ? '' : 'disabled'}>Celestine: buy ${n}⭐ (${n * 2}🪙)</button>`);
         }
-      }
-      if (trainers.includes('Atlas-the-Steadfast') && !t.atlasUsed) {
-        buttons.push(`<button id="atlasBtn">Atlas the Steadfast: tilt a card (free)</button>`);
       }
     }
     if (t.open) buttons.push(`<button id="endTurnBtn" class="primary">End turn (Maximillian)</button>`);
@@ -744,16 +738,12 @@ function wireGameEvents(s, p, pending) {
   });
   document.getElementById('tomassoBtn')?.addEventListener('click', () => send({ type: 'tomassoRoll' }));
   document.getElementById('valentinoBtn')?.addEventListener('click', () => send({ type: 'valentinoEndDraft' }));
-  document.getElementById('atlasBtn')?.addEventListener('click', () => {
-    ui.mode = 'atlasTilt';
-    render();
-  });
   app.querySelectorAll('[data-celestine]').forEach((b) =>
     b.addEventListener('click', () => send({ type: 'celestineBuyStars', count: +b.dataset.celestine }))
   );
   document.getElementById('endTurnBtn')?.addEventListener('click', () => send({ type: 'endTurn' }));
 
-  // My mat: placement prompt, rearrange swaps, Atlas tilt.
+  // My mat: placement prompt, rearrange swaps.
   document.getElementById('mySlots')?.addEventListener('click', (e) => {
     const slotEl = e.target.closest('[data-slot]');
     if (!slotEl) return;
@@ -766,12 +756,6 @@ function wireGameEvents(s, p, pending) {
       return;
     }
     if (ui.mode === 'rearrange') return pickForSwap('slot', i);
-    if (ui.mode === 'atlasTilt') {
-      if (!p.slots[i]) return;
-      ui.mode = null;
-      send({ type: 'atlasTilt', slot: i });
-      return;
-    }
   });
   document.getElementById('myReserve')?.addEventListener('click', (e) => {
     const el = e.target.closest('[data-reserve]');

@@ -328,17 +328,6 @@ export function scoreCard(state, seat, id) {
     }
     case 'resource': {
       if (c.resourceType === 'Heart' && totalCapacityLeft(state, seat) === 0) return 0.2;
-      if (c.resourceType === 'Star') {
-        // Stars earned THIS round directly decide who takes the round's
-        // Trophy, so a Star resource card (especially the 3-star one) is
-        // worth much more than its face value suggests when the round is
-        // actually in contention — but chasing stars is wasted value if the
-        // bot has no realistic shot at this round's trophy anyway, and less
-        // urgent once it's already comfortably secured. See
-        // starCompetitiveness for the round-win-likelihood scaling.
-        const competitiveness = starCompetitiveness(state, seat, c.amount || 1);
-        return (1.6 * (c.amount || 1) + 0.5) * competitiveness;
-      }
       // "Card" resources (draw N from the deck) are worth a bit more than
       // their face value once N >= 2 — each drawn card is a free extra
       // acquisition (often another resource or a board card), so the 2- and
@@ -353,47 +342,6 @@ export function scoreCard(state, seat, id) {
     default:
       return 0;
   }
-}
-
-// Roughly how many Stars this seat's board is expected to earn from the
-// round's 5 shared Collection Dice, ignoring resource cards and boosts —
-// deliberately rough, just enough to distinguish "in contention", "hopeless",
-// and "already secured" for starCompetitiveness below. For each Star-resource
-// Performer on the board, LETTER_FREQ[letter]/4 approximates the expected
-// number of times that Letter comes up among the round's 5 dice (each die
-// has a LETTER_FREQ[letter]/20 chance of landing on it, times 5 dice).
-function expectedBoardStars(state, seat) {
-  const p = state.players[seat];
-  let n = 0;
-  for (let i = 0; i < 5; i++) {
-    const id = p.slots[i];
-    if (!id) continue;
-    const c = card(id);
-    if (c.cardType === 'performer' && c.resource === 'Star') n += (LETTER_FREQ[c.letter] || 0) / 4;
-  }
-  return n;
-}
-
-// How much a Star resource card of this size is worth toward THIS round's
-// trophy race specifically. Compares each player's projected round-end Star
-// total (current roundStars + expectedBoardStars, plus this card's amount
-// for the seat considering it) against the strongest opponent's projection.
-// Full value when the round is genuinely in contention either way; tapered
-// down when the seat has no realistic shot at catching the leader even with
-// this card (chasing stars it can't win is wasted value), and tapered down
-// more gently when the seat is already comfortably ahead and doesn't need
-// the extra insurance.
-function starCompetitiveness(state, seat, amount) {
-  const p = state.players[seat];
-  const others = state.players.filter((x) => x.seat !== seat);
-  if (others.length === 0) return 1;
-  const projected = (pl) => pl.roundStars + expectedBoardStars(state, pl.seat);
-  const projectedSelf = projected(p) + amount;
-  const bestOther = Math.max(...others.map(projected));
-  const margin = projectedSelf - bestOther;
-  if (margin < -2) return Math.max(0.25, 1 + (margin + 2) * 0.2); // clearly out of contention
-  if (margin > 4) return Math.max(0.5, 1 - (margin - 4) * 0.08); // already comfortably secured
-  return 1; // genuinely in contention — full value
 }
 
 // Prefer the resource we are furthest behind the table leader on.

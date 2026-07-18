@@ -108,11 +108,11 @@ test('setup: coins by draft stand, row sizes, trophy goal', () => {
   assert.equal(s.market.length, 4);
   assert.equal(s.draftRow.length, 3 * 2 + 1);
   assert.equal(s.trophyGoal, 5); // 3 players -> 5 trophies
-  for (const p of s.players) assert.equal(p.coins, (p.stand - 1) * 2);
+  for (const p of s.players) assert.equal(p.coins, p.stand * 2);
   const s5 = freshGame(5);
   assert.equal(s5.trophyGoal, 3); // 5 players -> 3 trophies
   assert.equal(s5.draftRow.length, 11);
-  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, 150);
+  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, 142);
   assert.equal(freshGame(2).trophyGoal, 6); // 2 players -> 6 trophies
   assert.equal(freshGame(4).trophyGoal, 4); // 4 players -> 4 trophies
 });
@@ -227,12 +227,11 @@ test('resource cards resolve immediately and are discarded', () => {
   assert.ok(!s.players[seat].slots.includes(coin3));
 });
 
-// Regression coverage: a resource card (Star, in particular — reported stuck
-// in reserve rather than resolving) must never linger anywhere other than
+// Regression coverage: a resource card must never linger anywhere other than
 // the discard pile once acquired, across every entry point: a direct draft
 // pick, a market buy, and a nested draw via a "Card" resource.
 test('every resource type resolves and lands in discard, never in reserve, on a direct draft pick', () => {
-  for (const name of ['Resource 1 Coin', 'Resource 2 Stars', 'Resource 3 Coins']) {
+  for (const name of ['Resource 1 Coin', 'Resource 2 Hearts', 'Resource 3 Coins']) {
     const s = freshGame(2);
     const seat = currentSeat(s);
     const p = s.players[seat];
@@ -245,18 +244,18 @@ test('every resource type resolves and lands in discard, never in reserve, on a 
   }
 });
 
-test('a Star resource card bought from the market resolves and discards, not reserve', () => {
+test('a resource card bought from the market resolves and discards, not reserve', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.coins = 10;
-  const star2 = firstOfName(db.resources, 'Resource 2 Stars');
-  s.market[0] = star2;
-  const before = p.stars;
+  const coin2 = firstOfName(db.resources, 'Resource 2 Coins');
+  s.market[0] = coin2;
+  const before = p.coins;
   applyAction(s, { type: 'buyMarket', seat, index: 0 });
-  assert.equal(p.stars - before, 2);
-  assert.ok(s.discard.includes(star2));
-  assert.ok(!p.reserve.includes(star2));
+  assert.equal(p.coins - before, 2 - 1, 'gains 2 coins from the card, spends 1 coin for market slot 0');
+  assert.ok(s.discard.includes(coin2));
+  assert.ok(!p.reserve.includes(coin2));
 });
 
 test('a resource card drawn via a "Card" resource (nested draw) also resolves and discards, not reserve', () => {
@@ -264,18 +263,16 @@ test('a resource card drawn via a "Card" resource (nested draw) also resolves an
   const seat = currentSeat(s);
   const p = s.players[seat];
   const draw2 = firstOfName(db.resources, 'Resource 2 Cards');
-  const star2 = firstOfName(db.resources, 'Resource 2 Stars');
+  const coin2 = firstOfName(db.resources, 'Resource 2 Coins');
   const coin1 = firstOfName(db.resources, 'Resource 1 Coin');
   // draw() pops from the end of state.deck, so push the desired cards last.
-  s.deck.push(coin1, star2);
+  s.deck.push(coin1, coin2);
   s.draftRow = [draw2, s.draftRow[1], s.draftRow[2]];
-  const starsBefore = p.stars;
   const coinsBefore = p.coins;
   applyAction(s, { type: 'acquireDraft', seat, cardId: draw2 });
-  assert.equal(p.stars - starsBefore, 2);
-  assert.equal(p.coins - coinsBefore, 1);
-  assert.ok(s.discard.includes(star2) && s.discard.includes(coin1));
-  assert.ok(!p.reserve.includes(star2) && !p.reserve.includes(coin1));
+  assert.equal(p.coins - coinsBefore, 3);
+  assert.ok(s.discard.includes(coin2) && s.discard.includes(coin1));
+  assert.ok(!p.reserve.includes(coin2) && !p.reserve.includes(coin1));
 });
 
 test('card-resource cards fill empty starting slots (assumption #2)', () => {
@@ -1134,13 +1131,13 @@ test('state.turnsCompleted increments once per finished turn (drives the server\
   assert.equal(s.turnsCompleted, 1);
 });
 
-test('a full 2-player round keeps every one of the 150 cards accounted for', () => {
+test('a full 2-player round keeps every one of the 142 cards accounted for', () => {
   const s = freshGame(2, 31337);
   // count every card location
   const total = (st) =>
     st.deck.length + st.discard.length + st.market.length + st.draftRow.length +
     st.players.reduce((a, p) => a + p.slots.filter(Boolean).length + p.reserve.length, 0);
-  assert.equal(total(s), 150);
+  assert.equal(total(s), 142);
 });
 
 // ---- multi-trainer slots (5/6/7 all accept Trainer) ------------------------
@@ -1209,7 +1206,7 @@ test('acquiring a Trainer with slot 8 full can be sent to reserve instead of bum
 
 // ---- new trainers -----------------------------------------------------------
 
-test('Orsino the Headliner: A/B performers collect +2; Cassius: C/D collect +1', () => {
+test('Orsino the Headliner: A/B performers collect +3; Cassius: C/D collect +1', () => {
   const s = freshGame(2, 1234);
   const seat = currentSeat(s);
   const other = s.players.find((x) => x.seat !== seat).seat;
@@ -1230,7 +1227,7 @@ test('Orsino the Headliner: A/B performers collect +2; Cassius: C/D collect +1',
   const before = p.stars;
   applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
   driveDicePhase(s);
-  assert.equal(p.stars - before, aCount * 3, `expected 1 (base) + 2 (Orsino) = 3 stars per A roll (${aCount}x)`);
+  assert.equal(p.stars - before, aCount * 4, `expected 1 (base) + 3 (Orsino) = 4 stars per A roll (${aCount}x)`);
 });
 
 test('Delphine Silvertongue doubles a spent Press Pass\'s private roll count', () => {
@@ -1317,29 +1314,6 @@ test('Celestine the Stargazer: to start your turn, buy up to 3 stars for 2 coins
   assert.throws(() => applyAction(s, { type: 'celestineBuyStars', seat, count: 1 }), /already used/);
 });
 
-test('Atlas the Steadfast: tilting a card protects it from collecting and losing hearts this round', () => {
-  const s = freshGame(2, 1234);
-  const seat = currentSeat(s);
-  const other = s.players.find((x) => x.seat !== seat).seat;
-  const p = s.players[seat];
-  p.slots[7] = TRAINERS.ATLAS;
-  const perfH = performer((c) => c.letter === 'H' && c.resource === 'Star' && c.characteristic === 'Graceful');
-  p.slots[0] = perfH;
-  s.hearts[perfH] = 3;
-  s.players[other].slots = [null, null, null, null, null, null, null, null];
-  s.players[other].reserve = [];
-  p.reserve = [];
-  applyAction(s, { type: 'atlasTilt', seat, slot: 0 });
-  assert.ok(s.tilted[perfH]);
-  const filler = performer((c) => c.letter === 'B' && c.resource === 'Coin');
-  s.draftRow = [filler, db.performers[3].id];
-  const rngNow = 999;
-  s.rng = rngNow;
-  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
-  driveDicePhase(s);
-  assert.equal(p.stars, 0, 'tilted card never collects, even on a matching roll');
-  assert.equal(s.hearts[perfH], 3, 'tilted card never loses hearts (trophy fatigue or tomato) this round');
-});
 
 test('Bellacanto the Choirmistress: Singers in reserve also collect, letter-gated', () => {
   const s = freshGame(2, 1234);
@@ -1379,36 +1353,6 @@ test('Ezra the Sleight-of-Hand: receives the draft\'s leftover card if he has an
 });
 
 // ---- AI draft valuation heuristics (scoreCard) ------------------------------
-
-test('scoreCard: a Star resource card is valued highly when the round is genuinely in contention', () => {
-  const s = freshGame(2);
-  const seat = currentSeat(s);
-  const other = s.players.find((x) => x.seat !== seat).seat;
-  s.players[seat].slots = [null, null, null, null, null, null, null, null];
-  s.players[other].slots = [null, null, null, null, null, null, null, null];
-  s.players[seat].roundStars = 0;
-  s.players[other].roundStars = 1; // close race — well within reach
-  const star3 = firstOfName(db.resources, 'Resource 3 Stars');
-  const coin3 = firstOfName(db.resources, 'Resource 3 Coins');
-  const starScore = scoreCard(s, seat, star3);
-  const coinScore = scoreCard(s, seat, coin3);
-  assert.ok(starScore > coinScore, 'a contested round should still prioritize the swing Star card over a same-size Coin card');
-});
-
-test('scoreCard: a Star resource card is devalued when the seat has no realistic shot at the round trophy', () => {
-  const s = freshGame(2);
-  const seat = currentSeat(s);
-  const other = s.players.find((x) => x.seat !== seat).seat;
-  s.players[seat].slots = [null, null, null, null, null, null, null, null];
-  s.players[other].slots = [null, null, null, null, null, null, null, null];
-  s.players[seat].roundStars = 0;
-  s.players[other].roundStars = 100; // hopelessly out of reach this round
-  const star3 = firstOfName(db.resources, 'Resource 3 Stars');
-  const coin3 = firstOfName(db.resources, 'Resource 3 Coins');
-  const starScore = scoreCard(s, seat, star3);
-  const coinScore = scoreCard(s, seat, coin3);
-  assert.ok(starScore < coinScore, 'a hopeless round should no longer chase the Star card over an equally-sized Coin card');
-});
 
 test('scoreCard: Draw-2/3 "Card" resources are valued a bit above their linear face value', () => {
   const s = freshGame(2);

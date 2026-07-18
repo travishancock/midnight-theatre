@@ -1181,7 +1181,7 @@
     {
       "id": "Orsino-the-Headliner",
       "name": "Orsino the Headliner",
-      "ability": "Your A and B performers collect +2 when rolled",
+      "ability": "Your A and B performers collect +3 when rolled",
       "startingHearts": 3,
       "image": "cards/Trainer Orsino the Headliner.webp"
     },
@@ -1226,13 +1226,6 @@
       "ability": "To start your turn you may buy up to 3 stars for 2 coins each",
       "startingHearts": 3,
       "image": "cards/Trainer Celestine the Stargazer.webp"
-    },
-    {
-      "id": "Atlas-the-Steadfast",
-      "name": "Atlas the Steadfast",
-      "ability": "To start your turn you may tilt one of your starting cards; It will not collect and can not lose hearts this round.",
-      "startingHearts": 3,
-      "image": "cards/Trainer Atlas the Steadfast.webp"
     },
     {
       "id": "Bellacanto-the-Choirmistress",
@@ -1347,54 +1340,6 @@
       "image": "cards/Resource 3 Coins.webp"
     },
     {
-      "id": "Resource-1-Star-1",
-      "name": "Resource 1 Star",
-      "resourceType": "Star",
-      "amount": 1,
-      "effect": "Immediately gain this many stars for the current round's trophy count.",
-      "image": "cards/Resource 1 Star.webp"
-    },
-    {
-      "id": "Resource-1-Star-2",
-      "name": "Resource 1 Star",
-      "resourceType": "Star",
-      "amount": 1,
-      "effect": "Immediately gain this many stars for the current round's trophy count.",
-      "image": "cards/Resource 1 Star.webp"
-    },
-    {
-      "id": "Resource-2-Star-1",
-      "name": "Resource 2 Stars",
-      "resourceType": "Star",
-      "amount": 2,
-      "effect": "Immediately gain this many stars for the current round's trophy count.",
-      "image": "cards/Resource 2 Stars.webp"
-    },
-    {
-      "id": "Resource-2-Star-2",
-      "name": "Resource 2 Stars",
-      "resourceType": "Star",
-      "amount": 2,
-      "effect": "Immediately gain this many stars for the current round's trophy count.",
-      "image": "cards/Resource 2 Stars.webp"
-    },
-    {
-      "id": "Resource-3-Star-1",
-      "name": "Resource 3 Stars",
-      "resourceType": "Star",
-      "amount": 3,
-      "effect": "Immediately gain this many stars for the current round's trophy count.",
-      "image": "cards/Resource 3 Stars.webp"
-    },
-    {
-      "id": "Resource-3-Star-2",
-      "name": "Resource 3 Stars",
-      "resourceType": "Star",
-      "amount": 3,
-      "effect": "Immediately gain this many stars for the current round's trophy count.",
-      "image": "cards/Resource 3 Stars.webp"
-    },
-    {
       "id": "Resource-1-Card-1",
       "name": "Resource 1 Card",
       "resourceType": "Card",
@@ -1494,13 +1439,6 @@
       "image": "cards/Favor 1st.webp"
     },
     {
-      "id": "Favor-1-8",
-      "name": "Favor 1st",
-      "triggerAfterTurn": 1,
-      "effect": "Discard from reserve immediately after your 1st turn in a round to take an additional turn.",
-      "image": "cards/Favor 1st.webp"
-    },
-    {
       "id": "Favor-2-1",
       "name": "Favor 2nd+",
       "triggerAfterTurn": 2,
@@ -1548,57 +1486,57 @@
       "triggerAfterTurn": 2,
       "effect": "Discard from reserve immediately after your 2nd+ turn in a round to take an additional turn.",
       "image": "cards/Favor 2nd plus.webp"
-    },
-    {
-      "id": "Favor-2-8",
-      "name": "Favor 2nd+",
-      "triggerAfterTurn": 2,
-      "effect": "Discard from reserve immediately after your 2nd+ turn in a round to take an additional turn.",
-      "image": "cards/Favor 2nd plus.webp"
     }
   ],
   "rerolls": [
     {
       "id": "PressPass-1-1",
       "name": "Press Pass 1",
-      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 1 private Collection Die of your own — resolved exactly like a normal Collection Die, but only you collect from it.",
-      "image": "cards/Press Pass 1.webp",
-      "count": 1
-    },
-    {
-      "id": "PressPass-1-2",
-      "name": "Press Pass 1",
-      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 1 private Collection Die of your own — resolved exactly like a normal Collection Die, but only you collect from it.",
+      "effect": "During your pre-roll window — opened the instant the draft ends, before the round's 5 shared Collection Dice roll — discard this from reserve to immediately roll 1 private Collection Die of your own, resolved exactly like a normal Collection Die but only you collect from it.",
       "image": "cards/Press Pass 1.webp",
       "count": 1
     },
     {
       "id": "PressPass-2-1",
       "name": "Press Pass 2",
-      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 2 private Collection Dice of your own — resolved exactly like a normal Collection Die, but only you collect from them.",
-      "image": "cards/Press Pass 2.webp",
-      "count": 2
-    },
-    {
-      "id": "PressPass-2-2",
-      "name": "Press Pass 2",
-      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 2 private Collection Dice of your own — resolved exactly like a normal Collection Die, but only you collect from them.",
+      "effect": "During your pre-roll window — opened the instant the draft ends, before the round's 5 shared Collection Dice roll — discard this from reserve to immediately roll 2 private Collection Dice of your own, resolved exactly like a normal Collection Die but only you collect from them.",
       "image": "cards/Press Pass 2.webp",
       "count": 2
     },
     {
       "id": "PressPass-3-1",
       "name": "Press Pass 3",
-      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 3 private Collection Dice of your own — resolved exactly like a normal Collection Die, but only you collect from them.",
+      "effect": "During your pre-roll window — opened the instant the draft ends, before the round's 5 shared Collection Dice roll — discard this from reserve to immediately roll 3 private Collection Dice of your own, resolved exactly like a normal Collection Die but only you collect from them.",
       "image": "cards/Press Pass 3.webp",
       "count": 3
     },
     {
-      "id": "PressPass-3-2",
-      "name": "Press Pass 3",
-      "effect": "Discard from reserve at any point during the draft phase, before the round's 5 shared Collection Dice roll, to immediately roll 3 private Collection Dice of your own — resolved exactly like a normal Collection Die, but only you collect from them.",
-      "image": "cards/Press Pass 3.webp",
-      "count": 3
+      "id": "PressPass-4-1",
+      "name": "Press Pass 4",
+      "effect": "During your pre-roll window — opened the instant the draft ends, before the round's 5 shared Collection Dice roll — discard this from reserve to immediately roll 4 private Collection Dice of your own, resolved exactly like a normal Collection Die but only you collect from them.",
+      "image": "cards/Press Pass 4.webp",
+      "count": 4
+    },
+    {
+      "id": "PressPass-5-1",
+      "name": "Press Pass 5",
+      "effect": "During your pre-roll window — opened the instant the draft ends, before the round's 5 shared Collection Dice roll — discard this from reserve to immediately roll 5 private Collection Dice of your own, resolved exactly like a normal Collection Die but only you collect from them.",
+      "image": "cards/Press Pass 5.webp",
+      "count": 5
+    },
+    {
+      "id": "PressPass-6-1",
+      "name": "Press Pass 6",
+      "effect": "During your pre-roll window — opened the instant the draft ends, before the round's 5 shared Collection Dice roll — discard this from reserve to immediately roll 6 private Collection Dice of your own, resolved exactly like a normal Collection Die but only you collect from them.",
+      "image": "cards/Press Pass 6.webp",
+      "count": 6
+    },
+    {
+      "id": "PressPass-7-1",
+      "name": "Press Pass 7",
+      "effect": "During your pre-roll window — opened the instant the draft ends, before the round's 5 shared Collection Dice roll — discard this from reserve to immediately roll 7 private Collection Dice of your own, resolved exactly like a normal Collection Die but only you collect from them.",
+      "image": "cards/Press Pass 7.webp",
+      "count": 7
     }
   ]
 }
