@@ -48,9 +48,8 @@ export const TRAINERS = {
   MESMERA: 'Mesmera-the-Veiled',
   VALENTINO: 'The-Vanishing-Valentino',
   ORSINO: 'Orsino-the-Headliner',
-  CASSIUS: 'Cassius-the-Second-Act',
   DELPHINE: 'Delphine-Silvertongue',
-  ANNA: 'Anna-the-Reliquary',
+  AMARA: 'Amara-the-Reliquary',
   JONAS: 'Jonas-Quickfinger',
   WENDELL: 'Wendell-the-Propmaster',
   CELESTINE: 'Celestine-the-Stargazer',
@@ -99,7 +98,7 @@ export function createGame({ players, seed }) {
       slots: [null, null, null, null, null, null, null, null],
       reserve: [],
     })),
-    turn: null, // { seat, mainDone, done, open, buys, isBonus, bonusTiming, curioDone, celestineUsed, annaUsed }
+    turn: null, // { seat, mainDone, done, open, buys, isBonus, bonusTiming, curioDone, celestineUsed, amaraUsed }
     dice: null, // dice-phase progress
     dieEvent: null, // an in-flight die roll open to re-roll reactions
     pending: [], // decision prompts awaiting player input
@@ -140,7 +139,7 @@ export function createGame({ players, seed }) {
 function newTurn(seat, isBonus = false, bonusTiming = null) {
   return {
     seat, mainDone: false, done: false, open: false, buys: 0, isBonus, bonusTiming,
-    curioDone: false, celestineUsed: false, annaUsed: false,
+    curioDone: false, celestineUsed: false, amaraUsed: false,
   };
 }
 
@@ -462,8 +461,7 @@ function resolveCollectionDie(state, letter, onlySeat = null, typeFilterFn = nul
       if (c.cardType !== 'performer' || c.letter !== letter) continue;
       if (typeFilterFn && !typeFilterFn(c)) continue;
       let units = 1 + boostCount(state, p.seat, c);
-      if ((letter === 'G' || letter === 'H') && trainerActive(state, p.seat, TRAINERS.ORSINO)) units += 3;
-      if ((letter === 'E' || letter === 'F') && trainerActive(state, p.seat, TRAINERS.CASSIUS)) units += 2;
+      if ((letter === 'A' || letter === 'B') && trainerActive(state, p.seat, TRAINERS.ORSINO)) units += 3;
       if (c.resource === 'Star') {
         p.stars += units;
         p.roundStars += units;
@@ -1142,7 +1140,7 @@ export function applyAction(state, action) {
       break;
     }
     // Celestine the Stargazer: to start your turn, you may buy up to 3
-    // stars for 2 coins each.
+    // stars for 3 coins each.
     case 'celestineBuyStars': {
       requireTurn(state, seat);
       if (state.turn.mainDone) throw new Error('This must be used before your main turn action.');
@@ -1151,7 +1149,7 @@ export function applyAction(state, action) {
       const n = action.count;
       if (!Number.isInteger(n) || n < 1 || n > 3) throw new Error('Choose 1-3 stars.');
       const p = state.players[seat];
-      const cost = n * 2;
+      const cost = n * 3;
       if (p.coins < cost) throw new Error(`You need ${cost} coins for that.`);
       p.coins -= cost;
       p.stars += n;
@@ -1160,14 +1158,14 @@ export function applyAction(state, action) {
       log(state, `${p.name} spends ${cost} coins to buy ${n} star${n > 1 ? 's' : ''} (Celestine the Stargazer).`);
       break;
     }
-    // Anna the Reliquary: to start your turn, you may move one heart from
-    // any of your cards (mat or reserve) to another, capped by the
+    // Amara the Reliquary: to start your turn, you may move a heart from
+    // one of your cards (mat or reserve) to another, capped by the
     // destination's printed heart capacity.
-    case 'annaMoveHeart': {
+    case 'amaraMoveHeart': {
       requireTurn(state, seat);
       if (state.turn.mainDone) throw new Error('This must be used before your main turn action.');
-      if (!trainerActive(state, seat, TRAINERS.ANNA)) throw new Error('Anna the Reliquary is not your active Trainer.');
-      if (state.turn.annaUsed) throw new Error('You have already used that this turn.');
+      if (!trainerActive(state, seat, TRAINERS.AMARA)) throw new Error('Amara the Reliquary is not your active Trainer.');
+      if (state.turn.amaraUsed) throw new Error('You have already used that this turn.');
       const p = state.players[seat];
       const { fromCardId, toCardId } = action;
       const owned = new Set([...p.slots.filter(Boolean), ...p.reserve]);
@@ -1177,8 +1175,8 @@ export function applyAction(state, action) {
       if (capacityLeft(state, seat, toCardId) < 1) throw new Error('That card has no room for another heart.');
       state.hearts[fromCardId] -= 1;
       state.hearts[toCardId] = (state.hearts[toCardId] || 0) + 1;
-      state.turn.annaUsed = true;
-      log(state, `${p.name} moves a heart from ${card(fromCardId).name} to ${card(toCardId).name} (Anna the Reliquary).`);
+      state.turn.amaraUsed = true;
+      log(state, `${p.name} moves a heart from ${card(fromCardId).name} to ${card(toCardId).name} (Amara the Reliquary).`);
       break;
     }
     // ----- pre-roll Press Pass window ------------------------------------

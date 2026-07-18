@@ -112,7 +112,7 @@ test('setup: coins by draft stand, row sizes, trophy goal', () => {
   const s5 = freshGame(5);
   assert.equal(s5.trophyGoal, 3); // 5 players -> 3 trophies
   assert.equal(s5.draftRow.length, 11);
-  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, 146);
+  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, 145);
   assert.equal(freshGame(2).trophyGoal, 6); // 2 players -> 6 trophies
   assert.equal(freshGame(4).trophyGoal, 4); // 4 players -> 4 trophies
 });
@@ -581,7 +581,7 @@ test('The Vanishing Valentino ends the draft immediately, at no turn cost, and i
   const rowBefore = [...s.draftRow];
   applyAction(s, { type: 'valentinoEndDraft', seat });
   for (const id of rowBefore) assert.ok(s.discard.includes(id));
-  assert.equal(p.slots[7], TRAINERS.VALENTINO, 'the trainer itself is not discarded (only 1 heart now, no self-discard clause)');
+  assert.equal(p.slots[7], TRAINERS.VALENTINO, 'the trainer itself is not discarded (no self-discard clause)');
   // The draft ended (row empty); with empty boards the dice phase runs
   // through (pausing at each open die/tomato-batch window) and round 2 begins.
   driveDicePhase(s);
@@ -1131,13 +1131,13 @@ test('state.turnsCompleted increments once per finished turn (drives the server\
   assert.equal(s.turnsCompleted, 1);
 });
 
-test('a full 2-player round keeps every one of the 146 cards accounted for', () => {
+test('a full 2-player round keeps every one of the 145 cards accounted for', () => {
   const s = freshGame(2, 31337);
   // count every card location
   const total = (st) =>
     st.deck.length + st.discard.length + st.market.length + st.draftRow.length +
     st.players.reduce((a, p) => a + p.slots.filter(Boolean).length + p.reserve.length, 0);
-  assert.equal(total(s), 146);
+  assert.equal(total(s), 145);
 });
 
 // ---- multi-trainer slots (5/6/7 all accept Trainer) ------------------------
@@ -1206,52 +1206,28 @@ test('acquiring a Trainer with slot 8 full can be sent to reserve instead of bum
 
 // ---- new trainers -----------------------------------------------------------
 
-test('Orsino the Headliner: G and H performers collect +3 when rolled', () => {
+test('Orsino the Headliner: A and B performers collect +3 when rolled', () => {
   const s = freshGame(2, 1234);
   const seat = currentSeat(s);
   const other = s.players.find((x) => x.seat !== seat).seat;
   const p = s.players[seat];
   p.slots[7] = TRAINERS.ORSINO;
-  const perfG = performer((c) => c.letter === 'G' && c.resource === 'Star');
-  p.slots[0] = perfG;
-  s.hearts[perfG] = card(perfG).startingHearts ?? 0;
+  const perfA = performer((c) => c.letter === 'A' && c.resource === 'Star');
+  p.slots[0] = perfA;
+  s.hearts[perfA] = card(perfA).startingHearts ?? 0;
   s.players[other].slots = [null, null, null, null, null, null, null, null];
   p.reserve = [];
   s.players[other].reserve = [];
-  const filler = performer((c) => c.letter === 'B' && c.resource === 'Coin' && c.id !== perfG);
-  s.draftRow = [filler, db.performers.find((c) => c.id !== perfG && c.id !== filler).id];
+  const filler = performer((c) => c.letter === 'C' && c.resource === 'Coin' && c.id !== perfA);
+  s.draftRow = [filler, db.performers.find((c) => c.id !== perfA && c.id !== filler).id];
   const rngNow = 999;
   s.rng = rngNow;
   const seq = predict(rngNow, [20, 20, 20, 20, 20, 1000, 1000, 8]);
-  const gCount = seq.slice(0, 5).map((i) => COLLECTION_FACES[i]).filter((l) => l === 'G').length;
+  const aCount = seq.slice(0, 5).map((i) => COLLECTION_FACES[i]).filter((l) => l === 'A').length;
   const before = p.stars;
   applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
   driveDicePhase(s);
-  assert.equal(p.stars - before, gCount * 4, `expected 1 (base) + 3 (Orsino) = 4 stars per G roll (${gCount}x)`);
-});
-
-test('Cassius the Second Act: E and F performers collect +2 when rolled', () => {
-  const s = freshGame(2, 1234);
-  const seat = currentSeat(s);
-  const other = s.players.find((x) => x.seat !== seat).seat;
-  const p = s.players[seat];
-  p.slots[7] = TRAINERS.CASSIUS;
-  const perfE = performer((c) => c.letter === 'E' && c.resource === 'Star');
-  p.slots[0] = perfE;
-  s.hearts[perfE] = card(perfE).startingHearts ?? 0;
-  s.players[other].slots = [null, null, null, null, null, null, null, null];
-  p.reserve = [];
-  s.players[other].reserve = [];
-  const filler = performer((c) => c.letter === 'B' && c.resource === 'Coin' && c.id !== perfE);
-  s.draftRow = [filler, db.performers.find((c) => c.id !== perfE && c.id !== filler).id];
-  const rngNow = 999;
-  s.rng = rngNow;
-  const seq = predict(rngNow, [20, 20, 20, 20, 20, 1000, 1000, 8]);
-  const eCount = seq.slice(0, 5).map((i) => COLLECTION_FACES[i]).filter((l) => l === 'E').length;
-  const before = p.stars;
-  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
-  driveDicePhase(s);
-  assert.equal(p.stars - before, eCount * 3, `expected 1 (base) + 2 (Cassius) = 3 stars per E roll (${eCount}x)`);
+  assert.equal(p.stars - before, aCount * 4, `expected 1 (base) + 3 (Orsino) = 4 stars per A roll (${aCount}x)`);
 });
 
 test('Delphine Silvertongue doubles a spent Press Pass\'s private roll count', () => {
@@ -1315,12 +1291,12 @@ test('Wendell the Propmaster: discard an acquired backdrop/prop for a different 
   assert.ok(s.discard.includes('Prop-Graceful'));
 });
 
-test('Celestine the Stargazer: to start your turn, buy up to 3 stars for 2 coins each', () => {
+test('Celestine the Stargazer: to start your turn, buy up to 3 stars for 3 coins each', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.CELESTINE;
-  p.coins = 6;
+  p.coins = 9;
   applyAction(s, { type: 'celestineBuyStars', seat, count: 3 });
   assert.equal(p.coins, 0);
   assert.equal(p.stars, 3);
@@ -1365,32 +1341,32 @@ test('Ezra the Sleight-of-Hand: receives the draft\'s leftover card if he has an
   assert.ok(!s.discard.includes(leftover));
 });
 
-test('Anna the Reliquary: move one heart from any of your cards to another, once per turn', () => {
+test('Amara the Reliquary: move a heart from one of your cards to another, once per turn', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
-  p.slots[7] = TRAINERS.ANNA;
+  p.slots[7] = TRAINERS.AMARA;
   const perfA = performer((c) => c.maxHearts >= 2);
   const perfB = performer((c) => c.id !== perfA && c.maxHearts >= 1);
   p.slots[0] = perfA;
   p.slots[1] = perfB;
   s.hearts[perfA] = 2;
   s.hearts[perfB] = 0;
-  applyAction(s, { type: 'annaMoveHeart', seat, fromCardId: perfA, toCardId: perfB });
+  applyAction(s, { type: 'amaraMoveHeart', seat, fromCardId: perfA, toCardId: perfB });
   assert.equal(s.hearts[perfA], 1, 'source card lost a heart');
   assert.equal(s.hearts[perfB], 1, 'destination card gained a heart');
   assert.throws(
-    () => applyAction(s, { type: 'annaMoveHeart', seat, fromCardId: perfA, toCardId: perfB }),
+    () => applyAction(s, { type: 'amaraMoveHeart', seat, fromCardId: perfA, toCardId: perfB }),
     /already used/,
     'only usable once per turn'
   );
 });
 
-test('Anna the Reliquary: cannot move a heart from an empty card or onto a full one', () => {
+test('Amara the Reliquary: cannot move a heart from an empty card or onto a full one', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
-  p.slots[7] = TRAINERS.ANNA;
+  p.slots[7] = TRAINERS.AMARA;
   const perfA = performer((c) => c.maxHearts >= 1);
   const perfFull = performer((c) => c.id !== perfA && c.maxHearts >= 1);
   p.slots[0] = perfA;
@@ -1398,12 +1374,12 @@ test('Anna the Reliquary: cannot move a heart from an empty card or onto a full 
   s.hearts[perfA] = 0;
   s.hearts[perfFull] = card(perfFull).maxHearts;
   assert.throws(
-    () => applyAction(s, { type: 'annaMoveHeart', seat, fromCardId: perfA, toCardId: perfFull }),
+    () => applyAction(s, { type: 'amaraMoveHeart', seat, fromCardId: perfA, toCardId: perfFull }),
     /no heart to move/
   );
   s.hearts[perfA] = 1;
   assert.throws(
-    () => applyAction(s, { type: 'annaMoveHeart', seat, fromCardId: perfA, toCardId: perfFull }),
+    () => applyAction(s, { type: 'amaraMoveHeart', seat, fromCardId: perfA, toCardId: perfFull }),
     /no room/
   );
 });

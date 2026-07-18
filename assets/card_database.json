@@ -1171,7 +1171,7 @@
       "id": "Tomasso-the-Terrible",
       "name": "Tomasso the Terrible",
       "ability": "You may spend your turn to roll 1 tomato die per Dancer; only other players are affected",
-      "startingHearts": 2,
+      "startingHearts": 3,
       "image": "cards/Trainer Tomasso the Terrible.webp"
     },
     {
@@ -1191,7 +1191,7 @@
     {
       "id": "Auric-the-Alchemist",
       "name": "Auric the Alchemist",
-      "ability": "When you receive a coin or a heart, you may take it as the other instead.",
+      "ability": "You may assign collected coins as hearts & vice versa",
       "startingHearts": 3,
       "image": "cards/Trainer Auric the Alchemist.webp"
     },
@@ -1219,30 +1219,23 @@
     {
       "id": "Mesmera-the-Veiled",
       "name": "Mesmera the Veiled",
-      "ability": "You may re-roll all Tomato dice after viewing the result",
+      "ability": "You can choose to re-roll all Tomato dice after viewing the result",
       "startingHearts": 3,
       "image": "cards/Trainer Mesmera the Veiled.webp"
     },
     {
       "id": "The-Vanishing-Valentino",
       "name": "The Vanishing Valentino",
-      "ability": "To start your turn you may end the draft",
-      "startingHearts": 1,
+      "ability": "To start your turn you may choose to end the draft",
+      "startingHearts": 3,
       "image": "cards/Trainer The Vanishing Valentino.webp"
     },
     {
       "id": "Orsino-the-Headliner",
       "name": "Orsino the Headliner",
-      "ability": "Your G and H performers collect +3 when rolled",
+      "ability": "Your A and B performers collect +3 when rolled",
       "startingHearts": 3,
       "image": "cards/Trainer Orsino the Headliner.webp"
-    },
-    {
-      "id": "Cassius-the-Second-Act",
-      "name": "Cassius the Second Act",
-      "ability": "Your E and F performers collect +2 when rolled",
-      "startingHearts": 3,
-      "image": "cards/Trainer Cassius the Second Act.webp"
     },
     {
       "id": "Delphine-Silvertongue",
@@ -1252,16 +1245,16 @@
       "image": "cards/Trainer Delphine Silvertongue.webp"
     },
     {
-      "id": "Anna-the-Reliquary",
-      "name": "Anna the Reliquary",
-      "ability": "To start your turn you may move one heart from any of your cards to another card",
+      "id": "Amara-the-Reliquary",
+      "name": "Amara the Reliquary",
+      "ability": "To start your turn you may move a heart from one card to another",
       "startingHearts": 3,
-      "image": "cards/Trainer Anna the Reliquary.webp"
+      "image": "cards/Trainer Amara the Reliquary.webp"
     },
     {
       "id": "Jonas-Quickfinger",
       "name": "Jonas Quickfinger",
-      "ability": "Acquired performers may be immediately discarded to collect their resource",
+      "ability": "Acquired performers may be immediately discarded to collect one of their resource",
       "startingHearts": 3,
       "image": "cards/Trainer Jonas Quickfinger.webp"
     },
@@ -1275,7 +1268,7 @@
     {
       "id": "Celestine-the-Stargazer",
       "name": "Celestine the Stargazer",
-      "ability": "To start your turn you may buy up to 3 stars for 2 coins each",
+      "ability": "To start your turn you may buy up to 3 stars for 3 coins each",
       "startingHearts": 3,
       "image": "cards/Trainer Celestine the Stargazer.webp"
     },

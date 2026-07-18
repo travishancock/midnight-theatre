@@ -17,10 +17,10 @@ let assetVersion = ''; // from /api/cards — appended to card image URLs so a b
 
 // Transient UI state
 let ui = {
-  mode: null, // null | 'rearrange' | 'annaMove'
+  mode: null, // null | 'rearrange' | 'amaraMove'
   rearrangeFree: false, // true when the current 'rearrange' mode is Madame Barre's free (non-turn-consuming) rearrange
   rearrange: null, // { slots, reserve, picked: {zone, index} | null }
-  annaMove: null, // { from: cardId | null } — Anna the Reliquary's move-a-heart picker
+  amaraMove: null, // { from: cardId | null } — Amara the Reliquary's move-a-heart picker
   heartPlan: {}, // cardId -> amount, for heartAssign prompt
   refillPlan: null, // [{slot, cardId}]
   logOpen: true,
@@ -93,7 +93,7 @@ function resetTransientUi() {
   ui.mode = null;
   ui.rearrangeFree = false;
   ui.rearrange = null;
-  ui.annaMove = null;
+  ui.amaraMove = null;
   ui.heartPlan = {};
   ui.refillPlan = null;
 }
@@ -140,7 +140,7 @@ function ownedCardIds(p) {
   return [...p.slots.filter(Boolean), ...p.reserve];
 }
 
-// Is there at least one legal (from, to) pair for Anna's ability right now?
+// Is there at least one legal (from, to) pair for Amara's ability right now?
 function anyMovableHeart(p) {
   const s = st();
   const ids = ownedCardIds(p);
@@ -444,10 +444,10 @@ function turnBarHtml(s, p) {
       ? `<button id="confirmRearrange" class="primary">Confirm free rearrangement (Madame Barre)</button>`
       : `<button id="confirmRearrange" class="primary">Confirm arrangement (ends turn)</button>`);
     buttons.push(`<button id="cancelMode">Cancel</button>`);
-  } else if (ui.mode === 'annaMove') {
-    buttons.push(`<span class="yourturn">${ui.annaMove?.from
-      ? 'Anna the Reliquary: now click the card to move that heart onto.'
-      : 'Anna the Reliquary: click one of your cards with a ❤ to move it from.'}</span>`);
+  } else if (ui.mode === 'amaraMove') {
+    buttons.push(`<span class="yourturn">${ui.amaraMove?.from
+      ? 'Amara the Reliquary: now click the card to move that heart onto.'
+      : 'Amara the Reliquary: click one of your cards with a ❤ to move it from.'}</span>`);
     buttons.push(`<button id="cancelMode">Cancel</button>`);
   } else {
     if (!t.mainDone) {
@@ -465,12 +465,12 @@ function turnBarHtml(s, p) {
       }
       if (trainers.includes('Celestine-the-Stargazer') && !t.celestineUsed) {
         for (const n of [1, 2, 3]) {
-          buttons.push(`<button class="small" data-celestine="${n}" ${p.coins >= n * 2 ? '' : 'disabled'}>Celestine: buy ${n}⭐ (${n * 2}🪙)</button>`);
+          buttons.push(`<button class="small" data-celestine="${n}" ${p.coins >= n * 3 ? '' : 'disabled'}>Celestine: buy ${n}⭐ (${n * 3}🪙)</button>`);
         }
       }
-      if (trainers.includes('Anna-the-Reliquary') && !t.annaUsed) {
+      if (trainers.includes('Amara-the-Reliquary') && !t.amaraUsed) {
         const has = anyMovableHeart(p);
-        buttons.push(`<button id="annaMoveBtn" ${has ? '' : 'disabled'} title="${has ? '' : 'None of your cards currently hold a heart'}">Anna the Reliquary: move a heart (free)</button>`);
+        buttons.push(`<button id="amaraMoveBtn" ${has ? '' : 'disabled'} title="${has ? '' : 'None of your cards currently hold a heart'}">Amara the Reliquary: move a heart (free)</button>`);
       }
     }
     if (t.open) buttons.push(`<button id="endTurnBtn" class="primary">End turn (Maximillian)</button>`);
@@ -650,17 +650,17 @@ function myMatHtml(s, p, pending) {
   const placing = pending?.kind === 'placement' || pending?.kind === 'cardResourcePlacement';
   const allowed = placing ? pending.data.allowedSlots : [];
   const r = ui.mode === 'rearrange' ? ui.rearrange : null;
-  const annaMove = ui.mode === 'annaMove' ? ui.annaMove : null;
+  const amaraMove = ui.mode === 'amaraMove' ? ui.amaraMove : null;
   const slots = r ? r.slots : p.slots;
   const reserve = r ? r.reserve : p.reserve;
   const anyFavorReady = !r && reserve.some((id) => favorReadyNow(s, p, id));
   const anyPressPassReady = !r && reserve.some((id) => pressPassReadyNow(s, p, id));
-  // Anna the Reliquary: highlight hearted cards while picking a source, or
+  // Amara the Reliquary: highlight hearted cards while picking a source, or
   // cards with room once a source is picked.
-  const annaEligible = (id) => {
-    if (!annaMove || !id) return false;
-    if (!annaMove.from) return (s.hearts[id] || 0) > 0;
-    return id !== annaMove.from && capLeft(p, id) > 0;
+  const amaraEligible = (id) => {
+    if (!amaraMove || !id) return false;
+    if (!amaraMove.from) return (s.hearts[id] || 0) > 0;
+    return id !== amaraMove.from && capLeft(p, id) > 0;
   };
 
   return `<section class="mymat">
@@ -671,9 +671,9 @@ function myMatHtml(s, p, pending) {
     <div class="slots" id="mySlots">
       ${slots.map((id, i) => {
         const sel = r?.picked?.zone === 'slot' && r.picked.index === i;
-        const annaSel = annaMove && id === annaMove.from;
+        const amaraSel = amaraMove && id === amaraMove.from;
         return `
-        <div class="slot ${placing && allowed.includes(i) ? 'highlight' : ''} ${annaEligible(id) ? 'highlight' : ''} ${sel || annaSel ? 'selected' : ''}" data-slot="${i}">
+        <div class="slot ${placing && allowed.includes(i) ? 'highlight' : ''} ${amaraEligible(id) ? 'highlight' : ''} ${sel || amaraSel ? 'selected' : ''}" data-slot="${i}">
           <span class="slotname">${SLOT_NAMES[i]}</span>
           ${id ? cardHtml(id, { size: 'lg', hearts: s.hearts[id] || 0 }) : '<div class="empty">empty</div>'}
         </div>`;
@@ -686,7 +686,7 @@ function myMatHtml(s, p, pending) {
       <div class="cardrow" id="myReserve">
         ${reserve.map((id, i) => {
           const sel = r?.picked?.zone === 'reserve' && r.picked.index === i;
-          const annaSel = annaMove && id === annaMove.from;
+          const amaraSel = amaraMove && id === amaraMove.from;
           const favorReady = !r && favorReadyNow(s, p, id);
           const pressPassReady = !r && pressPassReadyNow(s, p, id);
           const ready = favorReady || pressPassReady;
@@ -695,7 +695,7 @@ function myMatHtml(s, p, pending) {
             : pressPassReady
             ? 'Click to spend this Press Pass for private Collection Die roll(s)'
             : '';
-          return `<div class="pickable ${sel || annaSel ? 'selected' : ''} ${ready ? 'favor-ready' : ''} ${annaEligible(id) ? 'highlight' : ''}" data-reserve="${i}" ${title ? `title="${title}"` : ''}>${cardHtml(id, { size: 'sm', hearts: cardMaxHeartsFor(id) != null ? (s.hearts[id] || 0) : null })}</div>`;
+          return `<div class="pickable ${sel || amaraSel ? 'selected' : ''} ${ready ? 'favor-ready' : ''} ${amaraEligible(id) ? 'highlight' : ''}" data-reserve="${i}" ${title ? `title="${title}"` : ''}>${cardHtml(id, { size: 'sm', hearts: cardMaxHeartsFor(id) != null ? (s.hearts[id] || 0) : null })}</div>`;
         }).join('') || (r ? '' : '<span class="hint">empty</span>')}
         ${r ? '<div class="pickable droptarget" data-reserve="-1">⤓ move here</div>' : ''}
       </div>
@@ -762,12 +762,12 @@ function wireGameEvents(s, p, pending) {
     ui.mode = null;
     ui.rearrangeFree = false;
     ui.rearrange = null;
-    ui.annaMove = null;
+    ui.amaraMove = null;
     render();
   });
-  document.getElementById('annaMoveBtn')?.addEventListener('click', () => {
-    ui.mode = 'annaMove';
-    ui.annaMove = { from: null };
+  document.getElementById('amaraMoveBtn')?.addEventListener('click', () => {
+    ui.mode = 'amaraMove';
+    ui.amaraMove = { from: null };
     render();
   });
   document.getElementById('confirmRearrange')?.addEventListener('click', () => {
@@ -798,14 +798,14 @@ function wireGameEvents(s, p, pending) {
       return;
     }
     if (ui.mode === 'rearrange') return pickForSwap('slot', i);
-    if (ui.mode === 'annaMove' && p.slots[i]) return pickForAnnaMove(p, p.slots[i]);
+    if (ui.mode === 'amaraMove' && p.slots[i]) return pickForAmaraMove(p, p.slots[i]);
   });
   document.getElementById('myReserve')?.addEventListener('click', (e) => {
     const el = e.target.closest('[data-reserve]');
     if (!el) return;
     const i = +el.dataset.reserve;
     if (ui.mode === 'rearrange') return pickForSwap('reserve', i);
-    if (ui.mode === 'annaMove' && i >= 0) return pickForAnnaMove(p, p.reserve[i]);
+    if (ui.mode === 'amaraMove' && i >= 0) return pickForAmaraMove(p, p.reserve[i]);
     if (!ui.mode && i >= 0 && favorReadyNow(s, p, p.reserve[i])) {
       send({ type: 'useFavor', cardId: p.reserve[i] });
     } else if (!ui.mode && i >= 0 && pressPassReadyNow(s, p, p.reserve[i])) {
@@ -905,11 +905,11 @@ function pickForSwap(zone, index) {
   render();
 }
 
-// Anna the Reliquary: first click picks the source (must currently hold a
+// Amara the Reliquary: first click picks the source (must currently hold a
 // heart), second click picks the destination (must have room) and fires
 // the action. Clicking the already-picked source again deselects it.
-function pickForAnnaMove(p, cardId) {
-  const move = ui.annaMove;
+function pickForAmaraMove(p, cardId) {
+  const move = ui.amaraMove;
   const s = st();
   if (!move.from) {
     if ((s.hearts[cardId] || 0) < 1) return;
@@ -923,8 +923,8 @@ function pickForAnnaMove(p, cardId) {
   if (capLeft(p, cardId) < 1) return;
   const fromCardId = move.from;
   ui.mode = null;
-  ui.annaMove = null;
-  send({ type: 'annaMoveHeart', fromCardId, toCardId: cardId });
+  ui.amaraMove = null;
+  send({ type: 'amaraMoveHeart', fromCardId, toCardId: cardId });
 }
 
 // ---------------------------------------------------------------------------
