@@ -603,17 +603,12 @@ function acquireCard(state, seat, cardId, chosenSlot) {
   }
 }
 
-// Place a freshly-acquired (drafted/bought/drawn) card, then apply Jonas
-// Quickfinger's automatic bonus (if it's a performer) and offer any
+// Place a freshly-acquired (drafted/bought/drawn) card, then offer any
 // "acquired cards may be immediately discarded to..." Trainer reactions that
 // apply to it (Professor Stainglass / Wendell the Propmaster). Not used for
 // refills or rearranges — only genuine new acquisitions.
 function placeAcquiredCard(state, seat, cardId, slot) {
   placeInSlot(state, seat, cardId, slot);
-  const c = card(cardId);
-  if (c.cardType === 'performer' && trainerActive(state, seat, TRAINERS.JONAS)) {
-    collectResourceUnit(state, seat, c, 'Jonas Quickfinger');
-  }
   offerPostAcquireDiscard(state, seat, cardId);
 }
 
@@ -664,18 +659,21 @@ function relocateReserveOnBarreLeaving(state, seat) {
   }
 }
 
-// Jonas Quickfinger: collect exactly 1 unit of a card's printed resource
-// (no boosts — this isn't a Collection Die roll, just a straight cash-in).
-function collectResourceUnit(state, seat, c, reason) {
+// Jonas Quickfinger: collect `amount` units of a card's printed resource in
+// one shot (no boosts — this isn't a Collection Die roll, just a straight
+// cash-in). Used for his discard-a-performer-for-resources action, where
+// amount is the discarded performer's power dots.
+function collectResourceUnits(state, seat, c, amount, reason) {
+  if (amount <= 0) return;
   const p = state.players[seat];
   if (c.resource === 'Star') {
-    p.stars += 1;
-    p.roundStars += 1;
-    log(state, `${p.name} collects 1 star (${reason}).`);
+    p.stars += amount;
+    p.roundStars += amount;
+    log(state, `${p.name} collects ${amount} star${amount === 1 ? '' : 's'} (${reason}).`);
   } else if (c.resource === 'Coin') {
-    grantCoinsAndHearts(state, seat, 1, 0, reason);
+    grantCoinsAndHearts(state, seat, amount, 0, reason);
   } else {
-    grantCoinsAndHearts(state, seat, 0, 1, reason);
+    grantCoinsAndHearts(state, seat, 0, amount, reason);
   }
 }
 
@@ -817,6 +815,7 @@ function startDicePhase(state) {
     tomatoLocked: false, // the batch is finalized — hits may now be applied
     mesmeraRerollUsed: false,
     tomatoTotal: Math.min(state.round, MAX_TOMATO_DICE),
+    barreRearrangeOpened: false, // true once this round's end-of-round Madame Barre rearrange prompts have been pushed — see stepDice's 'barreRearrange' stage
     reviewOpened: false, // true once this round's post-dice diceResultsReview prompts have been pushed — see stepDice's 'review' stage
   };
   log(state, `— Dice phase, round ${state.round} —`);
@@ -858,6 +857,24 @@ function stepDice(state) {
       }
       if (!d.tomatoLocked) return;
       for (const n of d.tomatoResults) resolveTomatoDie(state, n);
+      d.stage = 'barreRearrange';
+      return;
+    }
+    // Madame Barre: once trophy fatigue and the Tomato batch have both fully
+    // resolved for the round (so this reflects who's actually still holding
+    // her, and what's actually left standing), any seat with her still
+    // active gets one blocking, optional chance to freely rearrange their
+    // whole troupe — any card, any of the 8 mat slots, active or reserve —
+    // before the round advances. See applyRearrange's allowAnySlot option
+    // and resolvePendingItem's 'barreRearrange' case.
+    case 'barreRearrange': {
+      if (!d.barreRearrangeOpened) {
+        d.barreRearrangeOpened = true;
+        for (const p of state.players) {
+          if (trainerActive(state, p.seat, TRAINERS.BARRE)) pushPending(state, 'barreRearrange', p.seat, {});
+        }
+        return;
+      }
       d.stage = 'review';
       return;
     }
@@ -1146,6 +1163,27 @@ export function applyAction(state, action) {
       state.turn.done = true;
       break;
     }
+    // Jonas Quickfinger: spend your whole turn to discard one of your active
+    // Performers and take that many units of its printed resource, where
+    // "that many" is the discarded Performer's power dots (1-4). A straight
+    // cash-in, not a Collection Die roll — no boosts apply.
+    case 'jonasDiscard': {
+      requireTurn(state, seat);
+      if (state.turn.mainDone) throw new Error('You have already acted this turn.');
+      if (!trainerActive(state, seat, TRAINERS.JONAS)) throw new Error('Jonas Quickfinger is not your active Trainer.');
+      const p = state.players[seat];
+      const cardId = action.cardId;
+      const slotIdx = p.slots.indexOf(cardId);
+      if (slotIdx < 0 || slotIdx > 4) throw new Error('That is not one of your active Performers.');
+      const c = card(cardId);
+      const amount = c.powerDots;
+      log(state, `${p.name} spends the turn with Jonas Quickfinger — discards ${c.name} for ${amount} ${c.resource.toLowerCase()}${amount === 1 ? '' : 's'}.`);
+      discardOwnedCard(state, seat, cardId);
+      collectResourceUnits(state, seat, c, amount, 'Jonas Quickfinger');
+      state.turn.mainDone = true;
+      state.turn.done = true;
+      break;
+    }
     // The Vanishing Valentino: to start your turn, you may end the draft
     // immediately (discarding whatever remains in the draft row) without
     // spending your turn. Unlimited uses while active.
@@ -1313,8 +1351,8 @@ function resolvePendingItem(state, item, action) {
     // Professor Stainglass / Wendell the Propmaster: right after acquiring a
     // matching card, its owner may immediately discard it for that Trainer's
     // stated effect instead of keeping it. See offerPostAcquireDiscard.
-    // (Jonas Quickfinger is no longer part of this prompt — his bonus is now
-    // automatic on acquisition; see placeAcquiredCard.)
+    // (Jonas Quickfinger has never been part of this prompt — see the
+    // separate 'jonasDiscard' turn action instead.)
     case 'postAcquireDiscard': {
       const choice = action.choice;
       if (!item.data.choices.includes(choice) && choice !== 'keep') throw new Error('Invalid choice.');
@@ -1411,6 +1449,17 @@ function resolvePendingItem(state, item, action) {
       removePending(state, item.id);
       break;
     }
+    // Madame Barre: end-of-round free rearrange. action.slots/reserve are
+    // optional — omitting them (or passing nothing) just skips it, leaving
+    // the troupe exactly as it is. See stepDice's 'barreRearrange' stage.
+    case 'barreRearrange': {
+      removePending(state, item.id);
+      if (action.slots) {
+        applyRearrange(state, seat, action.slots, action.reserve, { allowAnySlot: true });
+        log(state, `${p.name} freely rearranges their troupe at the end of the round (Madame Barre).`);
+      }
+      break;
+    }
     case 'refill': {
       const assignments = action.assignments || [];
       const seen = new Set();
@@ -1451,7 +1500,7 @@ function resolvePendingItem(state, item, action) {
 // Rearrange
 // ---------------------------------------------------------------------------
 
-function applyRearrange(state, seat, slots, reserve) {
+function applyRearrange(state, seat, slots, reserve, { allowAnySlot = false } = {}) {
   const p = state.players[seat];
   if (!Array.isArray(slots) || slots.length !== 8 || !Array.isArray(reserve)) throw new Error('Malformed arrangement.');
   const before = [...p.slots.filter(Boolean), ...p.reserve].sort();
@@ -1466,10 +1515,11 @@ function applyRearrange(state, seat, slots, reserve) {
     if (!SLOTTABLE.has(c.cardType)) throw new Error(`${c.name} cannot occupy a mat slot.`);
     // A card already sitting in a mismatched slot (placed there earlier via
     // Madame Barre's acquisition-time choice) may remain there untouched —
-    // it isn't forced out until it's discarded — but rearranging can never
-    // introduce a *new* type mismatch.
+    // it isn't forced out until it's discarded — but a normal rearrange can
+    // never introduce a *new* type mismatch. allowAnySlot (Madame Barre's
+    // end-of-round free rearrange only) lifts this restriction entirely.
     const alreadyThere = p.slots[i] === id;
-    if (!alreadyThere && !SLOTS_FOR_TYPE[c.cardType].includes(i)) {
+    if (!allowAnySlot && !alreadyThere && !SLOTS_FOR_TYPE[c.cardType].includes(i)) {
       throw new Error(`${c.name} cannot go in ${SLOT_NAMES[i]}.`);
     }
   }

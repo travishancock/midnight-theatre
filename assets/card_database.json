@@ -1205,7 +1205,7 @@
     {
       "id": "Madame-Barre",
       "name": "Madame Barre",
-      "ability": "You may place acquired cards in any slot (including reserve, even if a slot is available)",
+      "ability": "Acquired cards may go in any slot. Freely rearrange your troupe at round's end.",
       "startingHearts": 3,
       "image": "cards/Trainer Madame Barre.webp"
     },
@@ -1254,7 +1254,7 @@
     {
       "id": "Jonas-Quickfinger",
       "name": "Jonas Quickfinger",
-      "ability": "Immediately collect 1 of a performer's resource when acquired",
+      "ability": "You may spend your turn to discard a performer to take their resource times their power dot amount",
       "startingHearts": 3,
       "image": "cards/Trainer Jonas Quickfinger.webp"
     },

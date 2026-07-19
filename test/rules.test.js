@@ -85,6 +85,8 @@ function driveDicePhase(s) {
   while (s.phase === 'dice') {
     if (s.dieEvent && s.dieEvent.awaitingLock) { lockCollectionDie(s); continue; }
     if (s.dice && s.dice.stage === 'tomato' && s.dice.tomatoRolled && !s.dice.tomatoLocked) { lockTomatoRoll(s); continue; }
+    const barre = s.pending.find((x) => x.kind === 'barreRearrange');
+    if (barre) { applyAction(s, { type: 'resolvePending', seat: barre.seat, pendingId: barre.id }); continue; }
     const review = s.pending.find((x) => x.kind === 'diceResultsReview');
     if (review) { applyAction(s, { type: 'resolvePending', seat: review.seat, pendingId: review.id }); continue; }
     break; // no more open reaction windows — nothing left to drive
@@ -631,6 +633,82 @@ test('Madame Barre: acquired cards may be placed in a mismatched slot', () => {
   const pending = s.pending.find((x) => x.kind === 'placement');
   applyAction(s, { type: 'resolvePending', seat, pendingId: pending.id, slot: 6 });
   assert.equal(p.slots[6], perf, 'a Performer may sit in the Prop/Trainer slot while Barre is active');
+});
+
+test('Madame Barre: end-of-round free rearrange (any card, any slot, active or reserve) — only offered to her holder', () => {
+  const s = freshGame(2, 1234);
+  const seat = currentSeat(s);
+  const other = s.players.find((x) => x.seat !== seat).seat;
+  const p = s.players[seat];
+  p.slots = [null, null, null, null, null, null, null, TRAINERS.BARRE];
+  s.players[other].slots = [null, null, null, null, null, null, null, null];
+  s.players[other].reserve = [];
+  const perfA = db.performers[0].id;
+  const perfB = db.performers.find((c) => c.id !== perfA).id;
+  p.slots[0] = perfA;
+  p.reserve = [perfB];
+
+  // Force the draft to end this turn (leaving exactly 1 leftover card).
+  const filler = db.performers.find((c) => c.id !== perfA && c.id !== perfB).id;
+  s.draftRow = [filler, db.performers.find((c) => c.id !== filler && c.id !== perfA && c.id !== perfB).id];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+  // Madame Barre is already active, so this acquisition itself prompts a
+  // placement choice (see the acquisition-time redesign) — resolve it into
+  // the next open Performer slot before driving on into the dice phase.
+  const acquirePlacement = s.pending.find((x) => x.kind === 'placement' && x.seat === seat);
+  if (acquirePlacement) applyAction(s, { type: 'resolvePending', seat, pendingId: acquirePlacement.id, slot: 1 });
+
+  while (!s.pending.some((x) => x.kind === 'barreRearrange')) {
+    if (s.dieEvent && s.dieEvent.awaitingLock) { lockCollectionDie(s); continue; }
+    if (s.dice && s.dice.stage === 'tomato' && s.dice.tomatoRolled && !s.dice.tomatoLocked) { lockTomatoRoll(s); continue; }
+    throw new Error('expected to reach the Barre end-of-round rearrange pause');
+  }
+
+  const barreItem = s.pending.find((x) => x.kind === 'barreRearrange' && x.seat === seat);
+  assert.ok(barreItem, "Madame Barre's holder gets an end-of-round rearrange prompt");
+  assert.ok(!s.pending.some((x) => x.kind === 'barreRearrange' && x.seat === other), 'the other seat (no Barre) does not');
+
+  // Swap perfA (mat, into a mismatched Prop/Trainer slot — illegal for a
+  // normal 'rearrange', fine here) with perfB (reserve, into the now-open
+  // Performer slot). A clean 1-for-1 swap, so reserve ends up empty and no
+  // refill prompt gets triggered afterward.
+  const newSlots = [...p.slots];
+  const barreSlot = newSlots.indexOf(perfA);
+  newSlots[barreSlot] = perfB;
+  newSlots[6] = perfA;
+  const newReserve = [];
+  applyAction(s, { type: 'resolvePending', seat, pendingId: barreItem.id, slots: newSlots, reserve: newReserve });
+  assert.equal(p.slots[6], perfA, 'any card may go in any slot, including a mismatched one');
+  assert.equal(p.slots[barreSlot], perfB, 'the reserved card moved onto the mat');
+  assert.deepEqual(p.reserve, []);
+  assert.ok(!s.pending.some((x) => x.kind === 'barreRearrange'));
+
+  driveDicePhase(s);
+  assert.equal(s.round, 2);
+});
+
+test('Madame Barre: end-of-round rearrange may be skipped, leaving the troupe untouched', () => {
+  const s = freshGame(2, 1234);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots = [null, null, null, null, null, null, null, TRAINERS.BARRE];
+  s.players.find((x) => x.seat !== seat).slots = [null, null, null, null, null, null, null, null];
+
+  const filler = db.performers[0].id;
+  s.draftRow = [filler, db.performers.find((c) => c.id !== filler).id];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+  const acquirePlacement = s.pending.find((x) => x.kind === 'placement' && x.seat === seat);
+  if (acquirePlacement) applyAction(s, { type: 'resolvePending', seat, pendingId: acquirePlacement.id, slot: 0 });
+
+  while (!s.pending.some((x) => x.kind === 'barreRearrange')) {
+    if (s.dieEvent && s.dieEvent.awaitingLock) { lockCollectionDie(s); continue; }
+    if (s.dice && s.dice.stage === 'tomato' && s.dice.tomatoRolled && !s.dice.tomatoLocked) { lockTomatoRoll(s); continue; }
+    throw new Error('expected to reach the Barre end-of-round rearrange pause');
+  }
+  const barreItem = s.pending.find((x) => x.kind === 'barreRearrange' && x.seat === seat);
+  const before = [...p.slots];
+  applyAction(s, { type: 'resolvePending', seat, pendingId: barreItem.id });
+  assert.deepEqual(p.slots, before, 'skipping leaves the troupe exactly as it was');
 });
 
 test('rearrange must conserve cards and respect slot types', () => {
@@ -1323,20 +1401,43 @@ test('Delphine Silvertongue doubles a spent Press Pass\'s private roll count', (
   assert.ok(s.discard.includes('PressPass-3-1'));
 });
 
-test('Jonas Quickfinger: immediately collects 1 of a performer\'s resource when acquired, keeping the card', () => {
+test('Jonas Quickfinger: spend the turn to discard a Performer for its resource × power dots', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.JONAS;
   p.coins = 0;
-  const perf = performer((c) => c.resource === 'Coin');
-  s.draftRow[0] = perf;
-  applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
-  assert.equal(p.coins, 1, 'the bonus resource is granted immediately on acquisition');
-  assert.equal(p.slots[0], perf, 'the performer is kept on the board, not discarded');
-  assert.ok(!s.discard.includes(perf));
-  const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
-  assert.ok(!offer || !offer.data.choices.includes('jonas'), 'Jonas is no longer an optional discard-to-collect choice');
+  const perf = performer((c) => c.resource === 'Coin' && c.powerDots >= 2);
+  const dots = card(perf).powerDots;
+  p.slots[0] = perf;
+  applyAction(s, { type: 'jonasDiscard', seat, cardId: perf });
+  assert.equal(p.coins, dots, `collects ${dots} coins — the discarded performer's power dots, not a flat 1`);
+  assert.equal(p.slots[0], null, 'the performer is discarded, not kept');
+  assert.ok(s.discard.includes(perf));
+  assert.notEqual(s.turn?.seat, seat, 'using the ability ended the turn — play moved to the next stand');
+});
+
+test('Jonas Quickfinger: requires Jonas active and a genuine active Performer target', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  const perf = performer(() => true);
+  p.slots[0] = perf;
+  assert.throws(
+    () => applyAction(s, { type: 'jonasDiscard', seat, cardId: perf }),
+    /Jonas Quickfinger is not your active Trainer/
+  );
+  p.slots[7] = TRAINERS.JONAS;
+  assert.throws(
+    () => applyAction(s, { type: 'jonasDiscard', seat, cardId: 'Prop-Graceful' }),
+    /not one of your active Performers/
+  );
+  p.reserve = [db.performers.find((c) => c.id !== perf).id];
+  assert.throws(
+    () => applyAction(s, { type: 'jonasDiscard', seat, cardId: p.reserve[0] }),
+    /not one of your active Performers/,
+    'a reserved performer is not eligible, only ones actually on the mat'
+  );
 });
 
 test('Wendell the Propmaster: discard an acquired backdrop/prop for a different one from the discard pile', () => {

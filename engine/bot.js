@@ -87,8 +87,9 @@ function resolvePrompt(state, seat, item) {
     // Professor Stainglass / Wendell the Propmaster: the bot never
     // proactively discards a just-acquired card for these (keeps AI behavior
     // simple and non-regressive — the old engine's bot never used the
-    // equivalent discard abilities either). Jonas Quickfinger no longer
-    // appears in this prompt at all — his bonus is automatic on acquisition.
+    // equivalent discard abilities either). Jonas Quickfinger was never part
+    // of this prompt — see the separate 'jonasDiscard' turn action, which
+    // the bot also never proactively uses, same conservative policy.
     case 'postAcquireDiscard':
       return { ...base, choice: 'keep' };
     // Defensive fallback — unreachable in practice since the bot always
@@ -100,6 +101,12 @@ function resolvePrompt(state, seat, item) {
     // acknowledge and let the round continue. Only meaningful for a human
     // watching the results, so this resolves instantly.
     case 'diceResultsReview':
+      return { ...base };
+    // Madame Barre: end-of-round free rearrange. The bot never proactively
+    // rearranges (same conservative policy as every other optional Trainer
+    // action it's offered) — just closes the prompt, leaving the troupe as
+    // is.
+    case 'barreRearrange':
       return { ...base };
     default:
       // Unknown prompt kind: decline/no-op resolution keeps the game moving.

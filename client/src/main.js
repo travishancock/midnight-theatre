@@ -445,6 +445,9 @@ function turnBarHtml(s, p) {
       ? 'Amara the Reliquary: now click the card to move that heart onto.'
       : 'Amara the Reliquary: click one of your cards with a ❤ to move it from.'}</span>`);
     buttons.push(`<button id="cancelMode">Cancel</button>`);
+  } else if (ui.mode === 'jonasDiscard') {
+    buttons.push(`<span class="yourturn">Jonas Quickfinger: click one of your Performers below to discard it and take its resource × its power dots.</span>`);
+    buttons.push(`<button id="cancelMode">Cancel</button>`);
   } else {
     if (!t.mainDone) {
       buttons.push(`<span class="yourturn">Your turn — click a draft card to take it, buy from the market, or:</span>`);
@@ -452,6 +455,10 @@ function turnBarHtml(s, p) {
       if (trainers.includes('Tomasso-the-Terrible')) {
         const n = dancerCountOf(p);
         buttons.push(`<button id="tomassoBtn" ${n >= 1 ? '' : 'disabled'} title="${n < 1 ? 'You need at least 1 Dancer on your board' : ''}">Tomasso the Terrible: roll ${n} Tomato ${n === 1 ? 'die' : 'dice'} (uses turn)</button>`);
+      }
+      if (trainers.includes('Jonas-Quickfinger')) {
+        const hasPerformer = p.slots.slice(0, 5).some(Boolean);
+        buttons.push(`<button id="jonasBtn" ${hasPerformer ? '' : 'disabled'} title="${hasPerformer ? '' : 'You have no active Performers'}">Jonas Quickfinger: discard a Performer for resources (uses turn)</button>`);
       }
       if (trainers.includes('The-Vanishing-Valentino')) {
         buttons.push(`<button id="valentinoBtn">The Vanishing Valentino: end the draft (free)</button>`);
@@ -560,6 +567,16 @@ function promptHtml(s, p, item) {
         <div>This round's Collection Dice and Tomato dice have both finished rolling — take a look at the results above, then continue when you're ready.</div>
         <button id="diceReviewContinue" class="primary">Continue</button>`);
     }
+    case 'barreRearrange': {
+      if (ui.mode !== 'rearrange' || !ui.rearrange) {
+        ui.mode = 'rearrange';
+        ui.rearrange = { slots: [...p.slots], reserve: [...p.reserve], picked: null };
+      }
+      return promptBox(`
+        <div>The round is over — Madame Barre may freely rearrange your troupe now (any card, any slot, active or reserve) before the next round begins. Click cards on your mat/reserve below to swap them, then confirm — or skip if you don't want to change anything.</div>
+        <button id="confirmBarreRearrange" class="primary">Confirm rearrangement</button>
+        <button id="skipBarreRearrange">Skip — leave as is</button>`);
+    }
     case 'refill': {
       const plan = ui.refillPlan ?? defaultRefillPlan(s, p);
       ui.refillPlan = plan;
@@ -654,6 +671,9 @@ function myMatHtml(s, p, pending) {
     if (!amaraMove.from) return (s.hearts[id] || 0) > 0;
     return id !== amaraMove.from && capLeft(p, id) > 0;
   };
+  // Jonas Quickfinger: highlight any active Performer while the player is
+  // picking one to discard.
+  const jonasEligible = (i, id) => ui.mode === 'jonasDiscard' && i <= 4 && !!id;
 
   return `<section class="mymat">
     <div class="mat-head">
@@ -665,7 +685,7 @@ function myMatHtml(s, p, pending) {
         const sel = r?.picked?.zone === 'slot' && r.picked.index === i;
         const amaraSel = amaraMove && id === amaraMove.from;
         return `
-        <div class="slot ${placing && allowed.includes(i) ? 'highlight' : ''} ${amaraEligible(id) ? 'highlight' : ''} ${sel || amaraSel ? 'selected' : ''}" data-slot="${i}">
+        <div class="slot ${placing && allowed.includes(i) ? 'highlight' : ''} ${amaraEligible(id) ? 'highlight' : ''} ${jonasEligible(i, id) ? 'highlight' : ''} ${sel || amaraSel ? 'selected' : ''}" data-slot="${i}">
           <span class="slotname">${SLOT_NAMES[i]}</span>
           ${id ? cardHtml(id, { size: 'lg', hearts: s.hearts[id] || 0 }) : '<div class="empty">empty</div>'}
         </div>`;
@@ -761,6 +781,10 @@ function wireGameEvents(s, p, pending) {
     send({ type: 'rearrange', slots: r.slots, reserve: r.reserve });
   });
   document.getElementById('tomassoBtn')?.addEventListener('click', () => send({ type: 'tomassoRoll' }));
+  document.getElementById('jonasBtn')?.addEventListener('click', () => {
+    ui.mode = 'jonasDiscard';
+    render();
+  });
   document.getElementById('valentinoBtn')?.addEventListener('click', () => send({ type: 'valentinoEndDraft' }));
   app.querySelectorAll('[data-celestine]').forEach((b) =>
     b.addEventListener('click', () => send({ type: 'celestineBuyStars', count: +b.dataset.celestine }))
@@ -781,6 +805,12 @@ function wireGameEvents(s, p, pending) {
     }
     if (ui.mode === 'rearrange') return pickForSwap('slot', i);
     if (ui.mode === 'amaraMove' && p.slots[i]) return pickForAmaraMove(p, p.slots[i]);
+    if (ui.mode === 'jonasDiscard' && i <= 4 && p.slots[i]) {
+      const cardId = p.slots[i];
+      ui.mode = null;
+      send({ type: 'jonasDiscard', cardId });
+      return;
+    }
   });
   document.getElementById('myReserve')?.addEventListener('click', (e) => {
     const el = e.target.closest('[data-reserve]');
@@ -826,6 +856,17 @@ function wireGameEvents(s, p, pending) {
   document.getElementById('diceReviewContinue')?.addEventListener('click', () =>
     send({ type: 'resolvePending', pendingId: pending.id })
   );
+  document.getElementById('confirmBarreRearrange')?.addEventListener('click', () => {
+    const r = ui.rearrange;
+    ui.mode = null;
+    ui.rearrange = null;
+    send({ type: 'resolvePending', pendingId: pending.id, slots: r.slots, reserve: r.reserve });
+  });
+  document.getElementById('skipBarreRearrange')?.addEventListener('click', () => {
+    ui.mode = null;
+    ui.rearrange = null;
+    send({ type: 'resolvePending', pendingId: pending.id });
+  });
   document.getElementById('postAcquireKeep')?.addEventListener('click', () =>
     send({ type: 'resolvePending', pendingId: pending.id, choice: 'keep' })
   );
