@@ -1254,7 +1254,7 @@ test('Delphine Silvertongue doubles a spent Press Pass\'s private roll count', (
   assert.ok(s.discard.includes('PressPass-3-1'));
 });
 
-test('Jonas Quickfinger: discard an acquired performer to collect its resource', () => {
+test('Jonas Quickfinger: immediately collects 1 of a performer\'s resource when acquired, keeping the card', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
@@ -1263,12 +1263,11 @@ test('Jonas Quickfinger: discard an acquired performer to collect its resource',
   const perf = performer((c) => c.resource === 'Coin');
   s.draftRow[0] = perf;
   applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
+  assert.equal(p.coins, 1, 'the bonus resource is granted immediately on acquisition');
+  assert.equal(p.slots[0], perf, 'the performer is kept on the board, not discarded');
+  assert.ok(!s.discard.includes(perf));
   const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
-  assert.ok(offer.data.choices.includes('jonas'));
-  applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, choice: 'jonas' });
-  assert.equal(p.coins, 1);
-  assert.ok(s.discard.includes(perf));
-  assert.equal(p.slots[0], null);
+  assert.ok(!offer || !offer.data.choices.includes('jonas'), 'Jonas is no longer an optional discard-to-collect choice');
 });
 
 test('Wendell the Propmaster: discard an acquired backdrop/prop for a different one from the discard pile', () => {

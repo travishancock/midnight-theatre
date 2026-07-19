@@ -1254,7 +1254,7 @@
     {
       "id": "Jonas-Quickfinger",
       "name": "Jonas Quickfinger",
-      "ability": "Acquired performers may be immediately discarded to collect one of their resource",
+      "ability": "Immediately collect 1 of a performer's resource when acquired",
       "startingHearts": 3,
       "image": "cards/Trainer Jonas Quickfinger.webp"
     },

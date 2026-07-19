@@ -84,10 +84,11 @@ function resolvePrompt(state, seat, item) {
     }
     case 'auricGainChoice':
       return { ...base, ...chooseAuricConversion(state, seat, item.data) };
-    // Professor Stainglass / Jonas Quickfinger / Wendell the Propmaster: the
-    // bot never proactively discards a just-acquired card for these (keeps
-    // AI behavior simple and non-regressive — the old engine's bot never
-    // used the equivalent discard abilities either).
+    // Professor Stainglass / Wendell the Propmaster: the bot never
+    // proactively discards a just-acquired card for these (keeps AI behavior
+    // simple and non-regressive — the old engine's bot never used the
+    // equivalent discard abilities either). Jonas Quickfinger no longer
+    // appears in this prompt at all — his bonus is automatic on acquisition.
     case 'postAcquireDiscard':
       return { ...base, choice: 'keep' };
     // Defensive fallback — unreachable in practice since the bot always

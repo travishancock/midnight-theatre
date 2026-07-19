@@ -602,13 +602,17 @@ function acquireCard(state, seat, cardId, chosenSlot) {
   }
 }
 
-// Place a freshly-acquired (drafted/bought/drawn) card, then offer any
+// Place a freshly-acquired (drafted/bought/drawn) card, then apply Jonas
+// Quickfinger's automatic bonus (if it's a performer) and offer any
 // "acquired cards may be immediately discarded to..." Trainer reactions that
-// apply to it (Professor Stainglass / Jonas Quickfinger / Wendell the
-// Propmaster). Not used for refills or rearranges — only genuine new
-// acquisitions.
+// apply to it (Professor Stainglass / Wendell the Propmaster). Not used for
+// refills or rearranges — only genuine new acquisitions.
 function placeAcquiredCard(state, seat, cardId, slot) {
   placeInSlot(state, seat, cardId, slot);
+  const c = card(cardId);
+  if (c.cardType === 'performer' && trainerActive(state, seat, TRAINERS.JONAS)) {
+    collectResourceUnit(state, seat, c, 'Jonas Quickfinger');
+  }
   offerPostAcquireDiscard(state, seat, cardId);
 }
 
@@ -616,7 +620,6 @@ function offerPostAcquireDiscard(state, seat, cardId) {
   const c = card(cardId);
   const choices = [];
   if (trainerActive(state, seat, TRAINERS.STAINGLASS)) choices.push('stainglass');
-  if (c.cardType === 'performer' && trainerActive(state, seat, TRAINERS.JONAS)) choices.push('jonas');
   if ((c.cardType === 'backdrop' || c.cardType === 'prop') && trainerActive(state, seat, TRAINERS.WENDELL)) {
     const altAvailable = state.discard.some((id) => id !== cardId && card(id).cardType === c.cardType);
     if (altAvailable) choices.push('wendell');
@@ -1292,10 +1295,11 @@ function resolvePendingItem(state, item, action) {
       placeAcquiredCard(state, seat, it.cardId, slot);
       break;
     }
-    // Professor Stainglass / Jonas Quickfinger / Wendell the Propmaster:
-    // right after acquiring a matching card, its owner may immediately
-    // discard it for that Trainer's stated effect instead of keeping it. See
-    // offerPostAcquireDiscard.
+    // Professor Stainglass / Wendell the Propmaster: right after acquiring a
+    // matching card, its owner may immediately discard it for that Trainer's
+    // stated effect instead of keeping it. See offerPostAcquireDiscard.
+    // (Jonas Quickfinger is no longer part of this prompt — his bonus is now
+    // automatic on acquisition; see placeAcquiredCard.)
     case 'postAcquireDiscard': {
       const choice = action.choice;
       if (!item.data.choices.includes(choice) && choice !== 'keep') throw new Error('Invalid choice.');
@@ -1307,11 +1311,6 @@ function resolvePendingItem(state, item, action) {
         const drawn = draw(state, 1);
         p.reserve.push(...drawn);
         log(state, `${p.name} discards ${cardName} (Professor Stainglass) to draw ${drawn.length ? card(drawn[0]).name : 'nothing — the deck is empty'}.`);
-      } else if (choice === 'jonas') {
-        const c = card(cardId);
-        discardOwnedCard(state, seat, cardId);
-        log(state, `${p.name} discards ${cardName} (Jonas Quickfinger) to collect its resource.`);
-        collectResourceUnit(state, seat, c, 'Jonas Quickfinger');
       } else if (choice === 'wendell') {
         const slot = p.slots.indexOf(cardId);
         const cType = card(cardId).cardType;

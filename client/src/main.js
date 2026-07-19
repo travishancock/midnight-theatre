@@ -546,7 +546,6 @@ function promptHtml(s, p, item) {
     case 'postAcquireDiscard': {
       const labels = {
         stainglass: 'Discard it (Professor Stainglass) — draw 1 card',
-        jonas: 'Discard it (Jonas Quickfinger) — collect its resource',
         wendell: 'Discard it (Wendell the Propmaster) — take a different one from the discard pile',
       };
       return promptBox(`
