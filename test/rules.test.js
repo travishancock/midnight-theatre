@@ -588,21 +588,49 @@ test('The Vanishing Valentino ends the draft immediately, at no turn cost, and i
   assert.equal(s.round, 2);
 });
 
-test('freeRearrange: Madame Barre may rearrange for free (any slot), without ending the turn', () => {
+test('freeRearrange no longer exists — Madame Barre only affects acquisition placement now', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  s.players[seat].slots[7] = TRAINERS.BARRE;
+  assert.throws(
+    () => applyAction(s, { type: 'freeRearrange', seat, slots: [...s.players[seat].slots], reserve: [] }),
+    /Unknown action type/
+  );
+});
+
+test('Madame Barre: acquiring a card always offers a genuine placement choice, even with an empty natural slot open', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.BARRE;
+  // All 5 Performer slots are empty — without Barre this would auto-fill
+  // slot 0 silently. With Barre active it must still prompt.
+  const perf = db.performers[0].id;
+  s.draftRow[0] = perf;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
+  assert.equal(p.slots[0], null, 'not auto-filled while Barre is active');
+  const pending = s.pending.find((x) => x.kind === 'placement');
+  assert.ok(pending, 'expected a placement prompt');
+  assert.deepEqual(pending.data.allowedSlots, [0, 1, 2, 3, 4, 5, 6, 7], 'any of the 8 mat slots');
+  assert.equal(pending.data.allowReserve, true);
+
+  // Choosing reserve, despite an open matching slot, is honored.
+  applyAction(s, { type: 'resolvePending', seat, pendingId: pending.id, toReserve: true });
+  assert.ok(p.reserve.includes(perf));
+  assert.equal(p.slots[0], null);
+});
+
+test('Madame Barre: acquired cards may be placed in a mismatched slot', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.BARRE;
   const perf = db.performers[0].id;
-  p.slots[0] = perf;
-  applyAction(s, {
-    type: 'freeRearrange', seat,
-    slots: [null, null, null, null, null, null, perf, TRAINERS.BARRE],
-    reserve: [],
-  });
-  assert.equal(p.slots[6], perf, 'Barre allows any card in any slot');
-  assert.equal(s.turn.seat, seat, 'still the same turn — free rearrange does not end it');
-  assert.equal(s.turn.mainDone, false);
+  s.draftRow[0] = perf;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
+  const pending = s.pending.find((x) => x.kind === 'placement');
+  applyAction(s, { type: 'resolvePending', seat, pendingId: pending.id, slot: 6 });
+  assert.equal(p.slots[6], perf, 'a Performer may sit in the Prop/Trainer slot while Barre is active');
 });
 
 test('rearrange must conserve cards and respect slot types', () => {
@@ -642,6 +670,47 @@ test('rearrange must conserve cards and respect slot types', () => {
       reserve: [],
     })
   );
+});
+
+test('rearrange: a card already sitting in a mismatched slot (placed there via Madame Barre) may remain there, but a general rearrange can never introduce a new mismatch — even with Barre active', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  const perfA = db.performers[0].id;
+  const perfB = db.performers[1].id;
+  p.slots[7] = TRAINERS.BARRE;
+  p.slots[6] = perfA; // mismatched: a Performer parked in the Prop/Trainer slot
+  // A no-op rearrange (the mismatched card stays exactly where it is) succeeds.
+  applyAction(s, { type: 'rearrange', seat, slots: [...p.slots], reserve: [...p.reserve] });
+  assert.equal(p.slots[6], perfA, 'unchanged mismatched placement survives a rearrange');
+  // But moving a *different* performer into a mismatched slot is still rejected.
+  p.reserve = [perfB];
+  assert.throws(() =>
+    applyAction(s, {
+      type: 'rearrange', seat,
+      slots: [null, null, null, null, null, perfB, perfA, TRAINERS.BARRE],
+      reserve: [],
+    })
+  );
+});
+
+test('Madame Barre leaving play: reserve cards that could now fill an empty matching slot move there automatically', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const other = s.players.find((x) => x.seat !== seat);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.BARRE;
+  s.hearts[TRAINERS.BARRE] = 0; // already at 0, next hit discards her immediately
+  const perf = db.performers[0].id;
+  p.reserve = [perf]; // parked in reserve (e.g. via Barre's choice) while slot 0 sits open
+  p.roundStars = 5;
+  other.roundStars = 0;
+
+  assignTrophy(s); // p wins the Trophy -> trophy fatigue hits every one of p's 8 slots
+  assert.equal(p.slots[7], null, 'Madame Barre was discarded');
+  assert.ok(s.discard.includes(TRAINERS.BARRE));
+  assert.equal(p.slots[0], perf, 'the reserved Performer automatically moved into the now-unlocked Performer slot');
+  assert.ok(!p.reserve.includes(perf));
 });
 
 test('deterministic dice phase: collection matches, boosts, trophies, tomato hits', () => {

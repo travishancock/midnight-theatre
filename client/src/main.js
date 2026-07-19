@@ -18,7 +18,6 @@ let assetVersion = ''; // from /api/cards — appended to card image URLs so a b
 // Transient UI state
 let ui = {
   mode: null, // null | 'rearrange' | 'amaraMove'
-  rearrangeFree: false, // true when the current 'rearrange' mode is Madame Barre's free (non-turn-consuming) rearrange
   rearrange: null, // { slots, reserve, picked: {zone, index} | null }
   amaraMove: null, // { from: cardId | null } — Amara the Reliquary's move-a-heart picker
   heartPlan: {}, // cardId -> amount, for heartAssign prompt
@@ -91,7 +90,6 @@ function announceTrophies(newLines) {
 
 function resetTransientUi() {
   ui.mode = null;
-  ui.rearrangeFree = false;
   ui.rearrange = null;
   ui.amaraMove = null;
   ui.heartPlan = {};
@@ -440,9 +438,7 @@ function turnBarHtml(s, p) {
   const buttons = [];
 
   if (ui.mode === 'rearrange') {
-    buttons.push(ui.rearrangeFree
-      ? `<button id="confirmRearrange" class="primary">Confirm free rearrangement (Madame Barre)</button>`
-      : `<button id="confirmRearrange" class="primary">Confirm arrangement (ends turn)</button>`);
+    buttons.push(`<button id="confirmRearrange" class="primary">Confirm arrangement (ends turn)</button>`);
     buttons.push(`<button id="cancelMode">Cancel</button>`);
   } else if (ui.mode === 'amaraMove') {
     buttons.push(`<span class="yourturn">${ui.amaraMove?.from
@@ -456,9 +452,6 @@ function turnBarHtml(s, p) {
       if (trainers.includes('Tomasso-the-Terrible')) {
         const n = dancerCountOf(p);
         buttons.push(`<button id="tomassoBtn" ${n >= 1 ? '' : 'disabled'} title="${n < 1 ? 'You need at least 1 Dancer on your board' : ''}">Tomasso the Terrible: roll ${n} Tomato ${n === 1 ? 'die' : 'dice'} (uses turn)</button>`);
-      }
-      if (trainers.includes('Madame-Barre')) {
-        buttons.push(`<button id="freeRearrangeBtn">Madame Barre: freely rearrange (free)</button>`);
       }
       if (trainers.includes('The-Vanishing-Valentino')) {
         buttons.push(`<button id="valentinoBtn">The Vanishing Valentino: end the draft (free)</button>`);
@@ -507,7 +500,7 @@ function promptHtml(s, p, item) {
     }
     case 'cardResourcePlacement': {
       return promptBox(`
-        <div>You drew <b>${esc(card(item.data.cardId).name)}</b> but its starting slot(s) are full — click a highlighted slot to place it (the current occupant moves to your reserve), or send it to reserve instead.</div>
+        <div>You drew <b>${esc(card(item.data.cardId).name)}</b> — click a highlighted slot to place it (the current occupant, if any, moves to your reserve), or send it to reserve instead.</div>
         <button id="cardResourceToReserve">Send to reserve instead</button>`);
     }
     case 'heartAssign': {
@@ -747,19 +740,11 @@ function wireGameEvents(s, p, pending) {
   // Turn bar.
   document.getElementById('rearrangeBtn')?.addEventListener('click', () => {
     ui.mode = 'rearrange';
-    ui.rearrangeFree = false;
-    ui.rearrange = { slots: [...p.slots], reserve: [...p.reserve], picked: null };
-    render();
-  });
-  document.getElementById('freeRearrangeBtn')?.addEventListener('click', () => {
-    ui.mode = 'rearrange';
-    ui.rearrangeFree = true;
     ui.rearrange = { slots: [...p.slots], reserve: [...p.reserve], picked: null };
     render();
   });
   document.getElementById('cancelMode')?.addEventListener('click', () => {
     ui.mode = null;
-    ui.rearrangeFree = false;
     ui.rearrange = null;
     ui.amaraMove = null;
     render();
@@ -771,11 +756,9 @@ function wireGameEvents(s, p, pending) {
   });
   document.getElementById('confirmRearrange')?.addEventListener('click', () => {
     const r = ui.rearrange;
-    const free = ui.rearrangeFree;
     ui.mode = null;
-    ui.rearrangeFree = false;
     ui.rearrange = null;
-    send({ type: free ? 'freeRearrange' : 'rearrange', slots: r.slots, reserve: r.reserve });
+    send({ type: 'rearrange', slots: r.slots, reserve: r.reserve });
   });
   document.getElementById('tomassoBtn')?.addEventListener('click', () => send({ type: 'tomassoRoll' }));
   document.getElementById('valentinoBtn')?.addEventListener('click', () => send({ type: 'valentinoEndDraft' }));

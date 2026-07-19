@@ -1205,7 +1205,7 @@
     {
       "id": "Madame-Barre",
       "name": "Madame Barre",
-      "ability": "To start your turn you may freely rearrange your cards, and place them in any slot",
+      "ability": "You may place acquired cards in any slot (including reserve, even if a slot is available)",
       "startingHearts": 3,
       "image": "cards/Trainer Madame Barre.webp"
     },

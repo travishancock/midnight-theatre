@@ -326,6 +326,7 @@ function heartHit(state, seat, slotIdx, why) {
   p.slots[slotIdx] = null;
   state.discard.push(id);
   log(state, `${p.name}'s ${card(id).name} (${SLOT_NAMES[slotIdx]}) loses its last heart and leaves the stage! (${why})`);
+  if (id === TRAINERS.BARRE) relocateReserveOnBarreLeaving(state, seat);
 }
 
 // ---------------------------------------------------------------------------
@@ -562,29 +563,29 @@ function acquireCard(state, seat, cardId, chosenSlot) {
       let slot = chosenSlot;
       if (slot != null) {
         if (!allowed.includes(slot)) throw new Error('That card cannot go in that slot.');
+      } else if (trainerActive(state, seat, TRAINERS.BARRE)) {
+        // Madame Barre: every acquisition is offered a genuine placement
+        // choice — any of the 8 mat slots, or reserve — even when a natural
+        // slot is sitting open. Never auto-filled while she's active.
+        pushPending(state, 'placement', seat, { cardId, allowedSlots: allowed, allowReserve: true });
+        return;
       } else if (c.cardType === 'performer') {
         // Default fill order: lowest empty Performer slot; if the row is
         // full, offer the bump-or-reserve choice above.
         slot = [0, 1, 2, 3, 4].find((i) => p.slots[i] == null);
         if (slot == null) {
-          pushPending(state, 'placement', seat, {
-            cardId,
-            allowedSlots: allowed.filter((i) => i <= 4 || trainerActive(state, seat, TRAINERS.BARRE)),
-            allowReserve: true,
-          });
+          pushPending(state, 'placement', seat, { cardId, allowedSlots: allowed, allowReserve: true });
           return;
         }
       } else if (c.cardType === 'trainer') {
         // Slot 8 (Trainer-only) is always tried first, automatically. Once
         // it's taken, the player chooses which of all 3 Trainer slots (6, 7,
         // or 8) to bump — or sends the newly acquired Trainer to reserve
-        // instead. (Madame Barre's passive still widens this to any of the
-        // 8 mat slots, same as every other acquisition while she's active.)
+        // instead.
         if (p.slots[7] == null) {
           slot = 7;
         } else {
-          const trainerAllowed = trainerActive(state, seat, TRAINERS.BARRE) ? allowed : [5, 6, 7];
-          pushPending(state, 'placement', seat, { cardId, allowedSlots: trainerAllowed, allowReserve: true });
+          pushPending(state, 'placement', seat, { cardId, allowedSlots: [5, 6, 7], allowReserve: true });
           return;
         }
       } else {
@@ -640,6 +641,27 @@ function discardOwnedCard(state, seat, cardId) {
   }
   state.hearts[cardId] = 0;
   state.discard.push(cardId);
+  if (cardId === TRAINERS.BARRE) relocateReserveOnBarreLeaving(state, seat);
+}
+
+// Madame Barre: while active, acquired cards may be freely parked in reserve
+// even when a matching active slot is open. Once she's discarded, that
+// standing exception ends — any reserve card that could now fill an empty,
+// correctly-matching active slot is immediately moved there. (Cards already
+// sitting in a mismatched active slot are unaffected — see applyRearrange —
+// and stay put until they themselves are discarded.)
+function relocateReserveOnBarreLeaving(state, seat) {
+  const p = state.players[seat];
+  for (const cardId of [...p.reserve]) {
+    const c = card(cardId);
+    if (!SLOTTABLE.has(c.cardType)) continue;
+    const emptySlot = SLOTS_FOR_TYPE[c.cardType].find((i) => p.slots[i] == null);
+    if (emptySlot == null) continue;
+    const ri = p.reserve.indexOf(cardId);
+    p.reserve.splice(ri, 1);
+    p.slots[emptySlot] = cardId;
+    log(state, `${p.name}'s ${c.name} moves from reserve into ${SLOT_NAMES[emptySlot]} — Madame Barre has left play.`);
+  }
 }
 
 // Jonas Quickfinger: collect exactly 1 unit of a card's printed resource
@@ -709,13 +731,18 @@ function intakeDrawnCard(state, seat, cardId) {
     acquireCard(state, seat, cardId, null);
     return;
   }
-  const natural = SLOTS_FOR_TYPE[c.cardType];
-  const emptySlot = natural.find((i) => p.slots[i] == null);
-  if (emptySlot != null) {
-    placeAcquiredCard(state, seat, cardId, emptySlot);
-    return;
-  }
   const allowed = allowedSlots(state, seat, cardId);
+  if (!trainerActive(state, seat, TRAINERS.BARRE)) {
+    const natural = SLOTS_FOR_TYPE[c.cardType];
+    const emptySlot = natural.find((i) => p.slots[i] == null);
+    if (emptySlot != null) {
+      placeAcquiredCard(state, seat, cardId, emptySlot);
+      return;
+    }
+  }
+  // Madame Barre active: always a genuine choice, any of the 8 mat slots
+  // (or reserve — see the 'cardResourcePlacement' resolution), even when a
+  // natural slot is open.
   pushPending(state, 'cardResourcePlacement', seat, { cardId, allowedSlots: allowed });
 }
 
@@ -1119,18 +1146,6 @@ export function applyAction(state, action) {
       state.turn.done = true;
       break;
     }
-    // Madame Barre: to start your turn, freely rearrange your board (any
-    // card in any slot) without spending your turn. Her passive "place
-    // anywhere" effect for normal acquisitions still applies separately
-    // (see allowedSlots) — this is an additional, explicit free action.
-    case 'freeRearrange': {
-      requireTurn(state, seat);
-      if (state.turn.mainDone) throw new Error('This must be used before your main turn action.');
-      if (!trainerActive(state, seat, TRAINERS.BARRE)) throw new Error('Madame Barre is not your active Trainer.');
-      applyRearrange(state, seat, action.slots, action.reserve);
-      log(state, `${nameOf(state, seat)} freely rearranges their troupe (Madame Barre) without using their turn.`);
-      break;
-    }
     // The Vanishing Valentino: to start your turn, you may end the draft
     // immediately (discarding whatever remains in the draft row) without
     // spending your turn. Unlimited uses while active.
@@ -1444,13 +1459,17 @@ function applyRearrange(state, seat, slots, reserve) {
   if (before.length !== after.length || before.some((id, i) => id !== after[i])) {
     throw new Error('Rearranging cannot add or remove cards.');
   }
-  const barre = trainerActive(state, seat, TRAINERS.BARRE) || slots[5] === TRAINERS.BARRE || slots[6] === TRAINERS.BARRE || slots[7] === TRAINERS.BARRE;
   for (let i = 0; i < 8; i++) {
     const id = slots[i];
     if (!id) continue;
     const c = card(id);
     if (!SLOTTABLE.has(c.cardType)) throw new Error(`${c.name} cannot occupy a mat slot.`);
-    if (!barre && !SLOTS_FOR_TYPE[c.cardType].includes(i)) {
+    // A card already sitting in a mismatched slot (placed there earlier via
+    // Madame Barre's acquisition-time choice) may remain there untouched —
+    // it isn't forced out until it's discarded — but rearranging can never
+    // introduce a *new* type mismatch.
+    const alreadyThere = p.slots[i] === id;
+    if (!alreadyThere && !SLOTS_FOR_TYPE[c.cardType].includes(i)) {
       throw new Error(`${c.name} cannot go in ${SLOT_NAMES[i]}.`);
     }
   }
