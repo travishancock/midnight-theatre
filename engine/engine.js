@@ -462,7 +462,7 @@ function resolveCollectionDie(state, letter, onlySeat = null, typeFilterFn = nul
       if (c.cardType !== 'performer' || c.letter !== letter) continue;
       if (typeFilterFn && !typeFilterFn(c)) continue;
       let units = 1 + boostCount(state, p.seat, c);
-      if ((letter === 'A' || letter === 'B') && trainerActive(state, p.seat, TRAINERS.ORSINO)) units += 3;
+      if ((letter === 'G' || letter === 'H') && trainerActive(state, p.seat, TRAINERS.ORSINO)) units += 3;
       if (c.resource === 'Star') {
         p.stars += units;
         p.roundStars += units;

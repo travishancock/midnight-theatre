@@ -94,7 +94,7 @@ A later ruling changed slots 6 and 7 from single-purpose (Backdrop-only / Prop-o
 
 | Trainer | Ability |
 |---|---|
-| Orsino the Headliner | Your A and B Performers collect +3 (on top of the normal 1 + any Backdrop/Prop boost) whenever their letter is rolled on a Collection Die. |
+| Orsino the Headliner | Your G and H Performers collect +3 (on top of the normal 1 + any Backdrop/Prop boost) whenever their letter is rolled on a Collection Die. |
 | Delphine Silvertongue | Every Press Pass you spend rolls double its printed number of private Collection Dice (e.g. Press Pass 3 rolls 6 instead of 3). |
 | Amara the Reliquary | To start your turn, you may move a heart from one of your cards (mat or reserve) to another, capped by the destination's printed heart capacity (`amaraMoveHeart`, once per turn, before your main action). |
 | Jonas Quickfinger | **Redesigned again.** "You may spend your turn to discard a performer to take their resource times their power dot amount." No longer tied to acquisition at all (the earlier "automatic bonus on acquiring a Performer" version is gone) — now a proactive, turn-consuming main action (`jonasDiscard`): pick one of your own active Performers (mat slots 0-4 only, not reserve), discard it, and take that many units of its printed resource, where "that many" is the discarded Performer's power dots (1-4). A straight cash-in — no Backdrop/Prop boost, not a Collection Die roll. |

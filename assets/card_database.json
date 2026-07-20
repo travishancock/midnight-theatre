@@ -1233,7 +1233,7 @@
     {
       "id": "Orsino-the-Headliner",
       "name": "Orsino the Headliner",
-      "ability": "Your A and B performers collect +3 when rolled",
+      "ability": "Your G and H performers collect +3 when rolled",
       "startingHearts": 3,
       "image": "cards/Trainer Orsino the Headliner.webp"
     },

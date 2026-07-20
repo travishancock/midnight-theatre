@@ -1353,13 +1353,13 @@ test('acquiring a Trainer with slot 8 full can be sent to reserve instead of bum
 
 // ---- new trainers -----------------------------------------------------------
 
-test('Orsino the Headliner: A and B performers collect +3 when rolled', () => {
+test('Orsino the Headliner: G and H performers collect +3 when rolled', () => {
   const s = freshGame(2, 1234);
   const seat = currentSeat(s);
   const other = s.players.find((x) => x.seat !== seat).seat;
   const p = s.players[seat];
   p.slots[7] = TRAINERS.ORSINO;
-  const perfA = performer((c) => c.letter === 'A' && c.resource === 'Star');
+  const perfA = performer((c) => c.letter === 'G' && c.resource === 'Star');
   p.slots[0] = perfA;
   s.hearts[perfA] = card(perfA).startingHearts ?? 0;
   s.players[other].slots = [null, null, null, null, null, null, null, null];
@@ -1370,11 +1370,11 @@ test('Orsino the Headliner: A and B performers collect +3 when rolled', () => {
   const rngNow = 999;
   s.rng = rngNow;
   const seq = predict(rngNow, [20, 20, 20, 20, 20, 1000, 1000, 8]);
-  const aCount = seq.slice(0, 5).map((i) => COLLECTION_FACES[i]).filter((l) => l === 'A').length;
+  const aCount = seq.slice(0, 5).map((i) => COLLECTION_FACES[i]).filter((l) => l === 'G').length;
   const before = p.stars;
   applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
   driveDicePhase(s);
-  assert.equal(p.stars - before, aCount * 4, `expected 1 (base) + 3 (Orsino) = 4 stars per A roll (${aCount}x)`);
+  assert.equal(p.stars - before, aCount * 4, `expected 1 (base) + 3 (Orsino) = 4 stars per G roll (${aCount}x)`);
 });
 
 test('Delphine Silvertongue doubles a spent Press Pass\'s private roll count', () => {
