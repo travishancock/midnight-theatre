@@ -206,15 +206,27 @@ test('market reset costs 1 coin and deals 4 new cards', () => {
   for (const id of before) assert.ok(s.discard.includes(id));
 });
 
-test('Barnaby Pennywhistle reduces market costs by 1 (min 1), not the reset', () => {
+test('Barnaby Pennywhistle reduces market costs by 1, down to 0 (never the reset)', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   s.players[seat].slots[7] = TRAINERS.BARNABY;
-  assert.equal(marketCost(s, seat, 0), 1); // min 1
+  assert.equal(marketCost(s, seat, 0), 0, 'slot 0 (normally 1 coin) is free with Barnaby');
   assert.equal(marketCost(s, seat, 3), 3);
   s.players[seat].coins = 1;
   applyAction(s, { type: 'resetMarket', seat }); // still costs the full 1 coin
   assert.equal(s.players[seat].coins, 0);
+});
+
+test('Barnaby Pennywhistle: a free (0-coin) market slot still costs the turn to acquire', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.BARNABY;
+  p.coins = 0;
+  s.market = db.performers.slice(20, 24).map((c) => c.id); // pin to performers
+  applyAction(s, { type: 'buyMarket', seat, index: 0 });
+  assert.equal(p.coins, 0, 'no coins were spent');
+  assert.notEqual(s.turn?.seat, seat, 'acquiring the free card still ended the turn');
 });
 
 test('resource cards resolve immediately and are discarded', () => {
@@ -399,6 +411,55 @@ test('favor cards go to reserve; clicking one before your main turn grants a bon
   assert.ok(p.reserve.includes('Favor-2-1'));
 });
 
+test('market prices stay frozen across a Favor bonus turn, and only compact once play truly passes on', () => {
+  const s = freshGame(2, 7);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  const favor1 = 'Favor-1-1';
+  p.reserve.push(favor1);
+  p.turns = 0;
+  p.coins = 10;
+  s.market = db.performers.slice(24, 28).map((c) => c.id); // pin to performers, no on-acquire effects
+  const slot1Card = s.market[1];
+
+  applyAction(s, { type: 'useFavor', seat, cardId: favor1 });
+  applyAction(s, { type: 'buyMarket', seat, index: 0 }); // main action: buy slot 0 for 1 coin
+  assert.equal(p.coins, 9);
+  assert.equal(s.turn.seat, seat, 'bonus turn belongs to the same player');
+  assert.equal(s.turn.isBonus, true);
+  assert.equal(s.market[0], null, 'the sold slot is still empty during the bonus turn');
+  assert.equal(s.market[1], slot1Card, 'unsold slots keep their original card/price into the bonus turn');
+
+  // Buy again on the bonus turn — still at slot 1's ORIGINAL price (2), not
+  // discounted just because slot 0 next to it sold out earlier.
+  applyAction(s, { type: 'buyMarket', seat, index: 1 });
+  assert.equal(p.coins, 7, 'slot 1 cost its original 2 coins');
+  assert.notEqual(s.turn?.seat, seat, 'no more bonus turns queued — play has now passed to the next player');
+  assert.ok(!s.market.includes(null), 'the market only compacts once play actually moves on');
+});
+
+test('resetMarket on a later bonus turn immediately wipes a gap sold on an earlier one', () => {
+  const s = freshGame(2, 7);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.reserve.push('Favor-2-1', 'Favor-2-2');
+  p.turns = 1; // both "2nd" favors are eligible
+  p.coins = 10;
+  s.market = db.performers.slice(24, 28).map((c) => c.id);
+
+  applyAction(s, { type: 'useFavor', seat, cardId: 'Favor-2-1' });
+  applyAction(s, { type: 'useFavor', seat, cardId: 'Favor-2-2' });
+  applyAction(s, { type: 'buyMarket', seat, index: 0 }); // main action, leaves slot 0 empty
+  assert.equal(s.turn.isBonus, true);
+  assert.equal(s.market[0], null, 'slot 0 is sold and empty going into the next bonus turn');
+
+  // A reset on this next bonus turn is still allowed (mainDone is fresh for
+  // the new turn object) and immediately clears out any earlier gap too.
+  applyAction(s, { type: 'resetMarket', seat });
+  assert.equal(s.market.length, 4);
+  assert.ok(!s.market.includes(null), 'resetting mid-chain wipes the earlier sold gap as well');
+});
+
 test('a Favor cannot be used once the main turn action is already taken', () => {
   const s = freshGame(2, 7);
   const seat = currentSeat(s);
@@ -438,19 +499,30 @@ test('Favor timing: "1st" only on turn 1, "2nd" on turn 2 or any later turn', ()
   assert.deepEqual(eligibleFavors(s, seat), [favor2]);
 });
 
-test('Maximillian may chain market buys but not draft after buying', () => {
+test('Maximillian may chain market buys but not draft after buying; prices stay frozen until the turn ends', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.MAXIMILLIAN;
   p.coins = 10;
   s.market = db.performers.slice(30, 34).map((c) => c.id); // pin to performers
-  applyAction(s, { type: 'buyMarket', seat, index: 0 });
+  const slot1Card = s.market[1];
+  applyAction(s, { type: 'buyMarket', seat, index: 0 }); // costs 1
+  assert.equal(p.coins, 9);
   assert.equal(s.turn.done, false, 'turn stays open');
+  assert.equal(s.market[0], null, 'the sold slot sits empty, not refilled mid-turn');
+  assert.equal(s.market[1], slot1Card, 'other slots keep their original card in place');
   assert.throws(() => applyAction(s, { type: 'acquireDraft', seat, cardId: s.draftRow[0] }));
-  applyAction(s, { type: 'buyMarket', seat, index: 0 });
+  assert.throws(
+    () => applyAction(s, { type: 'buyMarket', seat, index: 0 }),
+    /already been sold/,
+    'the emptied slot cannot be bought again this turn'
+  );
+  applyAction(s, { type: 'buyMarket', seat, index: 1 }); // still costs its original 2, not discounted
+  assert.equal(p.coins, 7, 'slot 1 cost its original 2 coins, unaffected by slot 0 selling out earlier this turn');
   applyAction(s, { type: 'endTurn', seat });
   assert.ok(s.turn === null || s.turn.seat !== seat);
+  assert.ok(!s.market.includes(null), 'the market fully refilled once the turn actually ended');
 });
 
 test('Madame Coeur: drafted/placed cards start at their printed maximum heart count', () => {
@@ -1282,7 +1354,7 @@ test('a full 2-player round keeps every one of the 145 cards accounted for', () 
   const s = freshGame(2, 31337);
   // count every card location
   const total = (st) =>
-    st.deck.length + st.discard.length + st.market.length + st.draftRow.length +
+    st.deck.length + st.discard.length + st.market.filter(Boolean).length + st.draftRow.length +
     st.players.reduce((a, p) => a + p.slots.filter(Boolean).length + p.reserve.length, 0);
   assert.equal(total(s), 145);
 });
@@ -1304,7 +1376,7 @@ test('trainerActive scans all 3 trainer slots — up to 3 Trainers active at onc
   p.slots[5] = TRAINERS.BARNABY;
   p.slots[6] = TRAINERS.MAXIMILLIAN;
   p.slots[7] = TRAINERS.COEUR;
-  assert.equal(marketCost(s, seat, 0), 1, 'Barnaby active from slot 5');
+  assert.equal(marketCost(s, seat, 0), 0, 'Barnaby active from slot 5');
   s.players[seat].coins = 10;
   s.market = db.performers.slice(40, 44).map((c) => c.id); // pin to plain performers
   applyAction(s, { type: 'buyMarket', seat, index: 0 });

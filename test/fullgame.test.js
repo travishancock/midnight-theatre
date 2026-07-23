@@ -19,7 +19,10 @@ initCards(db);
 const TOTAL_CARDS = 145;
 
 function cardCount(s) {
-  let n = s.deck.length + s.discard.length + s.market.length + s.draftRow.length;
+  // A sold-but-not-yet-refilled market slot is `null` (prices stay frozen
+  // until the buyer's turn ends — see compactMarket in engine.js), same as
+  // an empty mat slot, so it must not be counted as a card.
+  let n = s.deck.length + s.discard.length + s.market.filter(Boolean).length + s.draftRow.length;
   for (const p of s.players) n += p.slots.filter(Boolean).length + p.reserve.length;
   // A card awaiting a placement decision is "in hand": acquired but not yet
   // on the mat, so it lives only in the pending prompt.

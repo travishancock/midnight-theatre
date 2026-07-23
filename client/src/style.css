@@ -147,6 +147,11 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
   border-radius: 5px; font-size: 11px; padding: 1px 5px;
 }
 .market-slot { display: flex; flex-direction: column; gap: 5px; align-items: center; }
+.market-slot .sold {
+  width: 100px; height: 155px; display: flex; align-items: center; justify-content: center;
+  color: #55465f; border: 1px dashed var(--line); border-radius: 8px;
+  font-size: 11px; text-align: center; line-height: 1.4;
+}
 
 /* ---- turn bar / prompts ---- */
 .turnbar {

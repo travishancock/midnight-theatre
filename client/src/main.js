@@ -149,7 +149,7 @@ function anyMovableHeart(p) {
 
 function marketCost(player, index) {
   let cost = index + 1;
-  if (trainerIs(player, 'Barnaby-Pennywhistle')) cost = Math.max(1, cost - 1);
+  if (trainerIs(player, 'Barnaby-Pennywhistle')) cost = Math.max(0, cost - 1);
   return cost;
 }
 
@@ -413,6 +413,9 @@ function marketHtml(s, p) {
     </h3>
     <div class="cardrow">
       ${s.market.map((id, i) => {
+        if (!id) {
+          return `<div class="market-slot"><div class="sold">Sold —<br/>refills once<br/>your turn ends</div></div>`;
+        }
         const cost = p ? marketCost(p, i) : i + 1;
         const afford = p && p.coins >= cost;
         return `<div class="market-slot">

@@ -294,6 +294,7 @@ function bestMarketBuy(state, seat, spareCoins, mustBeat = -Infinity) {
   let best = null;
   let bestScore = mustBeat;
   for (let i = 0; i < state.market.length; i++) {
+    if (!state.market[i]) continue; // sold this turn, not yet refilled
     const cost = marketCost(state, seat, i);
     if (p.coins < cost + spareCoins) continue;
     const s = scoreCard(state, seat, state.market[i]) - cost * 0.9;

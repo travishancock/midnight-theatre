@@ -58,6 +58,7 @@ export const TRAINERS = {
 };
 
 const MAX_TOMATO_DICE = 8; // rolled dice cap at 8 from round 8 onward (physical set has 9 tomato dice)
+const MARKET_SIZE = 4;
 
 // First trophy-holder to this many Trophies wins. Fewer players means fewer
 // people splitting the round-by-round trophies, so the threshold rises as
@@ -121,7 +122,7 @@ export function createGame({ players, seed }) {
     p.coins = p.stand * 2;
   }
 
-  state.market = draw(state, 4);
+  state.market = draw(state, MARKET_SIZE);
   state.draftRow = draw(state, players.length * 2 + 1);
   state.turn = newTurn(seatWithStand(state, 1));
   log(state, `Curtain up! ${state.players.length} players, first trophy-holder to ${state.trophyGoal} trophies wins.`);
@@ -221,7 +222,9 @@ export function totalCapacityLeft(state, seat) {
 
 export function marketCost(state, seat, index) {
   let cost = index + 1;
-  if (trainerActive(state, seat, TRAINERS.BARNABY)) cost = Math.max(1, cost - 1);
+  // Barnaby's discount applies fully, even down to 0 coins (a free-to-take
+  // market slot still costs the player's turn to acquire, just no coins).
+  if (trainerActive(state, seat, TRAINERS.BARNABY)) cost = Math.max(0, cost - 1);
   return cost;
 }
 
@@ -748,6 +751,15 @@ function intakeDrawnCard(state, seat, cardId) {
 // Turn / phase flow
 // ---------------------------------------------------------------------------
 
+// Slots sold via buyMarket sit empty (null) for the rest of the turn so
+// prices stay stable across multiple buys (Maximillian, Favor bonus turns).
+// Once play is truly moving on, collapse the gaps and refill from the deck.
+function compactMarket(state) {
+  const remaining = state.market.filter(Boolean);
+  if (remaining.length === state.market.length) return;
+  state.market = remaining.concat(draw(state, MARKET_SIZE - remaining.length));
+}
+
 function finishTurn(state) {
   const seat = state.turn.seat;
   const p = state.players[seat];
@@ -755,6 +767,12 @@ function finishTurn(state) {
   p.turns++;
   state.turn = null;
   state.turnsCompleted++;
+
+  // The market only slides once this seat's turn is truly over. A same-seat
+  // Favor bonus turn continues the same turn from the player's perspective
+  // (see the bonusQueue branch below), so skip compacting here and let it
+  // happen the next time finishTurn resolves without a queued bonus turn.
+  if (bonusQueue.length === 0) compactMarket(state);
 
   // Draft ends the moment only 1 (or 0) face-up cards remain in the row.
   if (state.draftRow.length <= 1) {
@@ -1084,12 +1102,16 @@ export function applyAction(state, action) {
       const i = action.index;
       if (!Number.isInteger(i) || i < 0 || i >= state.market.length) throw new Error('Invalid market slot.');
       if (state.turn.mainDone && !state.turn.open) throw new Error('You have already acted this turn.');
+      if (!state.market[i]) throw new Error('That market slot has already been sold this turn.');
       const cost = marketCost(state, seat, i);
       const p = state.players[seat];
       if (p.coins < cost) throw new Error(`You need ${cost} coins for that market slot.`);
       p.coins -= cost;
-      const cardId = state.market.splice(i, 1)[0];
-      state.market.push(...draw(state, 1)); // remaining cards shift down, refill the 4-coin slot
+      const cardId = state.market[i];
+      // The sold slot is left empty (not shifted/refilled) until this seat's
+      // turn is actually over — see compactMarket — so a player buying
+      // multiple cards in one turn (Favor, Maximillian) sees stable prices.
+      state.market[i] = null;
       log(state, `${p.name} buys ${card(cardId).name} from the market for ${cost} coins.`);
       acquireCard(state, seat, cardId, action.slot ?? null);
       state.turn.mainDone = true;
@@ -1107,8 +1129,8 @@ export function applyAction(state, action) {
       const p = state.players[seat];
       if (p.coins < 1) throw new Error('Resetting the market costs 1 coin.');
       p.coins -= 1;
-      state.discard.push(...state.market);
-      state.market = draw(state, 4);
+      state.discard.push(...state.market.filter(Boolean));
+      state.market = draw(state, MARKET_SIZE);
       log(state, `${p.name} pays 1 coin to reset the market.`);
       break;
     }
