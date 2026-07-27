@@ -84,19 +84,15 @@ function resolvePrompt(state, seat, item) {
     }
     case 'auricGainChoice':
       return { ...base, ...chooseAuricConversion(state, seat, item.data) };
-    // Professor Stainglass / Wendell the Propmaster: the bot never
-    // proactively discards a just-acquired card for these (keeps AI behavior
-    // simple and non-regressive — the old engine's bot never used the
-    // equivalent discard abilities either). Jonas Quickfinger was never part
-    // of this prompt — see the separate 'jonasDiscard' turn action, which
-    // the bot also never proactively uses, same conservative policy.
+    // Professor Stainglass: the bot never proactively discards a
+    // just-acquired card for this (keeps AI behavior simple and
+    // non-regressive — the old engine's bot never used the equivalent
+    // discard ability either). Jonas Quickfinger and Wendell the Propmaster
+    // are never part of this prompt — see the separate 'jonasDiscard' and
+    // 'wendellTakeDiscard' turn actions, which the bot also never
+    // proactively uses, same conservative policy.
     case 'postAcquireDiscard':
       return { ...base, choice: 'keep' };
-    // Defensive fallback — unreachable in practice since the bot always
-    // keeps rather than choosing 'wendell' above, but resolved sensibly
-    // rather than left to throw if that ever changes.
-    case 'wendellSwap':
-      return { ...base, cardId: item.data.options[0] ?? null };
     // Post-dice-roll review: nothing for the bot to decide — just
     // acknowledge and let the round continue. Only meaningful for a human
     // watching the results, so this resolves instantly.

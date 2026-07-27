@@ -19,6 +19,7 @@ import {
   allowedSlots,
   seatWithStand,
   assignTrophy,
+  assignDraftOrder,
   lockCollectionDie,
   lockTomatoRoll,
   TRAINERS,
@@ -1207,6 +1208,33 @@ test('Trophy ties: most TOTAL (career) coins among the tied wins it; still tied 
   assert.equal(z.trophies, 0);
 });
 
+test('Draft order ties: fewest round stars goes first; tied stars broken by fewest TOTAL (career) coins, not round coins', () => {
+  const s = freshGame(3);
+  const [a, b, c] = s.players;
+  // a and b are tied on round stars (the lowest) — a should out-rank b for
+  // stand 1 because a owns fewer TOTAL coins right now, even though b
+  // earned fewer coins this particular round (a red herring, same trap as
+  // the Trophy tie-break test above). c has more round stars so finishes last.
+  a.roundStars = 2; a.coins = 3; a.roundCoins = 50;
+  b.roundStars = 2; b.coins = 9; b.roundCoins = 0;
+  c.roundStars = 6; c.coins = 0;
+  assignDraftOrder(s);
+  assert.equal(a.stand, 1, 'fewer total coins currently owned -> better (earlier) stand on a stars tie');
+  assert.equal(b.stand, 2, 'more total coins currently owned is the worse draft pick on a stars tie');
+  assert.equal(c.stand, 3, 'most round stars -> last regardless of coins');
+
+  // Tied on both stars and total coins -> trophies is the next tiebreak.
+  const s2 = freshGame(3);
+  const [x, y, z] = s2.players;
+  x.roundStars = 1; x.coins = 5; x.trophies = 2;
+  y.roundStars = 1; y.coins = 5; y.trophies = 0;
+  z.roundStars = 4; z.coins = 5;
+  assignDraftOrder(s2);
+  assert.equal(y.stand, 1, 'fewer trophies breaks a stars-and-coins tie');
+  assert.equal(x.stand, 2);
+  assert.equal(z.stand, 3);
+});
+
 test('A card survives the hit that brings it to 0 hearts, then discards on the very next hit', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
@@ -1512,24 +1540,49 @@ test('Jonas Quickfinger: requires Jonas active and a genuine active Performer ta
   );
 });
 
-test('Wendell the Propmaster: discard an acquired backdrop/prop for a different one from the discard pile', () => {
+test('Wendell the Propmaster: spend the turn to take any Prop or Backdrop from the discard pile, full-hearted', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.WENDELL;
-  s.discard.push('Prop-Powerful');
-  s.draftRow[0] = 'Prop-Graceful';
-  applyAction(s, { type: 'acquireDraft', seat, cardId: 'Prop-Graceful' });
-  assert.equal(p.slots[6], 'Prop-Graceful');
-  const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
-  assert.ok(offer.data.choices.includes('wendell'));
-  applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, choice: 'wendell' });
-  const swap = s.pending.find((x) => x.kind === 'wendellSwap');
-  assert.ok(swap);
-  assert.ok(swap.data.options.includes('Prop-Powerful'));
-  applyAction(s, { type: 'resolvePending', seat, pendingId: swap.id, cardId: 'Prop-Powerful' });
-  assert.equal(p.slots[6], 'Prop-Powerful');
-  assert.ok(s.discard.includes('Prop-Graceful'));
+  s.discard.push('Prop-Powerful', 'Backdrop-Graceful', 'Resource-1-Coin-1');
+
+  // Only a Prop or Backdrop may be taken this way — not just anything sitting
+  // in the discard pile.
+  assert.throws(
+    () => applyAction(s, { type: 'wendellTakeDiscard', seat, cardId: 'Resource-1-Coin-1' }),
+    /Prop or Backdrop/
+  );
+  // Not in the discard pile at all.
+  assert.throws(() => applyAction(s, { type: 'wendellTakeDiscard', seat, cardId: 'Prop-Graceful' }), /discard pile/);
+
+  applyAction(s, { type: 'wendellTakeDiscard', seat, cardId: 'Prop-Powerful' });
+  assert.equal(p.slots[6], 'Prop-Powerful', 'Prop lands in its natural slot');
+  assert.equal(s.hearts['Prop-Powerful'], maxHearts(s, seat, 'Prop-Powerful'), 'enters play with hearts full');
+  assert.ok(!s.discard.includes('Prop-Powerful'), 'removed from the discard pile');
+  assert.notEqual(s.turn?.seat, seat, 'taking a card this way spent the whole turn');
+});
+
+test('Wendell the Propmaster: gated on being active, on going before the main action, and taking an occupied slot bumps to reserve', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  s.discard.push('Backdrop-Graceful');
+  // Not active yet — no Wendell in play.
+  assert.throws(() => applyAction(s, { type: 'wendellTakeDiscard', seat, cardId: 'Backdrop-Graceful' }), /active Trainer/);
+
+  p.slots[7] = TRAINERS.WENDELL;
+  p.slots[5] = 'Backdrop-Powerful';
+  s.hearts['Backdrop-Powerful'] = maxHearts(s, seat, 'Backdrop-Powerful');
+  applyAction(s, { type: 'wendellTakeDiscard', seat, cardId: 'Backdrop-Graceful' });
+  // The natural slot is already occupied, so — same as any other acquisition
+  // — it's a genuine placement choice, not an auto-bump.
+  const placement = s.pending.find((x) => x.kind === 'placement');
+  assert.ok(placement, 'occupied natural slot offers a placement choice, like any other acquisition');
+  assert.ok(placement.data.allowedSlots.includes(5));
+  applyAction(s, { type: 'resolvePending', seat, pendingId: placement.id, slot: 5 });
+  assert.equal(p.slots[5], 'Backdrop-Graceful', 'the taken Backdrop fills its natural slot');
+  assert.ok(p.reserve.includes('Backdrop-Powerful'), 'the bumped occupant moves to reserve, not discard');
 });
 
 test('Celestine the Stargazer: to start your turn, buy up to 3 stars for 3 coins each', () => {

@@ -608,8 +608,8 @@ function acquireCard(state, seat, cardId, chosenSlot) {
 
 // Place a freshly-acquired (drafted/bought/drawn) card, then offer any
 // "acquired cards may be immediately discarded to..." Trainer reactions that
-// apply to it (Professor Stainglass / Wendell the Propmaster). Not used for
-// refills or rearranges — only genuine new acquisitions.
+// apply to it (Professor Stainglass). Not used for refills or rearranges —
+// only genuine new acquisitions.
 function placeAcquiredCard(state, seat, cardId, slot) {
   placeInSlot(state, seat, cardId, slot);
   offerPostAcquireDiscard(state, seat, cardId);
@@ -619,10 +619,6 @@ function offerPostAcquireDiscard(state, seat, cardId) {
   const c = card(cardId);
   const choices = [];
   if (trainerActive(state, seat, TRAINERS.STAINGLASS)) choices.push('stainglass');
-  if ((c.cardType === 'backdrop' || c.cardType === 'prop') && trainerActive(state, seat, TRAINERS.WENDELL)) {
-    const altAvailable = state.discard.some((id) => id !== cardId && card(id).cardType === c.cardType);
-    if (altAvailable) choices.push('wendell');
-  }
   if (choices.length === 0) return;
   pushPending(state, 'postAcquireDiscard', seat, { cardId, cardName: c.name, cardType: c.cardType, choices });
 }
@@ -952,13 +948,15 @@ export function assignTrophy(state) {
 }
 
 // Fewest stars this round gets stand 1 (goes first next round). Ties: fewer
-// coins this round -> better stand; then fewer trophies; then a roll-off.
-function assignDraftOrder(state) {
+// TOTAL (career) coins currently owned -> better stand (i.e. more coins owned
+// is the worse draft pick, mirroring assignTrophy's tie-break direction);
+// then fewer trophies; then a roll-off.
+export function assignDraftOrder(state) {
   const tiebreak = new Map(state.players.map((p) => [p.seat, randInt(state, 1000)]));
   const ranked = [...state.players].sort(
     (a, b) =>
       a.roundStars - b.roundStars ||
-      a.roundCoins - b.roundCoins ||
+      a.coins - b.coins ||
       a.trophies - b.trophies ||
       tiebreak.get(a.seat) - tiebreak.get(b.seat)
   );
@@ -1206,6 +1204,31 @@ export function applyAction(state, action) {
       state.turn.done = true;
       break;
     }
+    // Wendell the Propmaster: spend your whole turn to take any Prop or
+    // Backdrop card, your choice, straight out of the discard pile. Placed
+    // exactly like any other acquisition (natural slot, or the usual
+    // bump-to-reserve / send-to-reserve choice if that slot is already
+    // occupied) — and since every Prop/Backdrop's printed starting-heart
+    // value already equals its max, it always enters play with hearts full.
+    case 'wendellTakeDiscard': {
+      requireTurn(state, seat);
+      if (state.turn.mainDone) throw new Error('You have already acted this turn.');
+      if (!trainerActive(state, seat, TRAINERS.WENDELL)) throw new Error('Wendell the Propmaster is not your active Trainer.');
+      const cardId = action.cardId;
+      const idx = state.discard.indexOf(cardId);
+      if (idx === -1) throw new Error('That card is not in the discard pile.');
+      const c = card(cardId);
+      if (c.cardType !== 'prop' && c.cardType !== 'backdrop') {
+        throw new Error('Wendell the Propmaster can only take a Prop or Backdrop from the discard pile.');
+      }
+      const p = state.players[seat];
+      state.discard.splice(idx, 1);
+      log(state, `${p.name} spends the turn with Wendell the Propmaster — takes ${c.name} from the discard pile.`);
+      acquireCard(state, seat, cardId, action.slot ?? null);
+      state.turn.mainDone = true;
+      state.turn.done = true;
+      break;
+    }
     // The Vanishing Valentino: to start your turn, you may end the draft
     // immediately (discarding whatever remains in the draft row) without
     // spending your turn. Unlimited uses while active.
@@ -1370,11 +1393,12 @@ function resolvePendingItem(state, item, action) {
       placeAcquiredCard(state, seat, it.cardId, slot);
       break;
     }
-    // Professor Stainglass / Wendell the Propmaster: right after acquiring a
-    // matching card, its owner may immediately discard it for that Trainer's
-    // stated effect instead of keeping it. See offerPostAcquireDiscard.
-    // (Jonas Quickfinger has never been part of this prompt — see the
-    // separate 'jonasDiscard' turn action instead.)
+    // Professor Stainglass: right after acquiring a matching card, its
+    // owner may immediately discard it for that Trainer's stated effect
+    // instead of keeping it. See offerPostAcquireDiscard. (Jonas Quickfinger
+    // has never been part of this prompt — see the separate 'jonasDiscard'
+    // turn action instead; Wendell the Propmaster is a whole-turn action
+    // now — see the 'wendellTakeDiscard' turn action instead.)
     case 'postAcquireDiscard': {
       const choice = action.choice;
       if (!item.data.choices.includes(choice) && choice !== 'keep') throw new Error('Invalid choice.');
@@ -1386,24 +1410,7 @@ function resolvePendingItem(state, item, action) {
         const drawn = draw(state, 1);
         p.reserve.push(...drawn);
         log(state, `${p.name} discards ${cardName} (Professor Stainglass) to draw ${drawn.length ? card(drawn[0]).name : 'nothing — the deck is empty'}.`);
-      } else if (choice === 'wendell') {
-        const slot = p.slots.indexOf(cardId);
-        const cType = card(cardId).cardType;
-        discardOwnedCard(state, seat, cardId);
-        const options = state.discard.filter((id) => card(id).cardType === cType);
-        log(state, `${p.name} discards ${cardName} (Wendell the Propmaster) to take a different one from the discard pile.`);
-        pushPending(state, 'wendellSwap', seat, { slot, cardType: cType, options });
       }
-      break;
-    }
-    case 'wendellSwap': {
-      const cardId = action.cardId;
-      if (!item.data.options.includes(cardId)) throw new Error('That card is not available to swap in.');
-      removePending(state, item.id);
-      const idx = state.discard.indexOf(cardId);
-      if (idx === -1) throw new Error('That card is no longer in the discard pile.');
-      state.discard.splice(idx, 1);
-      placeInSlot(state, seat, cardId, item.data.slot);
       break;
     }
     case 'heartAssign': {

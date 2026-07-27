@@ -298,6 +298,7 @@ function renderGame() {
           ${draftRowHtml(s, p, pending)}
           ${marketHtml(s, p)}
           ${turnBarHtml(s, p)}
+          ${wendellDiscardHtml(s)}
           ${pending ? promptHtml(s, p, pending) : ''}
           ${waitingNoteHtml(s, p, pending)}
         </div>
@@ -406,6 +407,19 @@ function draftRowHtml(s, p, pending) {
   </div>`;
 }
 
+// Wendell the Propmaster: the discard-pile cards this seat may take (Props
+// and Backdrops only), shown only while ui.mode === 'wendellTake'.
+function wendellDiscardHtml(s) {
+  if (ui.mode !== 'wendellTake') return '';
+  const options = s.discard.filter((id) => card(id).cardType === 'prop' || card(id).cardType === 'backdrop');
+  return `<div class="zone">
+    <h3>Discard pile <span class="hint">(Wendell the Propmaster — click one to take it)</span></h3>
+    <div class="cardrow clickable" id="wendellDiscardRow">
+      ${options.map((id) => cardHtml(id, { size: 'md' })).join('') || '<span class="hint">no eligible Props or Backdrops</span>'}
+    </div>
+  </div>`;
+}
+
 function marketHtml(s, p) {
   const canAct = isMyTurn() && !ui.mode;
   return `<div class="zone">
@@ -453,6 +467,9 @@ function turnBarHtml(s, p) {
   } else if (ui.mode === 'jonasDiscard') {
     buttons.push(`<span class="yourturn">Jonas Quickfinger: click one of your Performers below to discard it and take its resource × its power dots.</span>`);
     buttons.push(`<button id="cancelMode">Cancel</button>`);
+  } else if (ui.mode === 'wendellTake') {
+    buttons.push(`<span class="yourturn">Wendell the Propmaster: click a card below to take it from the discard pile.</span>`);
+    buttons.push(`<button id="cancelMode">Cancel</button>`);
   } else {
     if (!t.mainDone) {
       buttons.push(`<span class="yourturn">Your turn — click a draft card to take it, buy from the market, or:</span>`);
@@ -464,6 +481,10 @@ function turnBarHtml(s, p) {
       if (trainers.includes('Jonas-Quickfinger')) {
         const hasPerformer = p.slots.slice(0, 5).some(Boolean);
         buttons.push(`<button id="jonasBtn" ${hasPerformer ? '' : 'disabled'} title="${hasPerformer ? '' : 'You have no active Performers'}">Jonas Quickfinger: discard a Performer for resources (uses turn)</button>`);
+      }
+      if (trainers.includes('Wendell-the-Propmaster')) {
+        const hasOption = s.discard.some((id) => card(id).cardType === 'prop' || card(id).cardType === 'backdrop');
+        buttons.push(`<button id="wendellBtn" ${hasOption ? '' : 'disabled'} title="${hasOption ? '' : 'No Props or Backdrops are in the discard pile'}">Wendell the Propmaster: take a Prop/Backdrop from discard (uses turn)</button>`);
       }
       if (trainers.includes('The-Vanishing-Valentino')) {
         buttons.push(`<button id="valentinoBtn">The Vanishing Valentino: end the draft (free)</button>`);
@@ -551,7 +572,6 @@ function promptHtml(s, p, item) {
     case 'postAcquireDiscard': {
       const labels = {
         stainglass: 'Discard it (Professor Stainglass) — draw 1 card',
-        wendell: 'Discard it (Wendell the Propmaster) — take a different one from the discard pile',
       };
       return promptBox(`
         <div>You just acquired <b>${esc(item.data.cardName)}</b> — keep it, or discard it right now for a Trainer effect?</div>
@@ -559,13 +579,6 @@ function promptHtml(s, p, item) {
           ${item.data.choices.map((ch) => `<button data-postacquire="${esc(ch)}">${labels[ch]}</button>`).join('')}
         </div>
         <button id="postAcquireKeep" class="primary">Keep it</button>`);
-    }
-    case 'wendellSwap': {
-      return promptBox(`
-        <div>Wendell the Propmaster: take a different one from the discard pile.</div>
-        <div class="assignrow">
-          ${item.data.options.map((id) => `<div class="pickable" data-wendelloption="${esc(id)}">${cardHtml(id, { size: 'sm' })}</div>`).join('')}
-        </div>`);
     }
     case 'diceResultsReview': {
       return promptBox(`
@@ -790,6 +803,16 @@ function wireGameEvents(s, p, pending) {
     ui.mode = 'jonasDiscard';
     render();
   });
+  document.getElementById('wendellBtn')?.addEventListener('click', () => {
+    ui.mode = 'wendellTake';
+    render();
+  });
+  document.getElementById('wendellDiscardRow')?.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-cardid]');
+    if (!el) return;
+    ui.mode = null;
+    send({ type: 'wendellTakeDiscard', cardId: el.dataset.cardid });
+  });
   document.getElementById('valentinoBtn')?.addEventListener('click', () => send({ type: 'valentinoEndDraft' }));
   app.querySelectorAll('[data-celestine]').forEach((b) =>
     b.addEventListener('click', () => send({ type: 'celestineBuyStars', count: +b.dataset.celestine }))
@@ -877,9 +900,6 @@ function wireGameEvents(s, p, pending) {
   );
   app.querySelectorAll('[data-postacquire]').forEach((b) =>
     b.addEventListener('click', () => send({ type: 'resolvePending', pendingId: pending.id, choice: b.dataset.postacquire }))
-  );
-  app.querySelectorAll('[data-wendelloption]').forEach((el) =>
-    el.addEventListener('click', () => send({ type: 'resolvePending', pendingId: pending.id, cardId: el.dataset.wendelloption }))
   );
   document.getElementById('auricGainConfirm')?.addEventListener('click', () => {
     const convertCoinsToHearts = !!document.getElementById('auricConvertCoins')?.checked;

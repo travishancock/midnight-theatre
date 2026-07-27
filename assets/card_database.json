@@ -1261,7 +1261,7 @@
     {
       "id": "Wendell-the-Propmaster",
       "name": "Wendell the Propmaster",
-      "ability": "Acquired backdrops or props may be immediately discarded to take a different one from the discard pile",
+      "ability": "You may spend your turn to take any prop or background from the discard pile",
       "startingHearts": 3,
       "image": "cards/Trainer Wendell the Propmaster.webp"
     },
