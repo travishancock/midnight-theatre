@@ -26,6 +26,7 @@ import {
   hasFullSet,
 } from '../engine/engine.js';
 import { scoreCard } from '../engine/bot.js';
+import { ghostAction } from '../engine/ghost.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'assets', 'card_database.json'), 'utf8'));
@@ -1732,6 +1733,243 @@ test('Amara the Reliquary: cannot move a heart from an empty card or onto a full
     () => applyAction(s, { type: 'amaraMoveHeart', seat, fromCardId: perfA, toCardId: perfFull }),
     /no room/
   );
+});
+
+// ---- Solo mode / Ghost seats -------------------------------------------------
+
+function freshSoloGame(seed = 42) {
+  return createGame({
+    players: [
+      { name: 'Human', isBot: false, isGhost: false },
+      { name: 'Ghost 1', isBot: false, isGhost: true },
+      { name: 'Ghost 2', isBot: false, isGhost: true },
+    ],
+    solo: true,
+    seed,
+  });
+}
+
+// Force the engine's next randInt(12) (the Ghost d12) to land on a specific
+// 0-based face index — same technique as rngForLetter, for GHOST_DIE_FACES.
+function rngForGhostFace(faceIdx) {
+  for (let x = 1; x < 200000; x++) {
+    if (predict(x, [12])[0] === faceIdx) return x;
+  }
+  throw new Error('no rng value found for ghost face ' + faceIdx);
+}
+
+// Force a Ghost seat's turn to be open right now, regardless of draft order —
+// mirrors how other tests above directly set state.turn/state.pending to
+// exercise a specific situation without playing the whole draft out to reach it.
+function forceGhostTurn(s, ghostSeat) {
+  s.turn = { seat: ghostSeat, mainDone: false, done: false, open: false, buys: 0, isBonus: false, bonusTiming: null, curioDone: true, celestineUsed: false, amaraUsed: false };
+}
+
+test('setup: solo mode creates 2 fixed Ghost seats and a lower trophy goal', () => {
+  const s = freshSoloGame();
+  assert.equal(s.solo, true);
+  assert.equal(s.trophyGoal, 5);
+  assert.equal(s.players.length, 3);
+  assert.equal(s.players[0].isGhost, false);
+  assert.equal(s.players[1].isGhost, true);
+  assert.equal(s.players[2].isGhost, true);
+});
+
+test('rollGhostDie: only the human may roll, and only during a Ghost\'s own turn', () => {
+  const s = freshSoloGame();
+  forceGhostTurn(s, 0); // seat 0 is the human, not a Ghost
+  assert.throws(() => applyAction(s, { type: 'rollGhostDie', seat: 0 }), /isn't a Ghost's turn/);
+
+  forceGhostTurn(s, 1);
+  assert.throws(() => applyAction(s, { type: 'rollGhostDie', seat: 1 }), /Only the solo player may roll/, 'a Ghost cannot roll for itself');
+  assert.throws(() => applyAction(s, { type: 'rollGhostDie', seat: 2 }), /Only the solo player may roll/, 'the other Ghost cannot roll for it either');
+});
+
+test('Ghost d12: "reset market and collect 3 coins" face', () => {
+  const s = freshSoloGame();
+  const ghostSeat = 1;
+  const gp = s.players[ghostSeat];
+  forceGhostTurn(s, ghostSeat);
+  const before = gp.coins;
+  const turnsBefore = s.turnsCompleted;
+  s.rng = rngForGhostFace(0);
+  applyAction(s, { type: 'rollGhostDie', seat: 0 });
+  assert.equal(gp.coins, before + 3);
+  // Note: applyAction always calls advance() at the end, so once the Ghost's
+  // turn is truly over, state.turn has already been replaced by a fresh turn
+  // for whoever goes next — turnsCompleted (not state.turn.done) is the
+  // reliable "did that turn just end" signal from outside the action itself.
+  assert.equal(s.turnsCompleted, turnsBefore + 1, "the Ghost's turn ended");
+  assert.equal(s.ghostRollEvent.roll, 1);
+});
+
+test('Ghost d12: "reset market and collect 3 hearts" face (forfeited once the board is full)', () => {
+  const s = freshSoloGame();
+  const ghostSeat = 1;
+  const gp = s.players[ghostSeat];
+  // Fill every mat slot to capacity so the 3 hearts have nowhere to go —
+  // isolates this face from the heartAssign pending, which is covered below.
+  const five = db.performers.slice(0, 5).map((c) => c.id);
+  gp.slots = [...five, null, null, null];
+  for (const id of five) s.hearts[id] = maxHearts(s, ghostSeat, id);
+  forceGhostTurn(s, ghostSeat);
+  const turnsBefore = s.turnsCompleted;
+  s.rng = rngForGhostFace(1);
+  applyAction(s, { type: 'rollGhostDie', seat: 0 });
+  assert.equal(s.turnsCompleted, turnsBefore + 1);
+  assert.ok(s.log.some((l) => l.includes('forfeited')));
+});
+
+test('Ghost d12: "buy market slot" face buys when affordable', () => {
+  const s = freshSoloGame();
+  const ghostSeat = 1;
+  const gp = s.players[ghostSeat];
+  forceGhostTurn(s, ghostSeat);
+  gp.coins = 10;
+  const bought = s.market[0];
+  assert.ok(bought, 'market slot 0 should be occupied at game start');
+  const turnsBefore = s.turnsCompleted;
+  s.rng = rngForGhostFace(2); // "Buy market slot 1"
+  applyAction(s, { type: 'rollGhostDie', seat: 0 });
+  // Not asserting on s.market[0] here — once the turn is truly over, advance()
+  // compacts and refills any sold slot (see engine.js's compactMarket), so an
+  // emptied-then-refilled slot is expected, not a bug.
+  assert.ok(gp.slots.includes(bought) || gp.reserve.includes(bought), "the bought card lands on the Ghost's board or reserve");
+  assert.equal(s.turnsCompleted, turnsBefore + 1);
+});
+
+test('Ghost d12: "buy market slot" face rerolls (leaves the turn open) when unaffordable', () => {
+  const s = freshSoloGame();
+  const ghostSeat = 1;
+  const gp = s.players[ghostSeat];
+  forceGhostTurn(s, ghostSeat);
+  gp.coins = 0;
+  s.rng = rngForGhostFace(2); // "Buy market slot 1" costs at least 1 coin
+  applyAction(s, { type: 'rollGhostDie', seat: 0 });
+  assert.equal(s.turn.mainDone, false, 'an unaffordable buy leaves the main action open for another roll');
+  assert.equal(s.turn.done, false);
+  assert.ok(s.market[0], 'the unaffordable slot is left untouched, still there to try again');
+});
+
+test('Ghost d12: "draft left-most / right-most" faces take from the correct end of the draft row', () => {
+  const s = freshSoloGame();
+  const ghostSeat = 1;
+  forceGhostTurn(s, ghostSeat);
+  const leftId = performer((c) => true);
+  s.draftRow[0] = leftId;
+  const turnsBefore = s.turnsCompleted;
+  s.rng = rngForGhostFace(6); // "Draft the left-most card"
+  applyAction(s, { type: 'rollGhostDie', seat: 0 });
+  assert.equal(s.players[ghostSeat].slots[0], leftId);
+  assert.equal(s.turnsCompleted, turnsBefore + 1);
+
+  const s2 = freshSoloGame();
+  forceGhostTurn(s2, ghostSeat);
+  const rightId = performer((c) => true);
+  s2.draftRow[s2.draftRow.length - 1] = rightId;
+  const turnsBefore2 = s2.turnsCompleted;
+  s2.rng = rngForGhostFace(8); // "Draft the right-most card"
+  applyAction(s2, { type: 'rollGhostDie', seat: 0 });
+  assert.equal(s2.players[ghostSeat].slots[0], rightId);
+  assert.equal(s2.turnsCompleted, turnsBefore2 + 1);
+});
+
+test('Ghost d12: "draft ... and roll again" chains a second roll onto the same Ghost turn', () => {
+  const s = freshSoloGame();
+  const ghostSeat = 1;
+  forceGhostTurn(s, ghostSeat);
+  const leftId = performer((c) => true);
+  s.draftRow[0] = leftId;
+  const turnsBefore = s.turnsCompleted;
+  s.rng = rngForGhostFace(10); // "Draft the left-most card, then roll again"
+  applyAction(s, { type: 'rollGhostDie', seat: 0 });
+  assert.equal(s.players[ghostSeat].slots[0], leftId);
+  // The turn isn't over yet, so advance() didn't touch state.turn — it's
+  // still the very same (still-open) turn object for this Ghost.
+  assert.equal(s.turn.seat, ghostSeat, "still the same Ghost's turn");
+  assert.equal(s.turn.mainDone, false, 'the turn stays open for a second roll');
+  assert.equal(s.turn.done, false);
+  assert.equal(s.turnsCompleted, turnsBefore, 'not counted as a finished turn yet');
+  // Roll again — this time a plain coin-collecting face ends the turn.
+  s.rng = rngForGhostFace(0);
+  applyAction(s, { type: 'rollGhostDie', seat: 0 });
+  assert.equal(s.turnsCompleted, turnsBefore + 1);
+});
+
+test('Ghost Favor auto-spend: "1st" on its own next literal 1st turn, "2nd" on its next literal 2nd turn, never held for later', () => {
+  const s = freshSoloGame();
+  const ghostSeat = 1;
+  const gp = s.players[ghostSeat];
+  gp.reserve.push('Favor-1-1', 'Favor-2-1');
+
+  gp.turns = 0; // about to take its literal 1st turn of the round
+  forceGhostTurn(s, ghostSeat);
+  assert.deepEqual(ghostAction(s, ghostSeat), { type: 'useFavor', seat: ghostSeat, cardId: 'Favor-1-1' });
+
+  gp.turns = 1; // about to take its literal 2nd turn
+  forceGhostTurn(s, ghostSeat);
+  assert.deepEqual(ghostAction(s, ghostSeat), { type: 'useFavor', seat: ghostSeat, cardId: 'Favor-2-1' });
+
+  gp.turns = 2; // any later turn — a Ghost never holds an eligible Favor for later, unlike a human
+  forceGhostTurn(s, ghostSeat);
+  assert.equal(ghostAction(s, ghostSeat), null);
+
+  gp.turns = 0;
+  forceGhostTurn(s, ghostSeat);
+  s.turn.mainDone = true;
+  assert.equal(ghostAction(s, ghostSeat), null, 'no favor auto-spend once the main action is already taken');
+});
+
+test('Ghost heart assignment: fills the board left to right, as evenly as possible', () => {
+  const s = freshSoloGame();
+  const ghostSeat = 1;
+  const gp = s.players[ghostSeat];
+  const perfs = db.performers.filter((c) => (c.maxHearts ?? c.startingHearts ?? 0) >= 2).slice(0, 3).map((c) => c.id);
+  gp.slots = [perfs[0], perfs[1], perfs[2], null, null, null, null, null];
+  for (const id of perfs) s.hearts[id] = 0;
+  s.pending.push({ id: s.nextPendingId++, kind: 'heartAssign', seat: ghostSeat, data: { amount: 4, reason: 'test' } });
+  applyAction(s, ghostAction(s, ghostSeat));
+  // Round-robin over 3 slots for 4 hearts: slot 0 gets a second pass, 1 and 2 get one each.
+  assert.equal(s.hearts[perfs[0]], 2);
+  assert.equal(s.hearts[perfs[1]], 1);
+  assert.equal(s.hearts[perfs[2]], 1);
+});
+
+test('Ghost heart assignment: falls back to reserve capacity once the board is full (regression)', () => {
+  const s = freshSoloGame();
+  const ghostSeat = 1;
+  const gp = s.players[ghostSeat];
+  // Fill the board completely, all at max hearts — zero board capacity left.
+  const five = db.performers.slice(0, 5).map((c) => c.id);
+  gp.slots = [...five, null, null, null];
+  for (const id of five) s.hearts[id] = maxHearts(s, ghostSeat, id);
+  // A reserve card still has room for 2 more hearts.
+  const reserveCard = db.performers.find((c) => !five.includes(c.id) && (c.maxHearts ?? c.startingHearts ?? 0) >= 2).id;
+  gp.reserve.push(reserveCard);
+  s.hearts[reserveCard] = 0;
+  s.pending.push({ id: s.nextPendingId++, kind: 'heartAssign', seat: ghostSeat, data: { amount: 2, reason: 'test' } });
+  // Before the fix, ghostHeartAssignments only looked at mat slots and threw
+  // "You must assign exactly 2 heart(s)" here, since the engine's own
+  // mandatory total spans mat + reserve capacity.
+  applyAction(s, ghostAction(s, ghostSeat));
+  assert.equal(s.hearts[reserveCard], 2, 'the full remainder spilled into reserve capacity');
+});
+
+test('Ghost Press Pass: always spends everything held, never keeps any back', () => {
+  const s = freshSoloGame();
+  const ghostSeat = 1;
+  const gp = s.players[ghostSeat];
+  gp.reserve.push('PressPass-1-1', 'PressPass-2-1');
+  const item = { id: s.nextPendingId++, kind: 'pressPassWindow', seat: ghostSeat, data: {} };
+  s.pending.push(item);
+  let guard = 0;
+  while (s.pending.some((x) => x.id === item.id) && guard++ < 10) {
+    const action = ghostAction(s, ghostSeat);
+    assert.ok(action, "ghostAction should always have something to do while its own window is open");
+    applyAction(s, action);
+  }
+  assert.equal(gp.reserve.filter((id) => card(id).cardType === 'reroll').length, 0, 'every held Press Pass was spent');
+  assert.ok(!s.pending.some((x) => x.id === item.id), 'the window closed once done');
 });
 
 // ---- AI draft valuation heuristics (scoreCard) ------------------------------

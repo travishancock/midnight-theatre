@@ -105,6 +105,30 @@ A later ruling changed slots 6 and 7 from single-purpose (Backdrop-only / Prop-o
 
 Design decisions made ad hoc while implementing the redesigned/new abilities above (flagged here in case any should be revisited): Tomasso's Dancer count is the player's own board only, and 0 Dancers simply makes the action illegal that turn rather than a legal no-op roll of 0 dice. Valentino's once-per-game limit was dropped entirely, and the later 1-heart fragility tradeoff was itself later dropped — Valentino now uses the standard 3 starting hearts like every other Trainer. Barre was redesigned twice more after that: first the free-rearrange action was removed outright and her "any slot" privilege was narrowed to acquisition-time placement only, then a *new* free rearrange was added back — but scoped to a single end-of-round window instead of every turn (see her table row above). Curio's automatic roll stayed letter-gated (only Acrobats matching the rolled letter benefit) rather than becoming "all your Acrobats regardless of letter."
 
+## Solo mode (1-player variant)
+
+A 1-player variant sits alongside the 2-5p game, wired additively so nothing about the multiplayer rules or code paths changed: `state.solo`/`player.isGhost` default falsy, and every solo-only branch is gated on an explicit `isGhost`/`solo` check.
+
+- **Setup:** "Play solo" on the welcome screen skips the lobby entirely — it creates a room with exactly 3 seats (the human, always seat 0, plus 2 fixed "Ghost" seats) and starts the game immediately. Solo games use their own trophy goal (`TROPHY_GOAL_SOLO = 5`), independent of and not derived from the 2-5p player-count table.
+- **Ghosts never use AI heuristics.** A Ghost's entire main-turn action (draft / buy / reset market) is decided by the solo human rolling a d12, not by `bot.js`. On a Ghost's turn, the human sees a "Roll d12 for [Ghost]" button (`rollGhostDie` action); only the human may submit it, and only while it's genuinely that Ghost's turn. The roll consumes one of 12 fixed faces (`GHOST_DIE_FACES` in `engine.js`), applied via `resolveGhostRoll` through the exact same `acquireCard`/`marketCost`/`grantCoinsAndHearts` machinery a human or bot action would use, so every passive rule (Barnaby's discount, Maximillian's chain-buys, the market price freeze, Stainglass's post-acquire offer, a full-slot placement choice, etc.) applies identically:
+
+  | Roll | Face |
+  |---|---|
+  | 1 | Reset the market and collect 3 coins |
+  | 2 | Reset the market and collect 3 hearts |
+  | 3 | Buy market slot 1 |
+  | 4 | Buy market slot 2 |
+  | 5 | Buy market slot 3 |
+  | 6 | Buy market slot 4 |
+  | 7, 8 | Draft the left-most / right-most draft-row card (one face each, so left and right are each rolled twice as likely as any single buy/reset face) |
+  | 9, 10 | Draft the right-most / left-most draft-row card (second pair) |
+  | 11 | Draft the left-most card, then roll again |
+  | 12 | Draft the right-most card, then roll again |
+
+  A "buy" face that's unaffordable, or a slot/draft-row that's already empty, doesn't fail — it leaves the turn open and logs that the Ghost "rolls again," so the human just rolls once more. The two "...then roll again" draft faces work the same way: the draft resolves, but the turn stays open for one more roll instead of ending.
+- **Everything else a Ghost does follows 3 fixed policies the owner specified, in `engine/ghost.js`** (never a choice, never AI-weighted): it always spends every Press Pass card it holds, unconditionally, during the round it's acquired; it always spends a "1st" Favor on its own literal next 1st turn and a "2nd" Favor on its own literal next 2nd turn (never held back for later, unlike a human or the general `favorEligibleNow` window); and it always fills earned hearts onto its board left to right, as evenly as possible (round-robin across its 8 mat slots) — falling back to spilling any remainder into reserve-card capacity only once the board is completely full, since the engine's own `heartAssign` prompt mandates using every point of available capacity (mat + reserve), not just the board. Anything a Ghost is offered that isn't covered by one of these 3 rules (a full-slot placement bump, a mandatory refill, Auric's convert choice, Stainglass's post-acquire offer, ...) falls back to the same conservative default `bot.js` already uses for that exact prompt, reused directly rather than reimplemented.
+- **Client UI:** Ghost seats show a 👻 badge next to their name (mirroring the 🤖 badge already used for AI seats); a Ghost's turn shows a dedicated roll prompt instead of the normal turn bar/waiting note; and each roll result is both logged and surfaced as a toast, since it's the core mechanic of the variant.
+
 ## Rules the written doc left open — documented assumptions
 
 The source rules document is a work-in-progress design doc, not a complete spec, and is silent on a few things this build needs. Here's what to implement, and why, so the owner can quickly correct anything that's off:

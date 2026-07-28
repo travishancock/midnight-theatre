@@ -19,6 +19,7 @@ import { Server } from 'socket.io';
 import { initCards } from '../engine/cards.js';
 import { createGame, applyAction, lockCollectionDie, lockTomatoRoll, trainerActive, TRAINERS } from '../engine/engine.js';
 import { botAction, seatsNeedingInput, botWantsMesmeraReroll } from '../engine/bot.js';
+import { ghostAction } from '../engine/ghost.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -96,9 +97,10 @@ function newRoom(hostSocket, hostName) {
   const room = {
     code: makeCode(),
     hostId: hostSocket.id,
-    seats: [{ name: hostName, socketId: hostSocket.id, isBot: false, disconnectTimer: null }],
+    seats: [{ name: hostName, socketId: hostSocket.id, isBot: false, isGhost: false, disconnectTimer: null }],
     game: null,
     botTimer: null,
+    ghostTimer: null,
     diceTimer: null,
   };
   rooms.set(room.code, room);
@@ -121,7 +123,8 @@ function lobbyView(room) {
       seat: i,
       name: s.name,
       isBot: s.isBot,
-      connected: s.isBot || s.socketId != null,
+      isGhost: !!s.isGhost,
+      connected: s.isBot || !!s.isGhost || s.socketId != null,
       isHost: s.socketId === room.hostId,
     })),
   };
@@ -166,6 +169,45 @@ function runOneBotStep(room) {
   scheduleDicePhase(room);
 }
 
+// ---- ghost driver (solo mode) ------------------------------------------------
+//
+// A Ghost seat's actual main turn action (draft/buy/reset) only ever comes
+// from the solo human's 'rollGhostDie' — see engine/ghost.js. This driver
+// only auto-resolves the parts around that roll a Ghost is never expected
+// to be asked about: a pending prompt addressed to it (heartAssign,
+// placement, ...) and its fixed-timing Favor spends. It never produces the
+// die roll itself, so it naturally goes idle (ghostAction returns null)
+// whenever it's genuinely the human's turn to click "Roll d12".
+
+function scheduleGhosts(room, delay = BOT_STEP_MS) {
+  if (room.ghostTimer || !room.game || room.game.phase === 'gameOver') return;
+  room.ghostTimer = setTimeout(() => {
+    room.ghostTimer = null;
+    runOneGhostStep(room);
+  }, delay);
+}
+
+function runOneGhostStep(room) {
+  const state = room.game;
+  if (!state || state.phase === 'gameOver') return;
+  const needy = seatsNeedingInput(state);
+  const ghostSeat = needy.find((seat) => room.seats[seat] && room.seats[seat].isGhost);
+  if (ghostSeat == null) return;
+  const action = ghostAction(state, ghostSeat);
+  if (!action) return; // nothing to auto-resolve — waiting on the human's roll
+  const turnsBefore = state.turnsCompleted;
+  try {
+    applyAction(state, action);
+  } catch (err) {
+    console.error(`[room ${room.code}] ghost seat ${ghostSeat} illegal action`, action, err.message);
+    return;
+  }
+  broadcast(room);
+  const justFinishedATurn = state.turnsCompleted > turnsBefore;
+  scheduleGhosts(room, justFinishedATurn ? BOT_TURN_PAUSE_MS : BOT_STEP_MS);
+  scheduleDicePhase(room);
+}
+
 // ---- dice-phase driver -------------------------------------------------------
 //
 // The engine pauses mid-dice-phase at two points so the reveal can be watched
@@ -189,6 +231,7 @@ function scheduleDicePhase(room) {
       lockCollectionDie(state);
       broadcast(room);
       scheduleBots(room);
+      scheduleGhosts(room);
       scheduleDicePhase(room);
     }, DICE_REVEAL_MS);
     return;
@@ -302,11 +345,32 @@ io.on('connection', (socket) => {
     if (room.game) return cb?.({ error: 'Already started.' });
     if (room.seats.length < 2) return cb?.({ error: 'You need at least 2 seats (add an AI player?).' });
     room.game = createGame({
-      players: room.seats.map((s) => ({ name: s.name, isBot: s.isBot })),
+      players: room.seats.map((s) => ({ name: s.name, isBot: s.isBot, isGhost: s.isGhost })),
     });
     cb?.({ ok: true });
     broadcast(room);
     scheduleBots(room);
+    scheduleGhosts(room);
+    scheduleDicePhase(room);
+  });
+
+  // Solo mode: always exactly 1 human + 2 fixed Ghost seats, started
+  // immediately — there's no one else to wait for in a lobby, so this
+  // skips straight from "create" to "playing" in one step.
+  socket.on('createSoloGame', ({ name }, cb) => {
+    const room = newRoom(socket, cleanName(name));
+    socket.data.roomCode = room.code;
+    socket.join(room.code);
+    room.seats.push({ name: 'Ghost 1', socketId: null, isBot: false, isGhost: true, disconnectTimer: null });
+    room.seats.push({ name: 'Ghost 2', socketId: null, isBot: false, isGhost: true, disconnectTimer: null });
+    room.game = createGame({
+      players: room.seats.map((s) => ({ name: s.name, isBot: s.isBot, isGhost: s.isGhost })),
+      solo: true,
+    });
+    cb?.({ ok: true, code: room.code, seat: 0 });
+    broadcast(room);
+    scheduleBots(room);
+    scheduleGhosts(room);
     scheduleDicePhase(room);
   });
 
@@ -324,6 +388,7 @@ io.on('connection', (socket) => {
     cb?.({ ok: true });
     broadcast(room);
     scheduleBots(room);
+    scheduleGhosts(room);
     scheduleDicePhase(room);
   });
 
@@ -361,6 +426,7 @@ io.on('connection', (socket) => {
         }
         broadcast(room);
         scheduleBots(room);
+        scheduleGhosts(room);
         scheduleDicePhase(room);
       }
       // Clean up rooms where every human has gone.

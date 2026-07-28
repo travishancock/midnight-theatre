@@ -65,11 +65,18 @@ const MARKET_SIZE = 4;
 // the table shrinks (and drops as it grows) to keep game length comparable.
 const TROPHY_GOAL_BY_PLAYERS = { 2: 6, 3: 5, 4: 4, 5: 3 };
 
+// Solo mode: 1 human + 2 Ghost seats (always 3 total). Kept as its own
+// constant (rather than reusing TROPHY_GOAL_BY_PLAYERS[3]) so solo balance
+// can be tuned independently of the real 3-player multiplayer game later
+// without any risk of the two ever accidentally diverging from each other
+// in a way that's hard to notice.
+const TROPHY_GOAL_SOLO = 5;
+
 // ---------------------------------------------------------------------------
 // Game creation
 // ---------------------------------------------------------------------------
 
-export function createGame({ players, seed }) {
+export function createGame({ players, seed, solo }) {
   if (!players || players.length < 2 || players.length > 5) {
     throw new Error('The Midnight Theatre supports 2-5 players.');
   }
@@ -78,16 +85,19 @@ export function createGame({ players, seed }) {
     rng: (seed ?? makeSeed()) >>> 0,
     phase: 'draft', // 'draft' | 'dice' | 'gameOver'
     round: 1,
-    trophyGoal: TROPHY_GOAL_BY_PLAYERS[players.length],
+    solo: !!solo, // 1-player variant: always the human + 2 Ghost seats
+    trophyGoal: solo ? TROPHY_GOAL_SOLO : TROPHY_GOAL_BY_PLAYERS[players.length],
     deck: [],
     discard: [],
     market: [],
     draftRow: [],
     hearts: {}, // cardId -> current (printed) hearts on that card
+    ghostRollEvent: null, // { seat, roll, label } — the most recent d12 result, for the client to display
     players: players.map((p, i) => ({
       seat: i,
       name: p.name || `Player ${i + 1}`,
       isBot: !!p.isBot,
+      isGhost: !!p.isGhost, // solo mode: acts via the d12 roll table, never AI heuristics — see resolveGhostRoll
       coins: 0,
       stars: 0,
       trophies: 0,
@@ -1061,6 +1071,108 @@ function advance(state) {
 }
 
 // ---------------------------------------------------------------------------
+// Ghost seats (solo mode)
+// ---------------------------------------------------------------------------
+
+// The 12 faces of the Ghost d12, in printed order (index 0 = face "1"). Two
+// of the draft faces additionally grant an extra roll — a bonus action
+// chained onto the same Ghost turn, resolved by rolling again rather than
+// ending the turn.
+export const GHOST_DIE_FACES = [
+  { kind: 'resetMarket', resource: 'coins', label: 'Reset market and collect 3 coins' },
+  { kind: 'resetMarket', resource: 'hearts', label: 'Reset market and collect 3 hearts' },
+  { kind: 'buyMarket', index: 0, label: 'Buy market slot 1' },
+  { kind: 'buyMarket', index: 1, label: 'Buy market slot 2' },
+  { kind: 'buyMarket', index: 2, label: 'Buy market slot 3' },
+  { kind: 'buyMarket', index: 3, label: 'Buy market slot 4' },
+  { kind: 'draft', side: 'left', again: false, label: 'Draft the left-most card' },
+  { kind: 'draft', side: 'left', again: false, label: 'Draft the left-most card' },
+  { kind: 'draft', side: 'right', again: false, label: 'Draft the right-most card' },
+  { kind: 'draft', side: 'right', again: false, label: 'Draft the right-most card' },
+  { kind: 'draft', side: 'left', again: true, label: 'Draft the left-most card, then roll again' },
+  { kind: 'draft', side: 'right', again: true, label: 'Draft the right-most card, then roll again' },
+];
+
+// Roll the Ghost d12 and resolve exactly one face. A face that can't
+// actually be completed right now (an unaffordable buy, an empty slot) or
+// that explicitly grants another roll leaves the turn open (mainDone/done
+// unset, or open:true for a Maximillian chain-buy) so the driver rolls
+// again; every other face ends the Ghost's turn, same as any normal main
+// action. Reuses the exact same acquireCard/marketCost machinery a human's
+// buyMarket/acquireDraft would, so every passive rule (Barnaby's discount,
+// Maximillian's chain buys, the market price freeze, Stainglass's
+// post-acquire offer, a full mat slot's placement choice, etc.) applies to
+// a Ghost identically — only the *choice* of which slot/card comes from the
+// die instead of a human clicking.
+function resolveGhostRoll(state, seat) {
+  const p = state.players[seat];
+  const rollIdx = randInt(state, GHOST_DIE_FACES.length);
+  const face = GHOST_DIE_FACES[rollIdx];
+  const rollNumber = rollIdx + 1;
+  state.ghostRollEvent = { seat, roll: rollNumber, label: face.label };
+  log(state, `${p.name} (Ghost) rolls a ${rollNumber} on the d12 — ${face.label}.`);
+
+  if (face.kind === 'resetMarket') {
+    state.discard.push(...state.market.filter(Boolean));
+    state.market = draw(state, MARKET_SIZE);
+    if (face.resource === 'coins') grantCoinsAndHearts(state, seat, 3, 0, 'Ghost roll: reset market');
+    else grantCoinsAndHearts(state, seat, 0, 3, 'Ghost roll: reset market');
+    state.turn.mainDone = true;
+    state.turn.done = true;
+    return;
+  }
+
+  if (face.kind === 'buyMarket') {
+    const i = face.index;
+    if (!state.market[i]) {
+      log(state, `${p.name} (Ghost) finds that market slot already sold — rolls again.`);
+      return;
+    }
+    const cost = marketCost(state, seat, i);
+    if (p.coins < cost) {
+      log(state, `${p.name} (Ghost) can't afford that slot (needs ${cost}, has ${p.coins}) — rolls again.`);
+      return;
+    }
+    p.coins -= cost;
+    const cardId = state.market[i];
+    state.market[i] = null;
+    log(state, `${p.name} (Ghost) buys ${card(cardId).name} from the market for ${cost} coins.`);
+    acquireCard(state, seat, cardId, null);
+    state.turn.mainDone = true;
+    state.turn.buys = (state.turn.buys || 0) + 1;
+    if (trainerActive(state, seat, TRAINERS.MAXIMILLIAN)) {
+      state.turn.open = true; // may keep buying — driver rolls again
+    } else {
+      state.turn.done = true;
+    }
+    return;
+  }
+
+  // face.kind === 'draft'
+  if (state.draftRow.length === 0) {
+    log(state, `${p.name} (Ghost) finds the draft row empty — rolls again.`);
+    return;
+  }
+  const idx = face.side === 'left' ? 0 : state.draftRow.length - 1;
+  const cardId = state.draftRow[idx];
+  const c = card(cardId);
+  if (state.turn.isBonus && c.cardType === 'favor' && c.triggerAfterTurn === state.turn.bonusTiming) {
+    log(state, `${p.name} (Ghost) can't draft a same-timing Favor on a bonus turn — rolls again.`);
+    return;
+  }
+  state.draftRow.splice(idx, 1);
+  log(state, `${p.name} (Ghost) drafts ${c.name} for free.`);
+  acquireCard(state, seat, cardId, null);
+  state.turn.mainDone = true;
+  if (face.again) {
+    // Extra roll granted — the turn continues, offering a fresh main action.
+    state.turn.mainDone = false;
+  } else {
+    state.turn.done = true;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Action application (the public API)
 // ---------------------------------------------------------------------------
 
@@ -1283,6 +1395,28 @@ export function applyAction(state, action) {
       state.hearts[toCardId] = (state.hearts[toCardId] || 0) + 1;
       state.turn.amaraUsed = true;
       log(state, `${p.name} moves a heart from ${card(fromCardId).name} to ${card(toCardId).name} (Amara the Reliquary).`);
+      break;
+    }
+    // ----- Ghost seats (solo mode) ---------------------------------------
+    // A Ghost's whole main turn action is decided by a d12 roll instead of
+    // AI heuristics — see resolveGhostRoll and GHOST_DIE_FACES. The solo
+    // human player is the one who submits this action (there is no socket
+    // "controlling" a Ghost seat), so `seat` here is the human's own seat,
+    // not the Ghost's — same pattern as the pre-roll Press Pass window and
+    // Mesmera's reaction, which are also submitted by whichever seat the
+    // rule lets act, not necessarily state.turn.seat.
+    case 'rollGhostDie': {
+      if (state.phase !== 'draft' || !state.turn) throw new Error('No Ghost turn is active right now.');
+      if (state.pending.length > 0) throw new Error('Resolve the current prompt first.');
+      const ghostSeat = state.turn.seat;
+      const ghost = state.players[ghostSeat];
+      if (!ghost || !ghost.isGhost) throw new Error("It isn't a Ghost's turn.");
+      if (!state.players[seat] || state.players[seat].isGhost) throw new Error('Only the solo player may roll for a Ghost.');
+      // Mirrors buyMarket's own tolerance for Maximillian chain-buys: once
+      // the Ghost's main action is spent, only an explicitly still-open turn
+      // (another buy still allowed) may roll again.
+      if (state.turn.mainDone && !state.turn.open) throw new Error('This Ghost has already acted this turn.');
+      resolveGhostRoll(state, ghostSeat);
       break;
     }
     // ----- pre-roll Press Pass window ------------------------------------

@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 import { initCards } from '../engine/cards.js';
 import { createGame, applyAction, lockCollectionDie, lockTomatoRoll } from '../engine/engine.js';
 import { botAction, seatsNeedingInput, botWantsMesmeraReroll } from '../engine/bot.js';
+import { ghostAction } from '../engine/ghost.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'assets', 'card_database.json'), 'utf8'));
@@ -125,4 +126,96 @@ for (const [players, seed] of combos) {
 }
 
 console.log(`\nfullgame.test.js: ${games} complete AI-only games played to a valid win state`);
+
+// ---------------------------------------------------------------------------
+// Solo mode: 1 human seat (stood in here by botAction, purely so the game can
+// run unattended) + 2 fixed Ghost seats. A Ghost's whole main-turn action
+// comes from 'rollGhostDie', driven here the same way the server does — see
+// engine/ghost.js and engine.js's resolveGhostRoll/GHOST_DIE_FACES. Every
+// invariant the 2-5p games above check (card conservation, no negative
+// resources, a valid win state) is re-checked here too, since solo mode
+// reuses the exact same acquire/heart/market machinery.
+// ---------------------------------------------------------------------------
+
+function playFullSoloGame(seed) {
+  const s = createGame({
+    players: [
+      { name: 'Solo Player', isBot: true, isGhost: false }, // stand-in bot, testing convenience only
+      { name: 'Ghost 1', isBot: false, isGhost: true },
+      { name: 'Ghost 2', isBot: false, isGhost: true },
+    ],
+    solo: true,
+    seed,
+  });
+  let actions = 0;
+  const MAX_ACTIONS = 100000;
+
+  while (s.phase !== 'gameOver') {
+    if (++actions > MAX_ACTIONS) {
+      throw new Error(`Solo game stalled after ${MAX_ACTIONS} actions (round ${s.round}, phase ${s.phase})`);
+    }
+
+    if (driveDicePauseIfAny(s)) {
+      assert.equal(cardCount(s), TOTAL_CARDS, 'card conservation violated (dice-phase reaction window)');
+      continue;
+    }
+
+    // A Ghost seat with something to auto-resolve (a pending prompt, or its
+    // fixed-timing Favor spend) takes priority, same as the server driver.
+    const ghostItem = s.pending.find((x) => s.players[x.seat] && s.players[x.seat].isGhost);
+    if (ghostItem) {
+      const a = ghostAction(s, ghostItem.seat);
+      assert.ok(a, `ghost pending with no ghostAction: ${ghostItem.kind}`);
+      applyAction(s, a);
+      assert.equal(cardCount(s), TOTAL_CARDS, 'card conservation violated (ghost pending)');
+      continue;
+    }
+    if (s.phase === 'draft' && s.turn && s.players[s.turn.seat].isGhost && !s.turn.done) {
+      const a = ghostAction(s, s.turn.seat);
+      if (a) {
+        applyAction(s, a); // a queued Favor spend before the die roll
+        assert.equal(cardCount(s), TOTAL_CARDS, 'card conservation violated (ghost favor)');
+        continue;
+      }
+      // Nothing left to auto-resolve — the solo human rolls the d12 for it.
+      applyAction(s, { type: 'rollGhostDie', seat: 0 });
+      assert.equal(cardCount(s), TOTAL_CARDS, 'card conservation violated (ghost roll)');
+      continue;
+    }
+
+    const needy = seatsNeedingInput(s);
+    assert.ok(needy.length > 0, `engine settled with no one to act (phase ${s.phase}, round ${s.round})`);
+    const seat = needy[0];
+    const action = botAction(s, seat);
+    assert.ok(action, `bot for seat ${seat} produced no action (phase ${s.phase})`);
+    applyAction(s, action);
+
+    assert.equal(cardCount(s), TOTAL_CARDS, 'card conservation violated');
+    for (const p of s.players) {
+      assert.ok(p.coins >= 0, 'coins went negative');
+      assert.ok(p.stars >= 0, 'stars went negative');
+    }
+  }
+
+  assert.ok(Array.isArray(s.winners) && s.winners.length >= 1, 'no winners recorded');
+  assert.equal(s.trophyGoal, 5, 'solo mode uses its own (lower) trophy goal');
+  for (const w of s.winners) assert.ok(s.players[w].trophies >= 5, 'winner below trophy threshold');
+  for (const p of s.players) {
+    if (!s.winners.includes(p.seat)) assert.ok(p.trophies < 5, 'non-winner reached the threshold');
+  }
+  return { rounds: s.round, actions, winners: s.winners.map((w) => s.players[w].name) };
+}
+
+let soloGames = 0;
+for (const seed of [1, 2, 3, 4, 5, 20260712, 987654]) {
+  const t0 = Date.now();
+  const res = playFullSoloGame(seed);
+  soloGames++;
+  console.log(
+    `  ok  solo, seed ${seed}: ${res.rounds} rounds, ${res.actions} actions, ` +
+    `winner ${res.winners.join(' & ')} (${Date.now() - t0}ms)`
+  );
+}
+
+console.log(`\nfullgame.test.js (solo): ${soloGames} complete solo games played to a valid win state`);
 console.log('ALL FULL-GAME TESTS PASSED');

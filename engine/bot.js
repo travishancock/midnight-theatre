@@ -146,7 +146,10 @@ export function botWantsMesmeraReroll(state, seat) {
 }
 
 // Prefer an empty allowed slot; otherwise bump the least valuable occupant.
-function choosePlacementSlot(state, seat, item) {
+// Exported so engine/ghost.js can reuse the same sensible defaults for
+// decisions solo mode's Ghost rules don't specifically cover (placement
+// bumps, mandatory refills) — this doesn't change bot behavior at all.
+export function choosePlacementSlot(state, seat, item) {
   const p = state.players[seat];
   const allowed = item.data.allowedSlots;
   const empty = allowed.find((i) => p.slots[i] == null);
@@ -207,7 +210,8 @@ function boardLetterCount(state, seat) {
 }
 
 // Fill every fillable empty slot (mandatory). Performers: best first.
-function chooseRefill(state, seat) {
+// Exported for engine/ghost.js — see choosePlacementSlot above.
+export function chooseRefill(state, seat) {
   const p = state.players[seat];
   const remaining = [...p.reserve];
   const out = [];

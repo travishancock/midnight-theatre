@@ -54,7 +54,10 @@ async function boot() {
     view = payload;
     if (view.state && view.state.version !== prevVersion) {
       resetTransientUi();
-      if (!isFirstState) announceTrophies(view.state.log.slice(prevLogLen));
+      if (!isFirstState) {
+        announceTrophies(view.state.log.slice(prevLogLen));
+        announceGhostRolls(view.state.log.slice(prevLogLen));
+      }
     }
     render();
   });
@@ -86,6 +89,14 @@ function announceTrophies(newLines) {
     ? `🏆 ${names[0]} wins the Trophy this round!`
     : `🏆 ${names.join(' & ')} tie and share the Trophy this round!`;
   toast(msg, 5000);
+}
+
+// Solo mode: surface the Ghost's d12 result as a toast too, since it's the
+// core mechanic of the variant and easy to miss buried in the log panel.
+function announceGhostRolls(newLines) {
+  const rolls = newLines.filter((l) => l.includes('(Ghost) rolls a'));
+  if (rolls.length === 0) return;
+  toast(`🎲 ${rolls[rolls.length - 1]}`, 4000);
 }
 
 function resetTransientUi() {
@@ -213,6 +224,7 @@ function renderWelcome() {
         <label>Your name <input id="nameInput" maxlength="24" value="${esc(my.name)}" placeholder="e.g. Travis"/></label>
         <div class="row">
           <button id="createBtn" class="primary">Create a room</button>
+          <button id="soloBtn">👻 Play solo (vs. 2 Ghosts)</button>
         </div>
         <div class="row join-row">
           <input id="codeInput" maxlength="4" placeholder="ROOM CODE" style="text-transform:uppercase"/>
@@ -224,6 +236,14 @@ function renderWelcome() {
   document.getElementById('createBtn').onclick = () => {
     my.name = name();
     socket.emit('createRoom', { name: my.name }, (res) => {
+      if (res?.error) return toast(res.error);
+      my.code = res.code;
+      my.seat = res.seat;
+    });
+  };
+  document.getElementById('soloBtn').onclick = () => {
+    my.name = name();
+    socket.emit('createSoloGame', { name: my.name }, (res) => {
       if (res?.error) return toast(res.error);
       my.code = res.code;
       my.seat = res.seat;
@@ -450,7 +470,19 @@ function dancerCountOf(p) {
 function turnBarHtml(s, p) {
   if (!p) return '';
   if (s.phase !== 'draft' || !s.turn) return '';
-  if (s.turn.seat !== my.seat || s.turn.done || s.pending.length > 0) return '';
+  if (s.pending.length > 0) return '';
+
+  // Solo mode: a Ghost never has a socket of its own — the human rolls a
+  // d12 to decide its whole turn (see engine's rollGhostDie/GHOST_DIE_FACES).
+  if (s.solo && s.players[s.turn.seat].isGhost && !s.turn.done) {
+    const ghost = s.players[s.turn.seat];
+    return `<div class="turnbar ghostbar">
+      <span class="yourturn">👻 ${esc(ghost.name)}'s turn — roll the d12 to decide their action.</span>
+      <button id="rollGhostBtn" class="primary">🎲 Roll for ${esc(ghost.name)}</button>
+    </div>`;
+  }
+
+  if (s.turn.seat !== my.seat || s.turn.done) return '';
 
   const t = s.turn;
   const trainers = activeTrainerIds(p);
@@ -510,7 +542,7 @@ function waitingNoteHtml(s, p, pending) {
     const who = [...new Set(s.pending.map((x) => s.players[x.seat].name))].join(', ');
     return `<div class="waiting">Waiting on ${esc(who)}…</div>`;
   }
-  if (s.phase === 'draft' && s.turn && s.turn.seat !== my.seat) {
+  if (s.phase === 'draft' && s.turn && s.turn.seat !== my.seat && !(s.solo && s.players[s.turn.seat].isGhost)) {
     return `<div class="waiting">Waiting on ${esc(s.players[s.turn.seat].name)}'s draft turn…</div>`;
   }
   return '';
@@ -740,7 +772,7 @@ function opponentHtml(s, p) {
   const isTurn = s.phase === 'draft' && s.turn && s.turn.seat === p.seat && !s.turn.done;
   return `<div class="opponent ${isTurn ? 'active' : ''}">
     <div class="mat-head">
-      <h4>${esc(p.name)} ${p.isBot ? '🤖' : ''} <span class="hint">stand ${p.stand}</span></h4>
+      <h4>${esc(p.name)} ${p.isBot ? '🤖' : ''}${p.isGhost ? ' 👻' : ''} <span class="hint">stand ${p.stand}</span></h4>
       <div class="tokens">🪙 ${p.coins} · ⭐ ${p.roundStars} this round · 🏆 ${p.trophies} · reserve ${p.reserve.length}</div>
     </div>
     <div class="slots mini">
@@ -821,6 +853,7 @@ function wireGameEvents(s, p, pending) {
     b.addEventListener('click', () => send({ type: 'celestineBuyStars', count: +b.dataset.celestine }))
   );
   document.getElementById('endTurnBtn')?.addEventListener('click', () => send({ type: 'endTurn' }));
+  document.getElementById('rollGhostBtn')?.addEventListener('click', () => send({ type: 'rollGhostDie', seat: my.seat }));
 
   // My mat: placement prompt, rearrange swaps.
   document.getElementById('mySlots')?.addEventListener('click', (e) => {
