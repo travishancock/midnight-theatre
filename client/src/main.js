@@ -57,6 +57,8 @@ async function boot() {
       if (!isFirstState) {
         announceTrophies(view.state.log.slice(prevLogLen));
         announceGhostRolls(view.state.log.slice(prevLogLen));
+        announceAltSoloRolls(view.state.log.slice(prevLogLen));
+        announceAltSoloRoundLoss(view.state.log.slice(prevLogLen));
       }
     }
     render();
@@ -84,7 +86,11 @@ async function boot() {
 function announceTrophies(newLines) {
   const wins = newLines.filter((l) => l.includes('takes a Trophy!'));
   if (wins.length === 0) return;
-  const names = wins.map((l) => l.split(' earned the most stars')[0]);
+  // " earned " is common to both the normal "X earned the most stars (N) and
+  // takes a Trophy!" wording and Alt Solo's "X earned N star(s), clearing
+  // the round target of T — takes a Trophy!" wording — split on that instead
+  // of anything more specific so both phrasings extract the name correctly.
+  const names = wins.map((l) => l.split(' earned ')[0]);
   const msg = names.length === 1
     ? `🏆 ${names[0]} wins the Trophy this round!`
     : `🏆 ${names.join(' & ')} tie and share the Trophy this round!`;
@@ -97,6 +103,22 @@ function announceGhostRolls(newLines) {
   const rolls = newLines.filter((l) => l.includes('(Ghost) rolls a'));
   if (rolls.length === 0) return;
   toast(`🎲 ${rolls[rolls.length - 1]}`, 4000);
+}
+
+// Alt Solo: same idea as announceGhostRolls, for the d8 that shrinks the
+// draft row / raises the round's star target after every turn.
+function announceAltSoloRolls(newLines) {
+  const rolls = newLines.filter((l) => l.includes('Alt Solo d8 rolls a'));
+  if (rolls.length === 0) return;
+  toast(`🎲 ${rolls[rolls.length - 1]}`, 4000);
+}
+
+// Alt Solo: a round can also be lost (tied or fell short of the round
+// target) — surface that too, distinct from a Trophy win.
+function announceAltSoloRoundLoss(newLines) {
+  const losses = newLines.filter((l) => l.includes('the round is lost'));
+  if (losses.length === 0) return;
+  toast(`💔 ${losses[losses.length - 1]}`, 5000);
 }
 
 function resetTransientUi() {
@@ -225,6 +247,7 @@ function renderWelcome() {
         <div class="row">
           <button id="createBtn" class="primary">Create a room</button>
           <button id="soloBtn">👻 Play solo (vs. 2 Ghosts)</button>
+          <button id="altSoloBtn">🎲 Alt Solo (beat the round target)</button>
         </div>
         <div class="row join-row">
           <input id="codeInput" maxlength="4" placeholder="ROOM CODE" style="text-transform:uppercase"/>
@@ -244,6 +267,14 @@ function renderWelcome() {
   document.getElementById('soloBtn').onclick = () => {
     my.name = name();
     socket.emit('createSoloGame', { name: my.name }, (res) => {
+      if (res?.error) return toast(res.error);
+      my.code = res.code;
+      my.seat = res.seat;
+    });
+  };
+  document.getElementById('altSoloBtn').onclick = () => {
+    my.name = name();
+    socket.emit('createAltSoloGame', { name: my.name }, (res) => {
       if (res?.error) return toast(res.error);
       my.code = res.code;
       my.seat = res.seat;
@@ -309,6 +340,7 @@ function renderGame() {
         <div class="status">
           Round ${s.round} · ${s.phase === 'draft' ? 'Draft phase' : s.phase === 'dice' ? 'Dice phase' : 'Game over'}
           · First to ${s.trophyGoal} 🏆 wins
+          ${s.altSolo ? `· Round target: <b>${s.altSoloTarget}</b>⭐ (beat it, don't tie it) · Losses: <b>${s.altSoloLosses}</b>/5` : ''}
         </div>
       </header>
       ${s.phase === 'gameOver' ? winnersBanner(s) : ''}
@@ -339,6 +371,11 @@ function renderGame() {
 }
 
 function winnersBanner(s) {
+  // Alt Solo is the only mode where the game can end with no winner at all —
+  // ALT_SOLO_LOSS_LIMIT round losses reached before ALT_SOLO_TROPHY_GOAL wins.
+  if (s.winners.length === 0) {
+    return `<div class="winners lost">💔 ${esc(s.players[0].name)} lost the show — ${s.altSoloLosses} rounds lost before winning ${s.trophyGoal}. 💔</div>`;
+  }
   const names = s.winners.map((w) => s.players[w].name).join(' & ');
   return `<div class="winners">🏆 ${esc(names)} win${s.winners.length === 1 ? 's' : ''} the game! 🏆</div>`;
 }
@@ -420,7 +457,7 @@ function tomatoForecast(s) {
 function draftRowHtml(s, p, pending) {
   const clickable = isMyTurn() && !ui.mode;
   return `<div class="zone">
-    <h3>Draft row <span class="hint">(free — ends when 1 card remains)</span></h3>
+    <h3>Draft row <span class="hint">${s.altSolo ? '(free — a d8 also shrinks this row after every turn)' : '(free — ends when 1 card remains)'}</span></h3>
     <div class="cardrow ${clickable ? 'clickable' : ''}" id="draftRow">
       ${s.draftRow.map((id) => cardHtml(id, { size: 'md' })).join('') || '<span class="hint">empty</span>'}
     </div>

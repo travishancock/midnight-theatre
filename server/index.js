@@ -374,6 +374,25 @@ io.on('connection', (socket) => {
     scheduleDicePhase(room);
   });
 
+  // Alt Solo: a different 1-player variant — just the human, no Ghosts or AI
+  // seats at all (see engine.js's altSolo handling: a fixed 5-card draft row
+  // shrunk by a d8 rolled after every turn, and a round-target comparison in
+  // place of a multiplayer trophy assignment). Every decision point is the
+  // human's own action, so unlike createSoloGame there's no bot/ghost driver
+  // needed here — only the normal dice-phase reveal pacing every room gets.
+  socket.on('createAltSoloGame', ({ name }, cb) => {
+    const room = newRoom(socket, cleanName(name));
+    socket.data.roomCode = room.code;
+    socket.join(room.code);
+    room.game = createGame({
+      players: room.seats.map((s) => ({ name: s.name, isBot: s.isBot, isGhost: s.isGhost })),
+      altSolo: true,
+    });
+    cb?.({ ok: true, code: room.code, seat: 0 });
+    broadcast(room);
+    scheduleDicePhase(room);
+  });
+
   socket.on('action', (action, cb) => {
     const room = roomOfSocket(socket);
     if (!room || !room.game) return cb?.({ error: 'No game in progress.' });

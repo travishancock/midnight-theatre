@@ -20,6 +20,8 @@ import {
   seatWithStand,
   assignTrophy,
   assignDraftOrder,
+  assignAltSoloResult,
+  ALT_SOLO_DIE_FACES,
   lockCollectionDie,
   lockTomatoRoll,
   TRAINERS,
@@ -1970,6 +1972,183 @@ test('Ghost Press Pass: always spends everything held, never keeps any back', ()
   }
   assert.equal(gp.reserve.filter((id) => card(id).cardType === 'reroll').length, 0, 'every held Press Pass was spent');
   assert.ok(!s.pending.some((x) => x.id === item.id), 'the window closed once done');
+});
+
+// ---- Alt Solo mode -----------------------------------------------------------
+
+function freshAltSoloGame(seed = 42) {
+  return createGame({
+    players: [{ name: 'Solo', isBot: false, isGhost: false }],
+    altSolo: true,
+    seed,
+  });
+}
+
+// Force the engine's next randInt(8) (the Alt Solo d8) to land on a specific
+// 0-based face index — same technique as rngForLetter/rngForGhostFace.
+function rngForAltSoloFace(faceIdx) {
+  for (let x = 1; x < 200000; x++) {
+    if (predict(x, [8])[0] === faceIdx) return x;
+  }
+  throw new Error('no rng value found for alt solo face ' + faceIdx);
+}
+
+// A no-op turn (rearrange with the board left exactly as-is) — the simplest
+// way to legally end the seat's turn and trigger finishTurn's rollAltSoloDie,
+// without acquiring anything or otherwise disturbing the state under test.
+function takeNoOpTurn(s) {
+  const p = s.players[0];
+  applyAction(s, { type: 'rearrange', seat: 0, slots: [...p.slots], reserve: [...p.reserve] });
+}
+
+test('setup: Alt Solo creates a single seat, a fixed 5-card draft row, and its own trophy/target/loss tracking', () => {
+  const s = freshAltSoloGame();
+  assert.equal(s.altSolo, true);
+  assert.equal(s.players.length, 1);
+  assert.equal(s.draftRow.length, 5);
+  assert.equal(s.trophyGoal, 5);
+  assert.equal(s.altSoloTarget, 0);
+  assert.equal(s.altSoloLosses, 0);
+});
+
+test('Alt Solo d8: discard faces remove from the correct end of the draft row', () => {
+  const s = freshAltSoloGame();
+  const before = [...s.draftRow];
+  s.rng = rngForAltSoloFace(0); // discard the right-most card
+  takeNoOpTurn(s);
+  assert.equal(s.draftRow.length, 4);
+  assert.deepEqual(s.draftRow, before.slice(0, 4));
+  assert.ok(s.discard.includes(before[4]));
+
+  const s2 = freshAltSoloGame();
+  const before2 = [...s2.draftRow];
+  s2.rng = rngForAltSoloFace(1); // discard the left-most card
+  takeNoOpTurn(s2);
+  assert.equal(s2.draftRow.length, 4);
+  assert.deepEqual(s2.draftRow, before2.slice(1));
+  assert.ok(s2.discard.includes(before2[0]));
+
+  const s3 = freshAltSoloGame();
+  const before3 = [...s3.draftRow];
+  s3.rng = rngForAltSoloFace(2); // discard the 2 right-most cards
+  takeNoOpTurn(s3);
+  assert.equal(s3.draftRow.length, 3);
+  assert.deepEqual(s3.draftRow, before3.slice(0, 3));
+
+  const s4 = freshAltSoloGame();
+  const before4 = [...s4.draftRow];
+  s4.rng = rngForAltSoloFace(3); // discard the 2 left-most cards
+  takeNoOpTurn(s4);
+  assert.equal(s4.draftRow.length, 3);
+  assert.deepEqual(s4.draftRow, before4.slice(2));
+});
+
+test('Alt Solo d8: target faces raise the round target, and 2 of the 4 also reset the market', () => {
+  const s = freshAltSoloGame();
+  const oldMarket = [...s.market];
+  s.rng = rngForAltSoloFace(6); // +1 star, no market reset
+  takeNoOpTurn(s);
+  assert.equal(s.altSoloTarget, 1);
+  assert.deepEqual(s.market, oldMarket, 'this face does not reset the market');
+
+  const s2 = freshAltSoloGame();
+  s2.rng = rngForAltSoloFace(7); // +2 stars, no market reset
+  takeNoOpTurn(s2);
+  assert.equal(s2.altSoloTarget, 2);
+
+  const s3 = freshAltSoloGame();
+  const oldMarket3 = [...s3.market];
+  s3.rng = rngForAltSoloFace(4); // +1 star and reset the market
+  takeNoOpTurn(s3);
+  assert.equal(s3.altSoloTarget, 1);
+  assert.notDeepEqual(s3.market, oldMarket3);
+
+  const s4 = freshAltSoloGame();
+  s4.rng = rngForAltSoloFace(5); // +2 stars and reset the market
+  takeNoOpTurn(s4);
+  assert.equal(s4.altSoloTarget, 2);
+});
+
+test('Alt Solo: round target resets to 0 at the start of every new round', () => {
+  const s = freshAltSoloGame();
+  s.altSoloTarget = 3; // simulate a round where the d8 pushed the target up
+  s.players[0].roundStars = 5; // comfortably clears 3 — should win the round
+  s.draftRow = []; // force the draft to end on the very next finished turn
+  takeNoOpTurn(s); // ends the draft -> (no Press Pass held) -> dice phase begins
+  driveDicePhase(s);
+  assert.equal(s.round, 2);
+  assert.equal(s.altSoloTarget, 0, 'reset for the fresh round');
+  assert.equal(s.players[0].trophies, 1, 'won the previous round (5 > 3)');
+});
+
+test('Alt Solo: beating the target wins a Trophy and costs 1 heart from each starter; a tie or a shortfall loses the round with no heart penalty', () => {
+  const s = freshAltSoloGame();
+  const p = s.players[0];
+  const perf = performer((c) => c.maxHearts >= 1);
+  p.slots[0] = perf;
+  s.hearts[perf] = card(perf).maxHearts;
+
+  // Tie: target 2, roundStars 2 -> loses the round, no heart lost.
+  s.altSoloTarget = 2;
+  p.roundStars = 2;
+  assignAltSoloResult(s);
+  assert.equal(p.trophies, 0);
+  assert.equal(s.altSoloLosses, 1);
+  assert.equal(s.hearts[perf], card(perf).maxHearts, 'no heart penalty on a lost round');
+
+  // Shortfall: target 2, roundStars 1 -> also a loss.
+  s.altSoloTarget = 2;
+  p.roundStars = 1;
+  assignAltSoloResult(s);
+  assert.equal(s.altSoloLosses, 2);
+
+  // Win: target 2, roundStars 3 -> Trophy + 1 heart lost from every starter.
+  s.altSoloTarget = 2;
+  p.roundStars = 3;
+  assignAltSoloResult(s);
+  assert.equal(p.trophies, 1);
+  assert.equal(s.altSoloLosses, 2, 'unaffected by a win');
+  assert.equal(s.hearts[perf], card(perf).maxHearts - 1, 'trophy fatigue hits the winner');
+});
+
+test('Alt Solo: the game ends in a win at 5 trophies, or a loss at 5 round-losses (with no winner)', () => {
+  const s = freshAltSoloGame();
+  const p = s.players[0];
+  s.altSoloTarget = 0;
+  for (let i = 0; i < 4; i++) {
+    p.roundStars = 1;
+    assignAltSoloResult(s);
+  }
+  assert.equal(p.trophies, 4);
+  assert.equal(s.phase, 'draft', 'not over yet');
+  p.roundStars = 1;
+  assignAltSoloResult(s); // 5th win
+  assert.equal(p.trophies, 5);
+  assert.equal(s.phase, 'gameOver');
+  assert.deepEqual(s.winners, [0]);
+
+  const s2 = freshAltSoloGame();
+  const p2 = s2.players[0];
+  s2.altSoloTarget = 5;
+  for (let i = 0; i < 4; i++) {
+    p2.roundStars = 0;
+    assignAltSoloResult(s2);
+  }
+  assert.equal(s2.altSoloLosses, 4);
+  assert.equal(s2.phase, 'draft', 'not over yet');
+  p2.roundStars = 0;
+  assignAltSoloResult(s2); // 5th loss
+  assert.equal(s2.altSoloLosses, 5);
+  assert.equal(s2.phase, 'gameOver');
+  assert.deepEqual(s2.winners, [], 'no winner when the game is lost');
+});
+
+test('ALT_SOLO_DIE_FACES has exactly 8 faces: 4 discard, 4 target (2 of which also reset the market)', () => {
+  assert.equal(ALT_SOLO_DIE_FACES.length, 8);
+  assert.equal(ALT_SOLO_DIE_FACES.filter((f) => f.kind === 'discard').length, 4);
+  const targetFaces = ALT_SOLO_DIE_FACES.filter((f) => f.kind === 'target');
+  assert.equal(targetFaces.length, 4);
+  assert.equal(targetFaces.filter((f) => f.resetMarket).length, 2);
 });
 
 // ---- AI draft valuation heuristics (scoreCard) ------------------------------

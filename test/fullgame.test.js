@@ -218,4 +218,72 @@ for (const seed of [1, 2, 3, 4, 5, 20260712, 987654]) {
 }
 
 console.log(`\nfullgame.test.js (solo): ${soloGames} complete solo games played to a valid win state`);
+
+// ---------------------------------------------------------------------------
+// Alt Solo mode: just 1 human seat (stood in here by botAction, same testing
+// convenience as above), no Ghosts or AI at all. Every decision is this one
+// seat's own action — no auxiliary driver logic needed beyond the normal
+// dice-phase pauses every game has. Unlike every other mode, a game here can
+// legitimately end with NO winner (ALT_SOLO_LOSS_LIMIT round losses reached
+// before ALT_SOLO_TROPHY_GOAL wins), so the valid-end-state check below
+// accepts either outcome instead of requiring at least one winner.
+// ---------------------------------------------------------------------------
+
+function playFullAltSoloGame(seed) {
+  const s = createGame({
+    players: [{ name: 'Solo Player', isBot: true, isGhost: false }], // stand-in bot, testing convenience only
+    altSolo: true,
+    seed,
+  });
+  let actions = 0;
+  const MAX_ACTIONS = 100000;
+
+  while (s.phase !== 'gameOver') {
+    if (++actions > MAX_ACTIONS) {
+      throw new Error(`Alt Solo game stalled after ${MAX_ACTIONS} actions (round ${s.round}, phase ${s.phase})`);
+    }
+
+    if (driveDicePauseIfAny(s)) {
+      assert.equal(cardCount(s), TOTAL_CARDS, 'card conservation violated (dice-phase reaction window)');
+      continue;
+    }
+
+    const needy = seatsNeedingInput(s);
+    assert.ok(needy.length > 0, `engine settled with no one to act (phase ${s.phase}, round ${s.round})`);
+    const seat = needy[0];
+    const action = botAction(s, seat);
+    assert.ok(action, `bot for seat ${seat} produced no action (phase ${s.phase})`);
+    applyAction(s, action);
+
+    assert.equal(cardCount(s), TOTAL_CARDS, 'card conservation violated');
+    assert.ok(s.players[0].coins >= 0, 'coins went negative');
+    assert.ok(s.players[0].stars >= 0, 'stars went negative');
+    assert.ok(s.altSoloLosses <= 5, 'loss counter overshot the cap');
+  }
+
+  assert.equal(s.trophyGoal, 5, 'Alt Solo uses its own trophy goal');
+  assert.ok(Array.isArray(s.winners), 'winners should always be an array (possibly empty)');
+  if (s.winners.length > 0) {
+    assert.deepEqual(s.winners, [0]);
+    assert.ok(s.players[0].trophies >= 5, 'winner below trophy threshold');
+  } else {
+    assert.ok(s.altSoloLosses >= 5, 'an empty winners list should only happen after 5 round losses');
+    assert.ok(s.players[0].trophies < 5, 'should not have actually reached the trophy goal');
+  }
+  return {
+    rounds: s.round,
+    actions,
+    outcome: s.winners.length > 0 ? `won (${s.players[0].trophies} trophies)` : `lost (${s.altSoloLosses} losses)`,
+  };
+}
+
+let altSoloGames = 0;
+for (const seed of [1, 2, 3, 4, 5, 20260712, 987654]) {
+  const t0 = Date.now();
+  const res = playFullAltSoloGame(seed);
+  altSoloGames++;
+  console.log(`  ok  alt solo, seed ${seed}: ${res.rounds} rounds, ${res.actions} actions, ${res.outcome} (${Date.now() - t0}ms)`);
+}
+
+console.log(`\nfullgame.test.js (alt solo): ${altSoloGames} complete alt solo games played to a valid end state`);
 console.log('ALL FULL-GAME TESTS PASSED');

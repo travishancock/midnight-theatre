@@ -72,12 +72,23 @@ const TROPHY_GOAL_BY_PLAYERS = { 2: 6, 3: 5, 4: 4, 5: 3 };
 // in a way that's hard to notice.
 const TROPHY_GOAL_SOLO = 5;
 
+// Alt Solo: a different 1-player variant — no Ghosts, no AI, just the human
+// against a d8-driven round target. Kept as its own constants (not reused
+// from TROPHY_GOAL_SOLO/TROPHY_GOAL_BY_PLAYERS) so its balance can be tuned
+// independently. The 5-trophy win goal is an inferred assumption, chosen to
+// mirror the explicit 5-loss cap symmetrically (first to 5 wins takes the
+// game, first to 5 losses loses it) — see DESIGN_BRIEF.md.
+const ALT_SOLO_TROPHY_GOAL = 5;
+const ALT_SOLO_LOSS_LIMIT = 5;
+const ALT_SOLO_DRAFT_ROW_SIZE = 5;
+
 // ---------------------------------------------------------------------------
 // Game creation
 // ---------------------------------------------------------------------------
 
-export function createGame({ players, seed, solo }) {
-  if (!players || players.length < 2 || players.length > 5) {
+export function createGame({ players, seed, solo, altSolo }) {
+  const minPlayers = altSolo ? 1 : 2;
+  if (!players || players.length < minPlayers || players.length > 5) {
     throw new Error('The Midnight Theatre supports 2-5 players.');
   }
   const state = {
@@ -86,7 +97,11 @@ export function createGame({ players, seed, solo }) {
     phase: 'draft', // 'draft' | 'dice' | 'gameOver'
     round: 1,
     solo: !!solo, // 1-player variant: always the human + 2 Ghost seats
-    trophyGoal: solo ? TROPHY_GOAL_SOLO : TROPHY_GOAL_BY_PLAYERS[players.length],
+    altSolo: !!altSolo, // 1-player variant: no Ghosts/AI at all — a d8-driven round target instead
+    trophyGoal: altSolo ? ALT_SOLO_TROPHY_GOAL : solo ? TROPHY_GOAL_SOLO : TROPHY_GOAL_BY_PLAYERS[players.length],
+    altSoloTarget: 0, // this round's star target — reset to 0 every round, raised by ALT_SOLO_DIE_FACES rolls
+    altSoloLosses: 0, // whole-game counter — reaching ALT_SOLO_LOSS_LIMIT ends the game in a loss
+    altSoloRollEvent: null, // { roll, label } — the most recent d8 result, for the client to display
     deck: [],
     discard: [],
     market: [],
@@ -133,7 +148,7 @@ export function createGame({ players, seed, solo }) {
   }
 
   state.market = draw(state, MARKET_SIZE);
-  state.draftRow = draw(state, players.length * 2 + 1);
+  state.draftRow = draw(state, altSolo ? ALT_SOLO_DRAFT_ROW_SIZE : players.length * 2 + 1);
   state.turn = newTurn(seatWithStand(state, 1));
   log(state, `Curtain up! ${state.players.length} players, first trophy-holder to ${state.trophyGoal} trophies wins.`);
   log(state, `${nameOf(state, state.turn.seat)} holds Draft Stand 1 and goes first.`);
@@ -781,9 +796,18 @@ function finishTurn(state) {
   // happen the next time finishTurn resolves without a queued bonus turn.
   if (bonusQueue.length === 0) compactMarket(state);
 
-  // Draft ends the moment only 1 (or 0) face-up cards remain in the row.
-  if (state.draftRow.length <= 1) {
-    if (state.draftRow.length === 1) {
+  // Alt Solo: after every finished turn (including a Favor bonus turn — it's
+  // a turn in its own right), roll the d8 — see ALT_SOLO_DIE_FACES. It may
+  // discard from either end of the draft row (in place of the normal "leave
+  // 1, discard it" ending below) and/or raise this round's star target.
+  if (state.altSolo) rollAltSoloDie(state);
+
+  // Draft ends the moment the row runs out. In Alt Solo that's strictly 0 —
+  // its fixed 5-card row is drained entirely by picks and the d8's discard
+  // faces, with no "leave 1 card, auto-discard it" step (see rollAltSoloDie).
+  const drained = state.altSolo ? state.draftRow.length === 0 : state.draftRow.length <= 1;
+  if (drained) {
+    if (!state.altSolo && state.draftRow.length === 1) {
       const last = state.draftRow.pop();
       // Ezra the Sleight-of-Hand: if its (unique) owner has at least one
       // Illusionist on their board, the leftover card goes to them instead
@@ -859,7 +883,8 @@ function stepDice(state) {
       return;
     }
     case 'trophy': {
-      assignTrophy(state);
+      if (state.altSolo) assignAltSoloResult(state);
+      else assignTrophy(state);
       if (state.phase === 'gameOver') return;
       d.stage = 'order';
       return;
@@ -1005,7 +1030,8 @@ function startNextRound(state) {
     p.roundHearts = 0;
     p.turns = 0;
   }
-  state.draftRow = draw(state, state.players.length * 2 + 1);
+  if (state.altSolo) state.altSoloTarget = 0; // fresh 1-round challenge, resets to the default of 0 each round
+  state.draftRow = draw(state, state.altSolo ? ALT_SOLO_DRAFT_ROW_SIZE : state.players.length * 2 + 1);
   state.phase = 'draft';
   state.turn = newTurn(seatWithStand(state, 1));
   log(state, `— Round ${state.round} — ${Math.min(state.round, MAX_TOMATO_DICE)} tomato dice loom this round. ${nameOf(state, state.turn.seat)} drafts first.`);
@@ -1068,6 +1094,85 @@ function advance(state) {
     return;
   }
   throw new Error('Engine advance loop did not settle (bug).');
+}
+
+// ---------------------------------------------------------------------------
+// Alt Solo mode — no Ghosts, no AI: just the human against a d8-driven round
+// target instead of other players' scores.
+// ---------------------------------------------------------------------------
+
+// The 8 faces of the Alt Solo d8, in printed order (index 0 = face "1").
+// Discard faces shrink the fixed 5-card draft row from either end (in place
+// of the normal 2-5p "leave 1 card, discard it" ending — see finishTurn);
+// target faces raise this round's star target, the bar the player's own
+// roundStars must clear (not tie) to win the round's Trophy.
+export const ALT_SOLO_DIE_FACES = [
+  { kind: 'discard', side: 'right', count: 1, label: 'Discard the right-most draft card' },
+  { kind: 'discard', side: 'left', count: 1, label: 'Discard the left-most draft card' },
+  { kind: 'discard', side: 'right', count: 2, label: 'Discard the 2 right-most draft cards' },
+  { kind: 'discard', side: 'left', count: 2, label: 'Discard the 2 left-most draft cards' },
+  { kind: 'target', amount: 1, resetMarket: true, label: 'Add 1 star to the round target and reset the market' },
+  { kind: 'target', amount: 2, resetMarket: true, label: 'Add 2 stars to the round target and reset the market' },
+  { kind: 'target', amount: 1, resetMarket: false, label: 'Add 1 star to the round target' },
+  { kind: 'target', amount: 2, resetMarket: false, label: 'Add 2 stars to the round target' },
+];
+
+function rollAltSoloDie(state) {
+  const rollIdx = randInt(state, ALT_SOLO_DIE_FACES.length);
+  const face = ALT_SOLO_DIE_FACES[rollIdx];
+  const rollNumber = rollIdx + 1;
+  state.altSoloRollEvent = { roll: rollNumber, label: face.label };
+  log(state, `Alt Solo d8 rolls a ${rollNumber} — ${face.label}.`);
+
+  if (face.kind === 'discard') {
+    const removed = [];
+    for (let i = 0; i < face.count && state.draftRow.length > 0; i++) {
+      removed.push(face.side === 'right' ? state.draftRow.pop() : state.draftRow.shift());
+    }
+    if (removed.length > 0) {
+      state.discard.push(...removed);
+      log(state, `${removed.map((id) => card(id).name).join(', ')} discarded from the draft row.`);
+    }
+    return;
+  }
+
+  // face.kind === 'target'
+  state.altSoloTarget += face.amount;
+  log(state, `The round target rises to ${state.altSoloTarget} star${state.altSoloTarget === 1 ? '' : 's'}.`);
+  if (face.resetMarket) {
+    state.discard.push(...state.market.filter(Boolean));
+    state.market = draw(state, MARKET_SIZE);
+    log(state, 'The market is reset.');
+  }
+}
+
+// Alt Solo's replacement for assignTrophy: there's no one else to compare
+// against, so the round's outcome is the player's own roundStars against
+// this round's altSoloTarget (raised over the round by rollAltSoloDie).
+// Strictly more than the target wins the round's Trophy (and, same as the
+// normal game's trophy-winner heart removal, costs 1 heart from each of the
+// 8 starters); a tie or a shortfall loses the round — no heart penalty, per
+// the owner's ruling, just a mark against ALT_SOLO_LOSS_LIMIT.
+export function assignAltSoloResult(state) {
+  const p = state.players[0];
+  if (p.roundStars > state.altSoloTarget) {
+    p.trophies++;
+    log(state, `${p.name} earned ${p.roundStars} star${p.roundStars === 1 ? '' : 's'}, clearing the round target of ${state.altSoloTarget} — takes a Trophy! (${p.trophies}/${state.trophyGoal})`);
+    for (let i = 0; i < 8; i++) heartHit(state, p.seat, i, 'trophy fatigue');
+    if (p.trophies >= state.trophyGoal) {
+      state.phase = 'gameOver';
+      state.winners = [p.seat];
+      log(state, `The crowd roars — ${p.name} wins the game!`);
+    }
+  } else {
+    state.altSoloLosses++;
+    log(state, `${p.name} earned ${p.roundStars} star${p.roundStars === 1 ? '' : 's'}, failing to clear the round target of ${state.altSoloTarget} — the round is lost. (${state.altSoloLosses}/${ALT_SOLO_LOSS_LIMIT} losses)`);
+    if (state.altSoloLosses >= ALT_SOLO_LOSS_LIMIT) {
+      state.phase = 'gameOver';
+      state.winners = [];
+      log(state, `${p.name} has lost ${ALT_SOLO_LOSS_LIMIT} rounds — the show is cancelled. Game over.`);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

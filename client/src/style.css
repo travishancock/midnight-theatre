@@ -85,6 +85,11 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
   border-radius: 10px; text-align: center;
   font-size: 22px; color: var(--gold); padding: 14px; margin: 8px 0;
 }
+.winners.lost {
+  background: linear-gradient(90deg, transparent, rgba(200,71,79,0.2), transparent);
+  border: 1px solid var(--red);
+  color: var(--red);
+}
 
 /* ---- dice ---- */
 .dicetray {
