@@ -388,7 +388,7 @@ test('favor cards go to reserve; clicking one before your main turn grants a bon
   const p = s.players[seat];
   const favor1 = 'Favor-1-1';
   p.reserve.push(favor1);
-  p.turns = 0; // a "1st" Favor is only usable on the player's actual first turn
+  p.turns = 0; // "1st" Favors are eligible from the player's actual first turn onward
   s.draftRow = [db.performers[0].id, db.performers[1].id, db.performers[2].id, db.performers[3].id, db.performers[4].id];
   // There is never a forced prompt: the player just plays the Favor card
   // whenever they like, before their main turn action.
@@ -475,7 +475,7 @@ test('a Favor cannot be used once the main turn action is already taken', () => 
   assert.throws(() => applyAction(s, { type: 'useFavor', seat, cardId: favor1 }));
 });
 
-test('Favor timing: "1st" only on turn 1, "2nd" on turn 2 or any later turn', () => {
+test('Favor timing: "1st" is usable turn 1 or any later turn (never expires); "2nd" only from turn 2 onward', () => {
   const s = freshGame(2, 7);
   const seat = currentSeat(s);
   const p = s.players[seat];
@@ -489,15 +489,14 @@ test('Favor timing: "1st" only on turn 1, "2nd" on turn 2 or any later turn', ()
   assert.deepEqual(eligibleFavors(s, seat), [favor1]);
   assert.throws(() => applyAction(s, { type: 'useFavor', seat, cardId: favor2 }));
 
-  // On the player's 2nd turn (p.turns === 1): "2nd" is usable, "1st" no
-  // longer is (even though it's still sitting unused in reserve).
+  // On the player's 2nd turn (p.turns === 1): both are now usable — "1st"
+  // never expires, it just also happens to unlock "2nd" here.
   p.turns = 1;
-  assert.deepEqual(eligibleFavors(s, seat), [favor2]);
-  assert.throws(() => applyAction(s, { type: 'useFavor', seat, cardId: favor1 }));
+  assert.deepEqual(eligibleFavors(s, seat), [favor1, favor2]);
 
-  // On any later turn (p.turns === 3), "2nd" remains usable.
+  // On any later turn (p.turns === 3), both remain usable.
   p.turns = 3;
-  assert.deepEqual(eligibleFavors(s, seat), [favor2]);
+  assert.deepEqual(eligibleFavors(s, seat), [favor1, favor2]);
 });
 
 test('Maximillian may chain market buys but not draft after buying; prices stay frozen until the turn ends', () => {
@@ -1367,6 +1366,46 @@ test('Multiple eligible Favors can be spent in the same turn window, queuing mul
   assert.equal(s.turn.seat, seat);
   assert.equal(s.turn.isBonus, true, 'second bonus turn from the second Favor');
   assert.deepEqual(s.turn.bonusQueue, []);
+});
+
+test('Favors can be spent one at a time across sequential turns, not just queued upfront: spend, take that turn, then decide again', () => {
+  const s = freshGame(2, 7);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  s.draftRow = [db.performers[0].id, db.performers[1].id, db.performers[2].id, db.performers[3].id, db.performers[4].id, db.performers[6].id];
+
+  // Turn 1: no Favor in reserve yet — just take the normal turn.
+  applyAction(s, { type: 'acquireDraft', seat, cardId: db.performers[0].id });
+  assert.notEqual(s.turn?.seat, seat, 'play passed to the other seat after an uneventful turn 1');
+
+  // Fast-forward back to this seat's turn 2 (skipping the other seat's turn,
+  // irrelevant here) and hand them a "1st" and a "2nd" Favor. Under the old
+  // rule the "1st" Favor would already be dead (it only worked on turn 1)
+  // — now it should still be usable.
+  s.turn = { seat, mainDone: false, done: false, open: false, buys: 0, isBonus: false, bonusTiming: null, curioDone: false, celestineUsed: false, amaraUsed: false };
+  p.reserve.push('Favor-1-1', 'Favor-2-1');
+  assert.equal(p.turns, 1, 'about to take turn 2');
+  assert.deepEqual(eligibleFavors(s, seat), ['Favor-1-1', 'Favor-2-1'], '"1st" Favor is still usable on turn 2, not expired');
+
+  // Spend just the "1st" Favor, then take turn 2's real action.
+  applyAction(s, { type: 'useFavor', seat, cardId: 'Favor-1-1' });
+  assert.ok(p.reserve.includes('Favor-2-1'), 'the "2nd" Favor is untouched, still available for later');
+  applyAction(s, { type: 'acquireDraft', seat, cardId: db.performers[1].id });
+  assert.equal(s.turn.seat, seat, 'the Favor bonus turn keeps play with the same seat');
+  assert.equal(s.turn.isBonus, true);
+  assert.equal(s.turn.mainDone, false, 'fresh pre-action window on the bonus turn — a decision point again');
+
+  // On this bonus turn, the player now decides to spend their remaining
+  // ("2nd") Favor too, rather than just taking a normal action.
+  applyAction(s, { type: 'useFavor', seat, cardId: 'Favor-2-1' });
+  applyAction(s, { type: 'acquireDraft', seat, cardId: db.performers[2].id });
+  assert.equal(s.turn.seat, seat, 'second Favor grants yet another bonus turn');
+  assert.equal(s.turn.isBonus, true);
+  assert.equal(s.turn.mainDone, false, 'and again offered the choice: spend another Favor, or just take this turn');
+
+  // No Favors left — just take the turn normally this time.
+  applyAction(s, { type: 'acquireDraft', seat, cardId: db.performers[3].id });
+  assert.notEqual(s.turn?.seat, seat, 'no more Favors queued — play finally passes on');
 });
 
 test('state.turnsCompleted increments once per finished turn (drives the server\'s AI turn-pause)', () => {

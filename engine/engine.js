@@ -238,11 +238,12 @@ export function allowedSlots(state, seat, cardId) {
 
 // p.turns is how many turns this seat has already completed this round, so
 // it also identifies which turn is coming up next (0 = about to take their
-// 1st turn, 1 = about to take their 2nd, etc). A "1st" Favor is only usable
-// on the player's actual first turn of the round; a "2nd" Favor is usable
-// on their second turn or any later turn that round.
+// 1st turn, 1 = about to take their 2nd, etc). A "1st" Favor is usable on
+// the player's first turn of the round OR any later turn that round (i.e.
+// from turn 1 onward, never expires); a "2nd" Favor is usable starting on
+// their second turn or any later turn that round (not their very first).
 export function favorEligibleNow(triggerAfterTurn, turnsSoFar) {
-  return triggerAfterTurn === 1 ? turnsSoFar === 0 : turnsSoFar >= 1;
+  return turnsSoFar >= triggerAfterTurn - 1;
 }
 
 export function eligibleFavors(state, seat) {
