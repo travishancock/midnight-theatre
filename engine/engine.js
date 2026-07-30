@@ -83,7 +83,7 @@ const TROPHY_GOAL_SOLO = 5;
 // design: a depleted pool never blocks a gain, it just gets flagged loudly,
 // since the point is to validate the printed component counts rather than to
 // make scarcity a game mechanic.
-export const TOKEN_SUPPLY = { hearts: 80, stars: 30, coins: 80 };
+export const TOKEN_SUPPLY = { hearts: 90, stars: 30, coins: 80 };
 
 const ALT_SOLO_TROPHY_GOAL = 5;
 const ALT_SOLO_LOSS_LIMIT = 5;

@@ -1870,7 +1870,7 @@ test('tokenSupply counts what is physically on the table, and coins/hearts retur
   const p = s.players[seat];
   const before = tokenSupply(s);
   assert.equal(before.coins.total, 80);
-  assert.equal(before.hearts.total, 80);
+  assert.equal(before.hearts.total, 90);
   assert.equal(before.stars.total, 30);
   // Starting coins are already out of the pool.
   const coinsOut = s.players.reduce((n, x) => n + x.coins, 0);

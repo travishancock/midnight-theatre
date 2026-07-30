@@ -113,13 +113,24 @@ Reserve exists to hold cards with nowhere to go, not as a parking space. Wheneve
 - **Madame Barre is the sole exception**, as her whole standing rule is that her holder *may* park acquired cards in reserve with a matching slot open. The invariant is skipped entirely for a seat while she's active, and `relocateReserveOnBarreLeaving` sweeps up the instant she leaves play.
 - **Not applied during the dice phase**, which keeps its own designated `refill` stage *after* trophy fatigue and the Tomato batch resolve — so a card promoted out of reserve never takes hits from dice that were already rolled this round. That stage enforces the same "fill every slot you can" rule, so the invariant still holds by the end of every round.
 
-## Token supply (80 hearts / 30 stars / 80 coins)
+## Token supply (90 hearts / 30 stars / 80 coins)
 
 The physical component counts are tracked so the app can flag a supply that's too small for real play (`TOKEN_SUPPLY`, `tokenSupply()`). Counts are **derived** from board state rather than incremented at each grant and spend, so they can never drift: coins on players' mats, hearts currently sitting on cards, and stars earned *this round* (`roundStars` — `p.stars` is a lifetime tally, not physical tokens). This means tokens cycle back to the supply exactly as they would on a table: coins the moment they're spent, hearts the moment they're lost or their card is discarded, stars at the end of each round once the Trophy is decided.
 
 **Alert-only by design** — a depleted pool never blocks a gain, it just gets flagged (log line, toast, and a standing banner). The goal is validating component counts, not making scarcity a game mechanic. `state.supplyAlerts` records each pool that has run dry and its worst deficit, and deliberately persists for the rest of the game rather than clearing when the pool recovers.
 
-> ⚠ **Known shortfall:** across simulated 5-player games, hearts in play peak at ~86 against a supply of 80, so the heart count is genuinely short at high player counts (coins peak ~76/80, stars ~19/30). Worth raising the heart component count or re-checking heart payouts before a print run.
+**Heart count history:** hearts were originally specced at 80, but this tracking immediately showed simulated 5-player games peaking at ~86 hearts in play — a genuine shortage at high player counts. The supply was raised to **90**, which clears the peak.
+
+**Measured peaks** (40 simulated AI games per player count, after the raise to 90 hearts):
+
+| Players | Hearts | Stars | Coins |
+|---|---|---|---|
+| 2 | 36 / 90 | 11 / 30 | 36 / 80 |
+| 3 | 51 / 90 | 13 / 30 | 65 / 80 |
+| 4 | 67 / 90 | 20 / 30 | **81 / 80** |
+| 5 | 84 / 90 | 22 / 30 | **85 / 80** |
+
+> ⚠ **Coins are now the binding constraint.** At 4-5 players the coin pool overran 80 in 5 of 80 simulated games (peak 85). Hearts and stars have comfortable headroom. Raising coins to ~95-100 would give the same margin hearts now have — flagged rather than changed, since the component count is the owner's call. Note these are AI games; human players hoard coins differently, so treat the peaks as indicative rather than exact.
 
 ## Solo mode (1-player variant)
 
