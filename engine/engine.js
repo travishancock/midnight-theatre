@@ -78,6 +78,13 @@ const TROPHY_GOAL_SOLO = 5;
 // independently. The 5-trophy win goal is an inferred assumption, chosen to
 // mirror the explicit 5-loss cap symmetrically (first to 5 wins takes the
 // game, first to 5 losses loses it) — see DESIGN_BRIEF.md.
+// Physical token supply in the box. Tracked so the app can warn when a real
+// table would run out of a component — see checkTokenSupply. Alert-only by
+// design: a depleted pool never blocks a gain, it just gets flagged loudly,
+// since the point is to validate the printed component counts rather than to
+// make scarcity a game mechanic.
+export const TOKEN_SUPPLY = { hearts: 80, stars: 30, coins: 80 };
+
 const ALT_SOLO_TROPHY_GOAL = 5;
 const ALT_SOLO_LOSS_LIMIT = 5;
 const ALT_SOLO_DRAFT_ROW_SIZE = 5;
@@ -131,6 +138,8 @@ export function createGame({ players, seed, solo, altSolo }) {
     nextPendingId: 1,
     winners: null,
     log: [],
+    tokenSupply: null, // { hearts|stars|coins: {out,total,left} } — refreshed by checkTokenSupply for the client
+    supplyAlerts: {}, // kind -> { deficit, round, out, total } for every pool that has run dry this game
     turnsCompleted: 0, // incremented once per finished turn — lets a driver (e.g. the server's bot loop) detect "a turn just ended" without re-deriving it from seat/phase changes
     pressPassWindowActive: false, // true while waiting on one or more seats' 'pressPassWindow' pending items to close — see openPressPassWindow
   };
@@ -166,6 +175,11 @@ function newTurn(seat, isBonus = false, bonusTiming = null) {
   return {
     seat, mainDone: false, done: false, open: false, buys: 0, isBonus, bonusTiming,
     curioDone: false, celestineUsed: false, amaraUsed: false,
+    // The Vanishing Valentino's end-of-turn window: opened once per turn by
+    // advance() after the main action resolves, closed by either
+    // valentinoEndDraft or endTurn. Kept separate from `open` (Maximillian's
+    // keep-buying flag) so holding Valentino never grants extra market buys.
+    valentinoWindow: false, valentinoOffered: false,
   };
 }
 
@@ -684,6 +698,63 @@ function relocateReserveOnBarreLeaving(state, seat) {
   }
 }
 
+// A card may never idle in reserve while an empty starter slot it legally
+// fits is sitting open — if it can be a starter, it must be. Enforced as a
+// standing invariant during the draft phase (see advance()), so it catches
+// every way a slot can open up mid-turn: a Trainer bumped out of slot 7 by a
+// a newly acquired Prop relocates into an empty Trainer slot, a card lost to
+// Jonas frees a slot a reserve Performer must fill, and so on.
+//
+// Two deliberate carve-outs:
+//   - Madame Barre. Her whole standing exception is that her holder MAY park
+//     acquired cards in reserve with a matching slot open, so this invariant
+//     is skipped entirely for a seat while she's active (and
+//     relocateReserveOnBarreLeaving sweeps up the moment she leaves play).
+//   - The dice phase. Refilling there stays at its own designated 'refill'
+//     stage — after trophy fatigue and the Tomato batch have resolved — so a
+//     card promoted out of reserve never eats hits from dice already rolled
+//     this round. That stage enforces the same "fill every slot you can"
+//     rule via refillIsNeeded, so the invariant still holds by end of round.
+//
+// A card with exactly one legal empty slot is moved automatically (there is
+// nothing to decide). A card with several — a Trainer with slots 6, 7 and 8
+// all open — is a genuine choice, so it raises the normal mandatory 'refill'
+// prompt instead and the player picks. Returns true if anything changed.
+function enforceReservePlacement(state) {
+  let changed = false;
+  for (const p of state.players) {
+    const seat = p.seat;
+    if (trainerActive(state, seat, TRAINERS.BARRE)) continue;
+
+    // Auto-place every forced card first. Each placement can change which
+    // slots are open, so rescan from the top until nothing more is forced.
+    let again = true;
+    while (again) {
+      again = false;
+      for (const cardId of [...p.reserve]) {
+        const c = card(cardId);
+        if (!SLOTTABLE.has(c.cardType)) continue;
+        const empties = SLOTS_FOR_TYPE[c.cardType].filter((i) => p.slots[i] == null);
+        if (empties.length !== 1) continue; // 0 = nowhere to go; >1 = a real choice, prompted below
+        const slot = empties[0];
+        p.reserve.splice(p.reserve.indexOf(cardId), 1);
+        p.slots[slot] = cardId; // keeps its current hearts, same as a refill
+        log(state, `${p.name}'s ${c.name} moves from reserve into ${SLOT_NAMES[slot]} — a card that can be a starter must be one.`);
+        changed = true;
+        again = true;
+        break;
+      }
+    }
+
+    // Anything still placeable has more than one destination — let them choose.
+    if (refillIsNeeded(state, seat) && !state.pending.some((x) => x.kind === 'refill' && x.seat === seat)) {
+      pushPending(state, 'refill', seat, {});
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 // Jonas Quickfinger: collect `amount` units of a card's printed resource in
 // one shot (no boosts — this isn't a Collection Die roll, just a straight
 // cash-in). Used for his discard-a-performer-for-resources action, where
@@ -1037,12 +1108,66 @@ function startNextRound(state) {
   log(state, `— Round ${state.round} — ${Math.min(state.round, MAX_TOMATO_DICE)} tomato dice loom this round. ${nameOf(state, state.turn.seat)} drafts first.`);
 }
 
+// How many of each token are physically on the table right now, and how many
+// are therefore still in the supply. Deliberately *derived* from board state
+// rather than incremented/decremented at every grant and spend, so it can
+// never drift: coins return to the pool the moment they're spent, hearts the
+// moment they're lost or their card is discarded, and stars at the end of
+// each round (only roundStars sit on the table — p.stars is just a lifetime
+// tally, not physical tokens).
+export function tokenSupply(state) {
+  let heartsOut = 0;
+  for (const id of Object.keys(state.hearts)) heartsOut += state.hearts[id] || 0;
+  let coinsOut = 0;
+  let starsOut = 0;
+  for (const p of state.players) {
+    coinsOut += p.coins;
+    starsOut += p.roundStars;
+  }
+  const of = (out, total) => ({ out, total, left: total - out });
+  return {
+    hearts: of(heartsOut, TOKEN_SUPPLY.hearts),
+    stars: of(starsOut, TOKEN_SUPPLY.stars),
+    coins: of(coinsOut, TOKEN_SUPPLY.coins),
+  };
+}
+
+// Refresh state.tokenSupply (so the client can render it without recomputing)
+// and record the first — and then each new worst — time a pool runs dry.
+// state.supplyAlerts persists for the rest of the game rather than clearing
+// when the pool recovers, so a shortage spotted mid-game is still reported
+// afterwards; that record is the whole point of tracking this.
+function checkTokenSupply(state) {
+  const supply = tokenSupply(state);
+  state.tokenSupply = supply;
+  for (const kind of ['hearts', 'stars', 'coins']) {
+    const { out, total, left } = supply[kind];
+    if (left > 0) continue;
+    const deficit = -left;
+    const prev = state.supplyAlerts[kind];
+    if (prev && deficit <= prev.deficit) continue;
+    state.supplyAlerts[kind] = { deficit, round: state.round, out, total };
+    log(
+      state,
+      deficit > 0
+        ? `⚠ TOKEN SUPPLY: the ${kind} pool is ${deficit} short — ${out} in play, only ${total} exist.`
+        : `⚠ TOKEN SUPPLY: the last ${kind} token has been taken (${out}/${total} in play).`
+    );
+  }
+}
+
 // Run every automatic step until the game needs input (or is over).
 function advance(state) {
   let guard = 0;
   while (guard++ < 10000) {
+    checkTokenSupply(state);
     if (state.phase === 'gameOver') return;
     if (state.pending.length > 0) return;
+    // "A card that can be a starter must be one" — re-checked every time the
+    // engine settles during the draft. Deliberately not applied in the dice
+    // phase, which refills at its own stage after the dice resolve. See
+    // enforceReservePlacement.
+    if (state.phase === 'draft' && enforceReservePlacement(state)) continue;
     if (state.dieEvent) {
       // A phase-sourced Collection Die pauses (awaiting a possible Press
       // Pass reaction) until a driver calls lockCollectionDie(). Anything
@@ -1064,6 +1189,22 @@ function advance(state) {
           continue;
         }
         return;
+      }
+      // The Vanishing Valentino: "to end your turn you may choose to end the
+      // draft." The turn has finished its main action but hasn't passed on
+      // yet — hold it open once so the holder can decide. They either end the
+      // draft (valentinoEndDraft) or just end the turn (endTurn); both close
+      // the window. Nothing to offer if the draft row is already empty.
+      if (
+        state.turn.done &&
+        !state.turn.valentinoOffered &&
+        state.draftRow.length > 0 &&
+        trainerActive(state, state.turn.seat, TRAINERS.VALENTINO)
+      ) {
+        state.turn.valentinoOffered = true;
+        state.turn.valentinoWindow = true;
+        state.turn.done = false;
+        return; // waiting on their decision
       }
       if (state.turn.done) {
         finishTurn(state);
@@ -1361,7 +1502,10 @@ export function applyAction(state, action) {
     }
     case 'endTurn': {
       requireTurn(state, seat);
-      if (!state.turn.open) throw new Error('You cannot end your turn without acting.');
+      // Legal either as Maximillian's explicit stop-buying (turn.open) or as
+      // declining The Vanishing Valentino's end-of-turn offer.
+      if (!state.turn.open && !state.turn.valentinoWindow) throw new Error('You cannot end your turn without acting.');
+      state.turn.valentinoWindow = false;
       state.turn.done = true;
       break;
     }
@@ -1447,18 +1591,22 @@ export function applyAction(state, action) {
       state.turn.done = true;
       break;
     }
-    // The Vanishing Valentino: to start your turn, you may end the draft
-    // immediately (discarding whatever remains in the draft row) without
-    // spending your turn. Unlimited uses while active.
+    // The Vanishing Valentino: as your turn ends, you may end the draft
+    // immediately (discarding whatever remains in the draft row). Taken
+    // *after* your normal turn action, in the end-of-turn window advance()
+    // opens for you — so you get your acquisition and close the draft on
+    // everyone else. Free and unlimited while active.
     case 'valentinoEndDraft': {
       requireTurn(state, seat);
-      if (state.turn.mainDone) throw new Error('This must be used before your main turn action.');
+      if (!state.turn.valentinoWindow) {
+        throw new Error('You may only end the draft as your turn ends — take your turn action first.');
+      }
       if (!trainerActive(state, seat, TRAINERS.VALENTINO)) throw new Error('The Vanishing Valentino is not your active Trainer.');
       const p = state.players[seat];
       log(state, `${p.name} plays The Vanishing Valentino — the draft ends immediately!`);
       state.discard.push(...state.draftRow);
       state.draftRow = [];
-      state.turn.mainDone = true;
+      state.turn.valentinoWindow = false;
       state.turn.done = true;
       break;
     }

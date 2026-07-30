@@ -22,6 +22,7 @@ import {
   assignDraftOrder,
   assignAltSoloResult,
   ALT_SOLO_DIE_FACES,
+  tokenSupply,
   lockCollectionDie,
   lockTomatoRoll,
   TRAINERS,
@@ -650,19 +651,52 @@ test('Professor Stainglass: "keep" leaves the card exactly as placed', () => {
   assert.equal(p.slots[0], perf);
 });
 
-test('The Vanishing Valentino ends the draft immediately, at no turn cost, and is unlimited-use', () => {
+test('The Vanishing Valentino: you take your turn first, then may end the draft as the turn closes', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.VALENTINO;
+  const [a, b, c] = db.performers.slice(0, 3).map((x) => x.id);
+  s.draftRow = [a, b, c];
+
+  // It is an end-of-turn choice now, not a start-of-turn one.
+  assert.throws(() => applyAction(s, { type: 'valentinoEndDraft', seat }), /take your turn action first/);
+
+  applyAction(s, { type: 'acquireDraft', seat, cardId: a });
+  assert.equal(p.slots[0], a, 'the normal turn action still happened');
+  assert.equal(s.turn.seat, seat, 'the turn is held open rather than passing on');
+  assert.equal(s.turn.valentinoWindow, true, 'the end-of-turn offer is open');
+
   const rowBefore = [...s.draftRow];
   applyAction(s, { type: 'valentinoEndDraft', seat });
-  for (const id of rowBefore) assert.ok(s.discard.includes(id));
+  for (const id of rowBefore) assert.ok(s.discard.includes(id), 'the rest of the row is discarded');
   assert.equal(p.slots[7], TRAINERS.VALENTINO, 'the trainer itself is not discarded (no self-discard clause)');
-  // The draft ended (row empty); with empty boards the dice phase runs
-  // through (pausing at each open die/tomato-batch window) and round 2 begins.
   driveDicePhase(s);
   assert.equal(s.round, 2);
+});
+
+test('The Vanishing Valentino: the end-of-turn offer can be declined, and is not offered when the row is already empty', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.VALENTINO;
+  const [a, b, c] = db.performers.slice(0, 3).map((x) => x.id);
+  s.draftRow = [a, b, c];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: a });
+  assert.equal(s.turn.valentinoWindow, true);
+  // Declining just ends the turn and passes play on, leaving the row intact.
+  applyAction(s, { type: 'endTurn', seat });
+  assert.deepEqual(s.draftRow, [b, c], 'the draft row survives a declined offer');
+  assert.notEqual(s.turn.seat, seat, 'play moved on to the next seat');
+
+  // Taking the last card in the row leaves nothing to close, so no offer is
+  // made at all and the turn resolves straight into the end of the draft.
+  const s2 = freshGame(2);
+  const seat2 = currentSeat(s2);
+  s2.players[seat2].slots[7] = TRAINERS.VALENTINO;
+  s2.draftRow = [db.performers[0].id];
+  applyAction(s2, { type: 'acquireDraft', seat: seat2, cardId: db.performers[0].id });
+  assert.ok(!s2.turn || !s2.turn.valentinoWindow, 'no offer with nothing left to end');
 });
 
 test('freeRearrange no longer exists — Madame Barre only affects acquisition placement now', () => {
@@ -1647,12 +1681,22 @@ test('Bellacanto the Choirmistress: Singers in reserve also collect, letter-gate
   const p = s.players[seat];
   p.slots[7] = TRAINERS.BELLACANTO;
   const singerH = performer((c) => c.letter === 'H' && c.type === 'Singer'); // letter H performers are always Star-resource
+  // Every Performer slot must be full for the Singer to legally stay in
+  // reserve at all — a card that can be a starter must be one (see
+  // enforceReservePlacement), so an open Performer slot would pull it out of
+  // reserve and defeat the whole point of Bellacanto's reserve-only bonus.
+  // These fillers are all Coin-resource so they never muddy the star count.
+  const fillers = db.performers.filter((c) => c.resource === 'Coin' && c.letter !== 'H' && c.id !== singerH).slice(0, 5).map((c) => c.id);
+  p.slots = [...fillers, null, null, TRAINERS.BELLACANTO];
+  for (const id of fillers) s.hearts[id] = card(id).startingHearts ?? 0;
   p.reserve = [singerH];
   s.hearts[singerH] = card(singerH).startingHearts ?? 0;
   s.players[other].slots = [null, null, null, null, null, null, null, null];
   s.players[other].reserve = [];
-  const filler = performer((c) => c.letter === 'B' && c.resource === 'Coin' && c.id !== singerH);
-  s.draftRow = [filler, db.performers.find((c) => c.id !== singerH && c.id !== filler).id];
+  // A Favor is the cleanest way to spend the turn and end the draft: it goes
+  // straight to reserve, needs no slot, and has no collection effect.
+  const filler = 'Favor-1-1';
+  s.draftRow = [filler, db.performers.find((c) => c.id !== singerH && !fillers.includes(c.id)).id];
   const rngNow = 999;
   s.rng = rngNow;
   const seq = predict(rngNow, [20, 20, 20, 20, 20, 1000, 1000, 8]);
@@ -1735,6 +1779,141 @@ test('Amara the Reliquary: cannot move a heart from an empty card or onto a full
     () => applyAction(s, { type: 'amaraMoveHeart', seat, fromCardId: perfA, toCardId: perfFull }),
     /no room/
   );
+});
+
+// ---- Forced reserve -> starter placement -------------------------------------
+
+test('a reserve card with exactly one open matching slot is moved there automatically', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  // The owner's own example: a Trainer bumped out of the Prop/Trainer slot by
+  // a newly acquired Prop must relocate into the open Trainer-only slot.
+  p.slots[5] = db.propsAndBackdrops.find((c) => c.cardKind === 'backdrop').id; // Backdrop slot taken
+  p.slots[6] = TRAINERS.MAXIMILLIAN; // Trainer parked in the Prop/Trainer slot
+  p.slots[7] = null; // the Trainer-only slot is the single legal destination
+  const prop = db.propsAndBackdrops.find((c) => c.cardKind === 'prop').id;
+  s.draftRow = [prop, ...s.draftRow.slice(1)];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: prop });
+  // Its natural slot is occupied, so the usual bump-or-reserve choice appears;
+  // taking the slot is what displaces the Trainer.
+  const place = s.pending.find((x) => x.seat === seat && x.kind === 'placement');
+  assert.ok(place, 'expected the normal placement choice');
+  applyAction(s, { type: 'resolvePending', seat, pendingId: place.id, slot: 6 });
+  // The displaced Trainer may not then idle in reserve.
+  assert.equal(p.slots[6], prop, 'the Prop took its natural slot');
+  assert.equal(p.slots[7], TRAINERS.MAXIMILLIAN, 'the bumped Trainer relocated instead of idling in reserve');
+  assert.ok(!p.reserve.includes(TRAINERS.MAXIMILLIAN));
+});
+
+test('a reserve card with several open matching slots raises a mandatory refill prompt instead of auto-placing', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  // Slots 6, 7 and 8 all open: a Trainer in reserve has a genuine choice.
+  p.slots = [null, null, null, null, null, null, null, null];
+  p.reserve = [TRAINERS.MAXIMILLIAN];
+  applyAction(s, { type: 'resetMarket', seat }); // any action, to settle the engine
+  const item = s.pending.find((x) => x.seat === seat && x.kind === 'refill');
+  assert.ok(item, 'expected a refill prompt for the genuine choice');
+  assert.ok(p.reserve.includes(TRAINERS.MAXIMILLIAN), 'not auto-placed while the choice is open');
+  // Declining is not allowed — every fillable slot must be filled. (Rejecting
+  // re-raises a fresh prompt, so re-find it rather than reusing the old id.)
+  assert.throws(
+    () => applyAction(s, { type: 'resolvePending', seat, pendingId: item.id, assignments: [] }),
+    /must refill every empty slot/
+  );
+  const again = s.pending.find((x) => x.seat === seat && x.kind === 'refill');
+  assert.ok(again, 'the prompt is re-raised rather than silently dropped');
+  applyAction(s, { type: 'resolvePending', seat, pendingId: again.id, assignments: [{ slot: 5, cardId: TRAINERS.MAXIMILLIAN }] });
+  assert.equal(p.slots[5], TRAINERS.MAXIMILLIAN, 'placed in the slot the player chose');
+});
+
+test('Madame Barre is exempt: her holder may keep a card in reserve with a matching slot wide open', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  // Only Performer slot 1 is left open, so placement would be forced (not a
+  // choice) — isolating the exemption itself rather than the prompt path.
+  const taken = db.performers.slice(0, 4).map((c) => c.id);
+  p.slots = [null, ...taken, null, null, TRAINERS.BARRE];
+  const perf = db.performers[9].id;
+  p.reserve = [perf];
+  applyAction(s, { type: 'resetMarket', seat });
+  assert.ok(p.reserve.includes(perf), 'Barre lets it stay parked in reserve');
+  assert.ok(!s.pending.some((x) => x.kind === 'refill'), 'and no refill is forced');
+  // Without her, that same board state is not allowed to persist.
+  p.slots[7] = null;
+  applyAction(s, { type: 'resetMarket', seat });
+  assert.ok(!p.reserve.includes(perf), 'the exemption ended, so the card had to take a slot');
+  assert.equal(p.slots[0], perf);
+});
+
+test('a reserve card with no matching open slot is left alone', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  const five = db.performers.slice(0, 5).map((c) => c.id);
+  const extra = db.performers[9].id;
+  p.slots = [...five, null, null, null];
+  p.reserve = [extra]; // every Performer slot is taken
+  applyAction(s, { type: 'resetMarket', seat });
+  assert.ok(p.reserve.includes(extra), 'nowhere legal to go, so it stays');
+  assert.ok(!s.pending.some((x) => x.kind === 'refill'));
+});
+
+// ---- Token supply ------------------------------------------------------------
+
+test('tokenSupply counts what is physically on the table, and coins/hearts return to the pool when spent or lost', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  const before = tokenSupply(s);
+  assert.equal(before.coins.total, 80);
+  assert.equal(before.hearts.total, 80);
+  assert.equal(before.stars.total, 30);
+  // Starting coins are already out of the pool.
+  const coinsOut = s.players.reduce((n, x) => n + x.coins, 0);
+  assert.equal(before.coins.out, coinsOut);
+  assert.equal(before.coins.left, 80 - coinsOut);
+
+  // Spending a coin returns it to the supply.
+  const coinsBefore = tokenSupply(s).coins.left;
+  applyAction(s, { type: 'resetMarket', seat }); // costs exactly 1 coin
+  assert.equal(tokenSupply(s).coins.left, coinsBefore + 1, 'the spent coin went back to the pool');
+
+  // Hearts on a card count as out; losing them returns them.
+  const perf = performer((c) => c.maxHearts >= 2);
+  p.slots[0] = perf;
+  s.hearts[perf] = 2;
+  const heartsOutNow = tokenSupply(s).hearts.out;
+  s.hearts[perf] = 1;
+  assert.equal(tokenSupply(s).hearts.out, heartsOutNow - 1, 'a lost heart returns to the pool');
+});
+
+test('token supply: stars are only counted for the current round, and a depleted pool alerts without blocking the gain', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  // Stars physically on the table are this round's stars — p.stars is just a
+  // lifetime tally, so a big career total must not count against the pool.
+  p.stars = 999;
+  p.roundStars = 4;
+  assert.equal(tokenSupply(s).stars.out, 4);
+
+  // Overrun the star pool: the alert fires, but the stars are still credited.
+  p.roundStars = 31;
+  applyAction(s, { type: 'resetMarket', seat });
+  assert.equal(p.roundStars, 31, 'gain is never blocked — alert only');
+  assert.ok(s.supplyAlerts.stars, 'the shortage was recorded');
+  assert.equal(s.supplyAlerts.stars.deficit, 1);
+  assert.ok(s.log.some((l) => l.includes('TOKEN SUPPLY') && l.includes('stars')));
+  // The record persists even after the pool recovers, since the point is to
+  // report that the printed component count was too low at some point.
+  p.roundStars = 0;
+  applyAction(s, { type: 'resetMarket', seat });
+  assert.ok(s.supplyAlerts.stars, 'still flagged after recovering');
+  assert.equal(s.tokenSupply.stars.left, 30, 'live counts follow the table');
 });
 
 // ---- Solo mode / Ghost seats -------------------------------------------------

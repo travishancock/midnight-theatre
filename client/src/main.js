@@ -59,6 +59,7 @@ async function boot() {
         announceGhostRolls(view.state.log.slice(prevLogLen));
         announceAltSoloRolls(view.state.log.slice(prevLogLen));
         announceAltSoloRoundLoss(view.state.log.slice(prevLogLen));
+        announceSupplyShortage(view.state.log.slice(prevLogLen));
       }
     }
     render();
@@ -119,6 +120,14 @@ function announceAltSoloRoundLoss(newLines) {
   const losses = newLines.filter((l) => l.includes('the round is lost'));
   if (losses.length === 0) return;
   toast(`💔 ${losses[losses.length - 1]}`, 5000);
+}
+
+// A token pool running dry is a component-count problem worth interrupting
+// for, so it gets a long toast on top of the standing banner and log line.
+function announceSupplyShortage(newLines) {
+  const hits = newLines.filter((l) => l.includes('TOKEN SUPPLY'));
+  if (hits.length === 0) return;
+  toast(hits[hits.length - 1], 8000);
 }
 
 function resetTransientUi() {
@@ -344,6 +353,7 @@ function renderGame() {
         </div>
       </header>
       ${s.phase === 'gameOver' ? winnersBanner(s) : ''}
+      ${supplyHtml(s)}
       ${diceTray(s, p)}
       <section class="table">
         <div class="center-col">
@@ -368,6 +378,33 @@ function renderGame() {
   wireGameEvents(s, p, pending);
   const body = app.querySelector('.log-body');
   if (body) body.scrollTop = body.scrollHeight;
+}
+
+// Physical token supply (see engine.js's TOKEN_SUPPLY/tokenSupply). Purely
+// informational — a dry pool never blocks a gain — but a pool that has run
+// out at any point this game stays flagged, since the whole reason to track
+// this is catching a component count that's too low for the printed game.
+function supplyHtml(s) {
+  const sup = s.tokenSupply;
+  if (!sup) return '';
+  const alerts = s.supplyAlerts || {};
+  const icon = { hearts: '❤', stars: '⭐', coins: '🪙' };
+  const cells = ['hearts', 'stars', 'coins'].map((k) => {
+    const { left, total, out } = sup[k];
+    const dry = left <= 0;
+    return `<span class="supply-cell ${dry ? 'dry' : ''}" title="${out} of ${total} ${k} in play">
+      ${icon[k]} ${Math.max(0, left)}<span class="hint">/${total}</span>
+    </span>`;
+  }).join('');
+  const short = Object.entries(alerts).map(([k, a]) =>
+    a.deficit > 0
+      ? `${k} ran ${a.deficit} short in round ${a.round} (needed ${a.out}, only ${a.total} exist)`
+      : `${k} hit exactly zero in round ${a.round}`
+  );
+  return `<div class="supply">
+    <span class="lbl">Token supply:</span>${cells}
+    ${short.length ? `<span class="supply-alert">⚠ ${short.map(esc).join(' · ')}</span>` : ''}
+  </div>`;
 }
 
 function winnersBanner(s) {
@@ -555,9 +592,6 @@ function turnBarHtml(s, p) {
         const hasOption = s.discard.some((id) => card(id).cardType === 'prop' || card(id).cardType === 'backdrop');
         buttons.push(`<button id="wendellBtn" ${hasOption ? '' : 'disabled'} title="${hasOption ? '' : 'No Props or Backdrops are in the discard pile'}">Wendell the Propmaster: take a Prop/Backdrop from discard (uses turn)</button>`);
       }
-      if (trainers.includes('The-Vanishing-Valentino')) {
-        buttons.push(`<button id="valentinoBtn">The Vanishing Valentino: end the draft (free)</button>`);
-      }
       if (trainers.includes('Celestine-the-Stargazer') && !t.celestineUsed) {
         for (const n of [1, 2, 3]) {
           buttons.push(`<button class="small" data-celestine="${n}" ${p.coins >= n * 3 ? '' : 'disabled'}>Celestine: buy ${n}⭐ (${n * 3}🪙)</button>`);
@@ -568,7 +602,17 @@ function turnBarHtml(s, p) {
         buttons.push(`<button id="amaraMoveBtn" ${has ? '' : 'disabled'} title="${has ? '' : 'None of your cards currently hold a heart'}">Amara the Reliquary: move a heart (free)</button>`);
       }
     }
-    if (t.open) buttons.push(`<button id="endTurnBtn" class="primary">End turn (Maximillian)</button>`);
+    // The Vanishing Valentino's end-of-turn window: the main action is spent,
+    // and the turn is being held open purely for this one choice. Takes
+    // precedence over Maximillian's end-turn button so we never render two
+    // controls with the same id (both can be open at once).
+    if (t.valentinoWindow) {
+      buttons.push(`<span class="yourturn">The Vanishing Valentino: you may end the draft now, cutting everyone else's remaining picks.</span>`);
+      buttons.push(`<button id="valentinoBtn" class="primary">End the draft</button>`);
+      buttons.push(`<button id="endTurnBtn">Just end my turn</button>`);
+    } else if (t.open) {
+      buttons.push(`<button id="endTurnBtn" class="primary">End turn (Maximillian)</button>`);
+    }
   }
   return `<div class="turnbar">${buttons.join(' ')}</div>`;
 }

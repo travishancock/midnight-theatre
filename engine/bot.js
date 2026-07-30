@@ -252,6 +252,19 @@ function draftTurn(state, seat) {
     if (usable.length > 0) return { type: 'useFavor', seat, cardId: usable[0] };
   }
 
+  // The Vanishing Valentino's end-of-turn window: end the draft only when
+  // there's nothing left in the row this bot actually wants — at that point
+  // closing it is pure denial of everyone else's remaining picks, with no
+  // cost to us. Otherwise just end the turn and take another pick later.
+  if (state.turn.valentinoWindow) {
+    const bestLeft = state.draftRow.reduce(
+      (best, id) => (legalDraftPick(state, id) ? Math.max(best, scoreCard(state, seat, id)) : best),
+      -Infinity
+    );
+    if (bestLeft < 2.5) return { type: 'valentinoEndDraft', seat };
+    return { type: 'endTurn', seat };
+  }
+
   // Maximillian follow-up buys: buy again only if a market card scores well
   // and we can spare the coins; otherwise end the turn.
   if (state.turn.open) {

@@ -91,6 +91,19 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
   color: var(--red);
 }
 
+/* ---- token supply ---- */
+.supply {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 6px 10px; margin-bottom: 8px; font-size: 13px;
+}
+.supply-cell { color: var(--muted); }
+.supply-cell.dry { color: var(--red); font-weight: 700; }
+.supply-alert {
+  color: var(--red); border: 1px solid var(--red); border-radius: 6px;
+  padding: 2px 8px; background: rgba(200,71,79,0.12);
+}
+
 /* ---- dice ---- */
 .dicetray {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
