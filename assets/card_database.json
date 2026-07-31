@@ -1268,7 +1268,7 @@
     {
       "id": "Celestine-the-Stargazer",
       "name": "Celestine the Stargazer",
-      "ability": "To start your turn you may buy up to 3 stars for 3 coins each",
+      "ability": "To start your turn you may buy up to 2 stars for 2 coins each",
       "startingHearts": 3,
       "image": "cards/Trainer Celestine the Stargazer.webp"
     },

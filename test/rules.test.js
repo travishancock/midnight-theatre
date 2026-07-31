@@ -1661,16 +1661,38 @@ test('Wendell the Propmaster: gated on being active, on going before the main ac
   assert.ok(p.reserve.includes('Backdrop-Powerful'), 'the bumped occupant moves to reserve, not discard');
 });
 
-test('Celestine the Stargazer: to start your turn, buy up to 3 stars for 3 coins each', () => {
+test('Celestine the Stargazer: to start your turn, buy up to 2 stars for 2 coins each', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.CELESTINE;
-  p.coins = 9;
-  applyAction(s, { type: 'celestineBuyStars', seat, count: 3 });
-  assert.equal(p.coins, 0);
-  assert.equal(p.stars, 3);
+  p.coins = 4;
+  const roundBefore = p.roundStars;
+  applyAction(s, { type: 'celestineBuyStars', seat, count: 2 });
+  assert.equal(p.coins, 0, '2 stars cost 2 coins each');
+  assert.equal(p.stars, 2);
+  assert.equal(p.roundStars - roundBefore, 2, 'bought stars count toward the round, not just the career total');
   assert.throws(() => applyAction(s, { type: 'celestineBuyStars', seat, count: 1 }), /already used/);
+});
+
+test('Celestine the Stargazer: 3 stars is no longer a legal purchase, and you must be able to afford it', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.CELESTINE;
+  p.coins = 99;
+  assert.throws(() => applyAction(s, { type: 'celestineBuyStars', seat, count: 3 }), /Choose 1-2 stars/);
+  assert.equal(p.stars, 0, 'nothing was bought by the rejected action');
+
+  const s2 = freshGame(2);
+  const seat2 = currentSeat(s2);
+  const p2 = s2.players[seat2];
+  p2.slots[7] = TRAINERS.CELESTINE;
+  p2.coins = 3; // enough for 1 star (2 coins), not 2 (4 coins)
+  assert.throws(() => applyAction(s2, { type: 'celestineBuyStars', seat: seat2, count: 2 }), /You need 4 coins/);
+  applyAction(s2, { type: 'celestineBuyStars', seat: seat2, count: 1 });
+  assert.equal(p2.coins, 1);
+  assert.equal(p2.stars, 1);
 });
 
 

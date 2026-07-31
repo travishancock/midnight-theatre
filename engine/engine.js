@@ -85,6 +85,13 @@ const TROPHY_GOAL_SOLO = 5;
 // make scarcity a game mechanic.
 export const TOKEN_SUPPLY = { hearts: 90, stars: 30, coins: 80 };
 
+// Celestine the Stargazer's start-of-turn star purchase: up to 2 stars at 2
+// coins each. Named rather than inlined so the rule reads in one place; the
+// client mirrors these two numbers (see CELESTINE in client/src/main.js),
+// same convention it already uses for marketCost and Favor eligibility.
+export const CELESTINE_MAX_STARS = 2;
+export const CELESTINE_STAR_COST = 2;
+
 const ALT_SOLO_TROPHY_GOAL = 5;
 const ALT_SOLO_LOSS_LIMIT = 5;
 const ALT_SOLO_DRAFT_ROW_SIZE = 5;
@@ -1610,17 +1617,17 @@ export function applyAction(state, action) {
       state.turn.done = true;
       break;
     }
-    // Celestine the Stargazer: to start your turn, you may buy up to 3
-    // stars for 3 coins each.
+    // Celestine the Stargazer: to start your turn, you may buy up to 2
+    // stars for 2 coins each.
     case 'celestineBuyStars': {
       requireTurn(state, seat);
       if (state.turn.mainDone) throw new Error('This must be used before your main turn action.');
       if (!trainerActive(state, seat, TRAINERS.CELESTINE)) throw new Error('Celestine the Stargazer is not your active Trainer.');
       if (state.turn.celestineUsed) throw new Error('You have already used that this turn.');
       const n = action.count;
-      if (!Number.isInteger(n) || n < 1 || n > 3) throw new Error('Choose 1-3 stars.');
+      if (!Number.isInteger(n) || n < 1 || n > CELESTINE_MAX_STARS) throw new Error(`Choose 1-${CELESTINE_MAX_STARS} stars.`);
       const p = state.players[seat];
-      const cost = n * 3;
+      const cost = n * CELESTINE_STAR_COST;
       if (p.coins < cost) throw new Error(`You need ${cost} coins for that.`);
       p.coins -= cost;
       p.stars += n;

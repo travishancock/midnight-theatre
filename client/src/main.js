@@ -27,6 +27,10 @@ let ui = {
 
 const SLOT_NAMES = ['Performer 1', 'Performer 2', 'Performer 3', 'Performer 4', 'Performer 5', 'Backdrop / Trainer', 'Prop / Trainer', 'Trainer'];
 
+// Mirrors CELESTINE_MAX_STARS / CELESTINE_STAR_COST in engine/engine.js — the
+// server stays authoritative, this just renders the same offer it will accept.
+const CELESTINE = { maxStars: 2, starCost: 2 };
+
 // ---------------------------------------------------------------------------
 // Bootstrap
 // ---------------------------------------------------------------------------
@@ -593,8 +597,9 @@ function turnBarHtml(s, p) {
         buttons.push(`<button id="wendellBtn" ${hasOption ? '' : 'disabled'} title="${hasOption ? '' : 'No Props or Backdrops are in the discard pile'}">Wendell the Propmaster: take a Prop/Backdrop from discard (uses turn)</button>`);
       }
       if (trainers.includes('Celestine-the-Stargazer') && !t.celestineUsed) {
-        for (const n of [1, 2, 3]) {
-          buttons.push(`<button class="small" data-celestine="${n}" ${p.coins >= n * 3 ? '' : 'disabled'}>Celestine: buy ${n}⭐ (${n * 3}🪙)</button>`);
+        for (let n = 1; n <= CELESTINE.maxStars; n++) {
+          const cost = n * CELESTINE.starCost;
+          buttons.push(`<button class="small" data-celestine="${n}" ${p.coins >= cost ? '' : 'disabled'}>Celestine: buy ${n}⭐ (${cost}🪙)</button>`);
         }
       }
       if (trainers.includes('Amara-the-Reliquary') && !t.amaraUsed) {
