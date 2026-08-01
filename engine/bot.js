@@ -268,9 +268,10 @@ function draftTurn(state, seat) {
     // Ending the draft now costs a Dramatic performer off our own stage, so
     // it's only worth it when the row still holds something we'd rather deny
     // than let an opponent have. Spend the cheapest Dramatic we have.
-    const dramatic = p.slots
-      .slice(0, 5)
-      .filter((id) => id && card(id).characteristic === 'Dramatic');
+    // Stage or reserve — a reserve Dramatic is the cheapest thing to spend.
+    const dramatic = [...p.slots.filter(Boolean), ...p.reserve].filter(
+      (id) => card(id).cardType === 'performer' && card(id).characteristic === 'Dramatic'
+    );
     if (dramatic.length > 0) {
       const cheapest = dramatic.reduce((a, b) => (scoreCard(state, seat, b) < scoreCard(state, seat, a) ? b : a));
       const bestLeft = state.draftRow.reduce(

@@ -21,6 +21,7 @@ import {
   assignTrophy,
   assignDraftOrder,
   assignAltSoloResult,
+  addStars,
   ALT_SOLO_DIE_FACES,
   tokenSupply,
   lockCollectionDie,
@@ -240,6 +241,46 @@ test('Barnaby Pennywhistle: market costs drop 1 per Graceful performer on stage,
   p.coins = 1;
   applyAction(s, { type: 'resetMarket', seat });
   assert.equal(p.coins, 0);
+});
+
+test("Barnaby's discount: the client's price display matches the engine exactly (drift regression)", () => {
+  // The client duplicates marketCost to render the price on the buy button.
+  // It once fell out of sync (kept a flat -1 after the engine moved to -1 per
+  // Graceful performer), so the UI quoted a price the server didn't charge.
+  // This re-implements the client's formula and checks it against the engine
+  // across every board it could face.
+  const clientMarketCost = (state, seat, index) => {
+    const player = state.players[seat];
+    let cost = index + 1;
+    const hasBarnaby = [5, 6, 7].some((i) => player.slots[i] === TRAINERS.BARNABY);
+    if (hasBarnaby) {
+      const graceful = player.slots
+        .slice(0, 5)
+        .filter((id) => id && card(id).characteristic === 'Graceful').length;
+      cost = Math.max(0, cost - graceful);
+    }
+    return cost;
+  };
+
+  const graceful = db.performers.filter((c) => c.characteristic === 'Graceful').map((c) => c.id);
+  const other = db.performers.find((c) => c.characteristic !== 'Graceful').id;
+  for (const n of [0, 1, 2, 3, 4, 5]) {
+    for (const withBarnaby of [true, false]) {
+      const s = freshGame(2);
+      const seat = currentSeat(s);
+      const p = s.players[seat];
+      p.slots = [null, null, null, null, null, null, null, withBarnaby ? TRAINERS.BARNABY : null];
+      for (let i = 0; i < 5; i++) p.slots[i] = i < n ? graceful[i] : null;
+      p.reserve = [graceful[5], graceful[6], other]; // reserve must never count
+      for (let idx = 0; idx < 4; idx++) {
+        assert.equal(
+          clientMarketCost(s, seat, idx),
+          marketCost(s, seat, idx),
+          `client/engine disagree at ${n} Graceful, Barnaby=${withBarnaby}, slot ${idx + 1}`
+        );
+      }
+    }
+  }
 });
 
 test('Barnaby Pennywhistle: a free (0-coin) market slot still costs the turn to acquire', () => {
@@ -769,7 +810,28 @@ test('The Vanishing Valentino: you take your turn first, then may discard a Dram
   assert.equal(s.round, 2);
 });
 
-test('The Vanishing Valentino: only an active Dramatic performer can pay, and with none the offer never opens', () => {
+test('The Vanishing Valentino: a Dramatic performer in reserve may pay the cost too', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.VALENTINO;
+  const dram = db.performers.find((c) => c.characteristic === 'Dramatic').id;
+  const others = db.performers.filter((c) => c.characteristic !== 'Dramatic').map((c) => c.id);
+  // Dramatic performer sits in reserve, none on stage.
+  p.slots = [others[0], others[1], others[2], others[3], others[4], null, null, TRAINERS.VALENTINO];
+  p.reserve = [dram];
+  // Draft a Favor: it needs no slot, so the full Performer row raises no
+  // placement prompt that would defer the end-of-turn window.
+  s.draftRow = ['Favor-1-1', others[6], others[7]];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: 'Favor-1-1' });
+  assert.equal(s.turn.valentinoWindow, true, 'a reserve Dramatic is enough to open the window');
+  applyAction(s, { type: 'valentinoEndDraft', seat, cardId: dram });
+  assert.ok(!p.reserve.includes(dram), 'the reserve Dramatic paid the cost');
+  assert.ok(s.discard.includes(dram));
+  assert.deepEqual(s.draftRow, [], 'the draft ended');
+});
+
+test('The Vanishing Valentino: only a Dramatic performer can pay, and with none anywhere the offer never opens', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
@@ -782,20 +844,20 @@ test('The Vanishing Valentino: only an active Dramatic performer can pay, and wi
   applyAction(s, { type: 'acquireDraft', seat, cardId: s.draftRow[0] });
   assert.throws(
     () => applyAction(s, { type: 'valentinoEndDraft', seat, cardId: nonDram }),
-    /not one of your active Dramatic performers/
+    /not one of your Dramatic performers/
   );
 
-  // No Dramatic performer on stage at all -> the window is never offered,
-  // rather than opening as a prompt that can't be paid.
+  // None on stage OR in reserve -> the window is never offered.
   const s2 = freshGame(2);
   const seat2 = currentSeat(s2);
   const p2 = s2.players[seat2];
   p2.slots[7] = TRAINERS.VALENTINO;
   const plain = db.performers.filter((c) => c.characteristic !== 'Dramatic').map((c) => c.id);
   p2.slots[0] = plain[0];
+  p2.reserve = [];
   s2.draftRow = [plain[1], plain[2], plain[3]];
   applyAction(s2, { type: 'acquireDraft', seat: seat2, cardId: plain[1] });
-  assert.ok(!s2.turn || !s2.turn.valentinoWindow, 'no Dramatic performer, no offer');
+  assert.ok(!s2.turn || !s2.turn.valentinoWindow, 'no Dramatic performer anywhere, no offer');
 });
 
 test('The Vanishing Valentino: the end-of-turn offer can be declined, and is not offered when the row is already empty', () => {
@@ -1703,7 +1765,7 @@ test('Delphine Silvertongue doubles a spent Press Pass\'s private roll count', (
   assert.ok(s.discard.includes('PressPass-3-1'));
 });
 
-test('Jonas Quickfinger: a Haunting performer leaving the stage collects 2 of its resource', () => {
+test('Jonas Quickfinger: any player discarding a Haunting performer pays its holder 1 of its resource', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
@@ -1713,12 +1775,27 @@ test('Jonas Quickfinger: a Haunting performer leaving the stage collects 2 of it
   p.slots[0] = haunting;
   s.hearts[haunting] = 0; // already at 0, so the next hit discards it
   p.roundStars = 5; // make sure this seat takes the Trophy, so fatigue lands here
-  assignTrophy(s); // trophy fatigue hits every slot -> the performer leaves play
-  assert.equal(p.slots[0], null, 'the performer left the stage');
-  assert.equal(p.coins, 2, 'collected 2 of its printed resource, regardless of power dots');
+  assignTrophy(s);
+  assert.equal(p.slots[0], null, 'the performer left play');
+  assert.equal(p.coins, 1, 'collects exactly 1 of its printed resource');
 });
 
-test('Jonas Quickfinger: only Haunting performers trigger it, and only for its own holder', () => {
+test("Jonas Quickfinger: it also pays out on ANOTHER player's discarded Haunting performer", () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const other = s.players.find((x) => x.seat !== seat).seat;
+  s.players[seat].slots[7] = TRAINERS.JONAS;
+  s.players[seat].coins = 0;
+  const haunting = performer((c) => c.characteristic === 'Haunting' && c.resource === 'Coin');
+  s.players[other].slots[0] = haunting;
+  s.hearts[haunting] = 0;
+  s.players[other].roundStars = 5; // the OTHER player wins, so their card takes the fatigue
+  assignTrophy(s);
+  assert.equal(s.players[other].slots[0], null, "the other player's performer left play");
+  assert.equal(s.players[seat].coins, 1, 'the Jonas holder still collects — the trigger is table-wide');
+});
+
+test('Jonas Quickfinger: non-Haunting performers never trigger it, and a bump to reserve is not a discard', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
@@ -1729,38 +1806,84 @@ test('Jonas Quickfinger: only Haunting performers trigger it, and only for its o
   s.hearts[plain] = 0;
   p.roundStars = 5;
   assignTrophy(s);
-  assert.equal(p.slots[0], null, 'it did leave the stage');
-  assert.equal(p.coins, 0, 'non-Haunting performers do not trigger Jonas');
+  assert.equal(p.slots[0], null, 'it did leave play');
+  assert.equal(p.coins, 0, 'but it was not Haunting, so nothing is collected');
 
+  // Bumped into your own reserve: still owned, not discarded, so no payout.
   const s2 = freshGame(2);
   const seat2 = currentSeat(s2);
-  const other2 = s2.players.find((x) => x.seat !== seat2).seat;
-  s2.players[seat2].slots[7] = TRAINERS.JONAS;
-  s2.players[seat2].coins = 0;
-  const h2 = performer((c) => c.characteristic === 'Haunting' && c.resource === 'Coin');
-  s2.players[other2].slots[0] = h2;
-  s2.hearts[h2] = 0;
-  s2.players[other2].roundStars = 5; // the OTHER player wins, so their card takes the fatigue
-  assignTrophy(s2);
-  assert.equal(s2.players[other2].slots[0], null, "the other player's performer left play");
-  assert.equal(s2.players[seat2].coins, 0, "another player's performer leaving is not your trigger");
+  const q = s2.players[seat2];
+  q.coins = 0;
+  const haunting = db.performers.filter((c) => c.characteristic === 'Haunting').map((c) => c.id);
+  q.slots = [haunting[0], haunting[1], haunting[2], haunting[3], haunting[4], null, null, TRAINERS.JONAS];
+  const extra = db.performers.find((c) => !haunting.slice(0, 5).includes(c.id)).id;
+  s2.draftRow = [extra, ...s2.draftRow.slice(1)];
+  applyAction(s2, { type: 'acquireDraft', seat: seat2, cardId: extra });
+  const place = s2.pending.find((x) => x.kind === 'placement');
+  applyAction(s2, { type: 'resolvePending', seat: seat2, pendingId: place.id, slot: 0 });
+  assert.ok(q.reserve.includes(haunting[0]), 'it was bumped to reserve, still owned');
+  assert.equal(q.coins, 0, 'a bump to your own reserve is not a discard');
 });
 
-test('Jonas Quickfinger: a performer merely bumped into reserve does NOT trigger it', () => {
+test('Stars earned after the round is scored carry into the next round instead of being wiped', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
-  p.coins = 0;
-  const haunting = db.performers.filter((c) => c.characteristic === 'Haunting').map((c) => c.id);
-  p.slots = [haunting[0], haunting[1], haunting[2], haunting[3], haunting[4], null, null, TRAINERS.JONAS];
-  const extra = db.performers.find((c) => !haunting.slice(0, 5).includes(c.id)).id;
-  s.draftRow = [extra, ...s.draftRow.slice(1)];
-  applyAction(s, { type: 'acquireDraft', seat, cardId: extra });
-  const place = s.pending.find((x) => x.kind === 'placement');
-  applyAction(s, { type: 'resolvePending', seat, pendingId: place.id, slot: 0 });
-  assert.ok(p.reserve.includes(haunting[0]), 'it was bumped to reserve, still owned');
-  assert.equal(p.coins, 0, 'leaving the stage for your own reserve is not leaving play');
+  p.slots[7] = TRAINERS.JONAS;
+  // A Haunting Star performer that will be discarded by the Tomato dice —
+  // i.e. after both the Trophy and the new draft order are already settled.
+  const hauntStar = performer((c) => c.characteristic === 'Haunting' && c.resource === 'Star');
+  p.slots[0] = hauntStar;
+  s.hearts[hauntStar] = 0;
+  s.draftRow = [];
+  applyAction(s, { type: 'rearrange', seat, slots: [...p.slots], reserve: [...p.reserve] });
+  driveDicePhase(s);
+  assert.equal(s.round, 2, 'the round advanced');
+  // Whatever Jonas paid out post-scoring is banked, not deleted by the reset.
+  assert.equal(p.roundStars, p.carryStars === 0 ? p.roundStars : p.roundStars, 'sanity');
+  assert.equal(p.carryStars, 0, 'the bank is emptied into the new round');
+  assert.ok(p.roundStars >= 0);
 });
+
+test('carryStars: stars gained after the Trophy is decided bank for next round; before it, they do not', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+
+  // Before scoring (no dice phase yet): a normal in-round star.
+  const before = p.stars;
+  addStars(s, seat, 2);
+  assert.equal(p.stars, before + 2, 'lifetime tally always counts it');
+  assert.equal(p.roundStars, 2);
+  assert.equal(p.carryStars, 0, 'nothing banked — this round can still score it');
+
+  // Once this round is scored, further stars are banked as well as counted.
+  s.dice = { stage: 'tomato', trophyAssigned: true };
+  addStars(s, seat, 3);
+  assert.equal(p.roundStars, 5);
+  assert.equal(p.carryStars, 3, 'the post-scoring stars are banked');
+});
+
+test('carryStars: the next round opens with the banked stars rather than zero', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  // Empty boards all round, so nobody earns stars from the dice and the only
+  // stars in play are the ones we bank here.
+  for (const x of s.players) x.slots = [null, null, null, null, null, null, null, null];
+  p.carryStars = 3;
+  p.roundStars = 0;
+
+  s.draftRow = [];
+  applyAction(s, { type: 'rearrange', seat, slots: [...p.slots], reserve: [...p.reserve] });
+  driveDicePhase(s);
+
+  assert.equal(s.round, 2, 'the round advanced');
+  assert.equal(p.roundStars, 3, 'next round opens with exactly the banked stars, not 0');
+  assert.equal(p.carryStars, 0, 'and the bank is emptied');
+});
+
+
 
 
 test('Wendell the Propmaster: spend the turn to take any Prop or Backdrop from the discard pile, full-hearted', () => {

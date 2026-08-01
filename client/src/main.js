@@ -195,9 +195,18 @@ function anyMovableHeart(p) {
   return sources.some((from) => targets.some((to) => to !== from));
 }
 
+// Mirrors marketCost in engine/engine.js — the server stays authoritative,
+// this only decides the price shown on the button. Barnaby Pennywhistle
+// discounts 1 coin per *active* Graceful performer (mat slots 0-4 only,
+// never reserve), down to 0 but never below.
 function marketCost(player, index) {
   let cost = index + 1;
-  if (trainerIs(player, 'Barnaby-Pennywhistle')) cost = Math.max(0, cost - 1);
+  if (trainerIs(player, 'Barnaby-Pennywhistle')) {
+    const graceful = player.slots
+      .slice(0, 5)
+      .filter((id) => id && card(id).characteristic === 'Graceful').length;
+    cost = Math.max(0, cost - graceful);
+  }
   return cost;
 }
 
@@ -608,10 +617,11 @@ function turnBarHtml(s, p) {
     // precedence over Maximillian's end-turn button so we never render two
     // controls with the same id (both can be open at once).
     if (t.valentinoWindow) {
-      const dramatic = p.slots.slice(0, 5).filter((id) => id && card(id).characteristic === 'Dramatic');
+      // Stage or reserve — mirrors dramaticPerformersOwned in engine.js.
+      const dramatic = ownedCardIds(p).filter((id) => card(id).cardType === 'performer' && card(id).characteristic === 'Dramatic');
       buttons.push(`<span class="yourturn">The Vanishing Valentino: discard a Dramatic performer to end the draft now, cutting everyone else's remaining picks.</span>`);
       if (ui.mode === 'valentinoPick') {
-        buttons.push(`<span class="yourturn">Click the Dramatic performer to discard.</span>`);
+        buttons.push(`<span class="yourturn">Click the Dramatic performer to discard — on your mat or in reserve.</span>`);
         buttons.push(`<button id="cancelMode">Cancel</button>`);
       } else {
         buttons.push(`<button id="valentinoBtn" class="primary" ${dramatic.length ? '' : 'disabled'} title="${dramatic.length ? '' : 'You have no Dramatic performer on stage to discard'}">End the draft (discard a Dramatic performer)</button>`);
@@ -822,8 +832,8 @@ function myMatHtml(s, p, pending) {
 
   // The Vanishing Valentino: highlight the Dramatic performers that can be
   // discarded to pay for ending the draft.
-  const valentinoEligible = (i, id) =>
-    ui.mode === 'valentinoPick' && i <= 4 && !!id && card(id).characteristic === 'Dramatic';
+  const valentinoEligible = (id) =>
+    ui.mode === 'valentinoPick' && !!id && card(id).cardType === 'performer' && card(id).characteristic === 'Dramatic';
 
   return `<section class="mymat">
     <div class="mat-head">
@@ -835,7 +845,7 @@ function myMatHtml(s, p, pending) {
         const sel = r?.picked?.zone === 'slot' && r.picked.index === i;
         const amaraSel = amaraMove && id === amaraMove.from;
         return `
-        <div class="slot ${placing && allowed.includes(i) ? 'highlight' : ''} ${amaraEligible(id) ? 'highlight' : ''} ${valentinoEligible(i, id) ? 'highlight' : ''} ${sel || amaraSel ? 'selected' : ''}" data-slot="${i}">
+        <div class="slot ${placing && allowed.includes(i) ? 'highlight' : ''} ${amaraEligible(id) ? 'highlight' : ''} ${valentinoEligible(id) ? 'highlight' : ''} ${sel || amaraSel ? 'selected' : ''}" data-slot="${i}">
           <span class="slotname">${SLOT_NAMES[i]}</span>
           ${id ? cardHtml(id, { size: 'lg', hearts: s.hearts[id] || 0 }) : '<div class="empty">empty</div>'}
         </div>`;
@@ -970,7 +980,7 @@ function wireGameEvents(s, p, pending) {
     }
     if (ui.mode === 'rearrange') return pickForSwap('slot', i);
     if (ui.mode === 'amaraMove' && p.slots[i]) return pickForAmaraMove(p, p.slots[i]);
-    if (ui.mode === 'valentinoPick' && i <= 4 && p.slots[i] && card(p.slots[i]).characteristic === 'Dramatic') {
+    if (ui.mode === 'valentinoPick' && valentinoEligible(p.slots[i])) {
       const cardId = p.slots[i];
       ui.mode = null;
       send({ type: 'valentinoEndDraft', cardId });

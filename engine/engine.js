@@ -96,9 +96,9 @@ export const CELESTINE_STAR_COST = 2;
 // one turn. Mirrored by the client (see AMARA in client/src/main.js).
 export const AMARA_MAX_MOVES = 3;
 
-// Jonas Quickfinger: units of its printed resource collected each time one of
-// your Haunting performers leaves play entirely.
-const JONAS_RESOURCE_UNITS = 2;
+// Jonas Quickfinger: units of its printed resource collected each time ANY
+// player's Haunting performer is discarded.
+const JONAS_RESOURCE_UNITS = 1;
 
 const ALT_SOLO_TROPHY_GOAL = 5;
 const ALT_SOLO_LOSS_LIMIT = 5;
@@ -139,6 +139,7 @@ export function createGame({ players, seed, solo, altSolo }) {
       stars: 0,
       trophies: 0,
       roundStars: 0,
+      carryStars: 0, // stars earned after this round was scored — become next round's opening roundStars
       roundCoins: 0,
       roundHearts: 0,
       turns: 0, // turns completed this round
@@ -402,24 +403,29 @@ function heartHit(state, seat, slotIdx, why) {
   state.discard.push(id);
   log(state, `${p.name}'s ${card(id).name} (${SLOT_NAMES[slotIdx]}) loses its last heart and leaves the stage! (${why})`);
   if (id === TRAINERS.BARRE) relocateReserveOnBarreLeaving(state, seat);
-  onCardLeavesPlay(state, seat, id, slotIdx <= 4);
+  onCardLeavesPlay(state, seat, id);
 }
 
-// Fires whenever one of this seat's cards leaves play entirely (discarded),
-// with `fromStage` true only if it was in an active Performer slot (0-4).
+// Fires whenever a card owned by `seat` leaves play entirely (is discarded),
+// from a mat slot or from reserve.
 //
-// Jonas Quickfinger: "Each time a Haunting performer leaves your stage,
-// collect 2 of its resource." Deliberately scoped to leaving *play* — a
-// performer merely bumped into your own reserve is still yours and does not
-// trigger, which is what stops the payout being farmed by cycling the same
-// card on and off the stage (Madame Barre would make that trivial otherwise).
-function onCardLeavesPlay(state, seat, cardId, fromStage) {
-  if (!fromStage) return;
+// Jonas Quickfinger: "Each time a Haunting performer is discarded from any
+// player, collect 1 of its resource." The trigger is table-wide — whoever
+// holds Jonas profits from every Haunting performer that hits the discard
+// pile, including their own, and including ones discarded out of a reserve.
+// Still scoped to genuinely leaving play: a performer merely bumped into its
+// owner's reserve is still in that player's possession and does not trigger,
+// which is what stops the payout being farmed by cycling one card in and out.
+// Cards discarded from the draft row or market never trigger it either —
+// they were never "from any player".
+function onCardLeavesPlay(state, seat, cardId) {
   const c = card(cardId);
   if (c.cardType !== 'performer' || c.characteristic !== 'Haunting') return;
-  if (!trainerActive(state, seat, TRAINERS.JONAS)) return;
-  log(state, `${nameOf(state, seat)}'s ${c.name} leaves the stage — Jonas Quickfinger collects ${JONAS_RESOURCE_UNITS} ${c.resource.toLowerCase()}(s).`);
-  collectResourceUnits(state, seat, c, JONAS_RESOURCE_UNITS, 'Jonas Quickfinger');
+  for (const holder of state.players) {
+    if (!trainerActive(state, holder.seat, TRAINERS.JONAS)) continue;
+    log(state, `${nameOf(state, seat)}'s ${c.name} is discarded — ${holder.name} collects ${JONAS_RESOURCE_UNITS} ${c.resource.toLowerCase()} (Jonas Quickfinger).`);
+    collectResourceUnits(state, holder.seat, c, JONAS_RESOURCE_UNITS, 'Jonas Quickfinger');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -562,8 +568,7 @@ function resolveCollectionDie(state, letter, onlySeat = null, typeFilterFn = nul
       let units = 1 + boostCount(state, p.seat, c);
       if ((letter === 'G' || letter === 'H') && trainerActive(state, p.seat, TRAINERS.ORSINO)) units += 3;
       if (c.resource === 'Star') {
-        p.stars += units;
-        p.roundStars += units;
+        addStars(state, p.seat, units);
         gains.push(`${units} star${units > 1 ? 's' : ''}`);
       } else if (c.resource === 'Coin') {
         coinsEarned += units;
@@ -593,6 +598,25 @@ function grantCoinsAndHearts(state, seat, coinsEarned, heartsEarned, reason) {
     return;
   }
   creditCoinsAndHearts(state, seat, coinsEarned, heartsEarned, reason);
+}
+
+// Every star gain goes through here so the post-scoring carry-over is applied
+// uniformly, whatever the source (Collection Die, Star resource, Celestine,
+// Jonas, ...).
+//
+// A round's stars are compared for the Trophy and then wiped when the next
+// round starts. But stars can still arrive *after* that comparison — most
+// obviously Jonas Quickfinger firing on performers discarded by the Tomato
+// dice, which resolve after both the trophy and the new draft order are
+// settled. Those stars would otherwise be earned and immediately deleted, so
+// they're banked in carryStars and become the player's opening roundStars
+// next round instead. p.stars (the lifetime tally) is unaffected either way.
+export function addStars(state, seat, n) {
+  if (n <= 0) return;
+  const p = state.players[seat];
+  p.stars += n;
+  p.roundStars += n;
+  if (state.dice && state.dice.trophyAssigned) p.carryStars += n;
 }
 
 function creditCoinsAndHearts(state, seat, coins, hearts, reason) {
@@ -632,8 +656,7 @@ function acquireCard(state, seat, cardId, chosenSlot) {
         log(state, `${p.name} resolves ${c.name}: +${c.amount} coins.`);
         grantCoinsAndHearts(state, seat, c.amount, 0, c.name);
       } else if (c.resourceType === 'Star') {
-        p.stars += c.amount;
-        p.roundStars += c.amount;
+        addStars(state, seat, c.amount);
         log(state, `${p.name} resolves ${c.name}: +${c.amount} stars.`);
       } else if (c.resourceType === 'Card') {
         const drawn = draw(state, c.amount);
@@ -738,7 +761,7 @@ function discardOwnedCard(state, seat, cardId) {
   state.hearts[cardId] = 0;
   state.discard.push(cardId);
   if (cardId === TRAINERS.BARRE) relocateReserveOnBarreLeaving(state, seat);
-  onCardLeavesPlay(state, seat, cardId, slotIdx >= 0 && slotIdx <= 4);
+  onCardLeavesPlay(state, seat, cardId);
 }
 
 // Madame Barre: while active, acquired cards may be freely parked in reserve
@@ -826,8 +849,7 @@ function collectResourceUnits(state, seat, c, amount, reason) {
   if (amount <= 0) return;
   const p = state.players[seat];
   if (c.resource === 'Star') {
-    p.stars += amount;
-    p.roundStars += amount;
+    addStars(state, seat, amount);
     log(state, `${p.name} collects ${amount} star${amount === 1 ? '' : 's'} (${reason}).`);
   } else if (c.resource === 'Coin') {
     grantCoinsAndHearts(state, seat, amount, 0, reason);
@@ -863,6 +885,18 @@ export function activePerformers(state, seat) {
 // (c) => c.type === 'Dancer', or (c) => c.characteristic === 'Graceful'.
 export function countActivePerformers(state, seat, pred) {
   return activePerformers(state, seat).filter((id) => pred(card(id))).length;
+}
+
+// The Vanishing Valentino's payable cost: Dramatic performers this seat owns,
+// on stage OR in reserve. His printed text says "on stage or in reserve", so
+// he's a third, narrower carve-out from the active-performer rule above —
+// scoped to what he can spend, not to any ongoing effect.
+export function dramaticPerformersOwned(state, seat) {
+  const p = state.players[seat];
+  return [...p.slots.filter(Boolean), ...p.reserve].filter((id) => {
+    const c = card(id);
+    return c.cardType === 'performer' && c.characteristic === 'Dramatic';
+  });
 }
 
 // Tomasso the Terrible: how many Dancer performers this seat has on stage —
@@ -1028,6 +1062,7 @@ function startDicePhase(state) {
     tomatoLocked: false, // the batch is finalized — hits may now be applied
     mesmeraRerollUsed: false,
     tomatoTotal: Math.min(state.round, MAX_TOMATO_DICE),
+    trophyAssigned: false, // true once this round's Trophy is decided — see addStars
     barreRearrangeOpened: false, // true once this round's end-of-round Madame Barre rearrange prompts have been pushed — see stepDice's 'barreRearrange' stage
     reviewOpened: false, // true once this round's post-dice diceResultsReview prompts have been pushed — see stepDice's 'review' stage
   };
@@ -1049,6 +1084,7 @@ function stepDice(state) {
     case 'trophy': {
       if (state.altSolo) assignAltSoloResult(state);
       else assignTrophy(state);
+      d.trophyAssigned = true; // stars earned from here on carry to next round
       if (state.phase === 'gameOver') return;
       d.stage = 'order';
       return;
@@ -1189,7 +1225,8 @@ function startNextRound(state) {
   state.round++;
   state.dice = null;
   for (const p of state.players) {
-    p.roundStars = 0;
+    p.roundStars = p.carryStars || 0; // stars banked after scoring carry in
+    p.carryStars = 0;
     p.roundCoins = 0;
     p.roundHearts = 0;
     p.turns = 0;
@@ -1293,9 +1330,10 @@ function advance(state) {
         !state.turn.valentinoOffered &&
         state.draftRow.length > 0 &&
         trainerActive(state, state.turn.seat, TRAINERS.VALENTINO) &&
-        // Gated on a Dramatic performer on stage, so the window only opens
-        // when the ability is actually usable rather than as a dead prompt.
-        countActivePerformers(state, state.turn.seat, (c) => c.characteristic === 'Dramatic') > 0
+        // Needs a Dramatic performer to spend (stage or reserve), so the
+        // window only opens when the cost can actually be paid rather than
+        // appearing as a dead prompt.
+        dramaticPerformersOwned(state, state.turn.seat).length > 0
       ) {
         state.turn.valentinoOffered = true;
         state.turn.valentinoWindow = true;
@@ -1693,12 +1731,13 @@ export function applyAction(state, action) {
       }
       if (!trainerActive(state, seat, TRAINERS.VALENTINO)) throw new Error('The Vanishing Valentino is not your active Trainer.');
       const p = state.players[seat];
-      // A Dramatic performer on stage is the *cost*, not just a gate: name one
-      // and it's discarded to pay for ending the draft.
-      const dramatic = activePerformers(state, seat).filter((id) => card(id).characteristic === 'Dramatic');
-      if (dramatic.length === 0) throw new Error('You need a Dramatic performer on stage to discard.');
+      // A Dramatic performer is the *cost*, not just a gate: name one and it's
+      // discarded to pay for ending the draft. Reserve counts here as well as
+      // the stage — the card only has to be yours, not performing.
+      const dramatic = dramaticPerformersOwned(state, seat);
+      if (dramatic.length === 0) throw new Error('You need a Dramatic performer to discard.');
       const payId = action.cardId ?? dramatic[0];
-      if (!dramatic.includes(payId)) throw new Error('That is not one of your active Dramatic performers.');
+      if (!dramatic.includes(payId)) throw new Error('That is not one of your Dramatic performers.');
       log(state, `${p.name} discards ${card(payId).name} to vanish the draft (The Vanishing Valentino).`);
       discardOwnedCard(state, seat, payId);
       log(state, `${p.name} plays The Vanishing Valentino — the draft ends immediately!`);
@@ -1721,8 +1760,7 @@ export function applyAction(state, action) {
       const cost = n * CELESTINE_STAR_COST;
       if (p.coins < cost) throw new Error(`You need ${cost} coins for that.`);
       p.coins -= cost;
-      p.stars += n;
-      p.roundStars += n;
+      addStars(state, seat, n);
       state.turn.celestineUsed = true;
       log(state, `${p.name} spends ${cost} coins to buy ${n} star${n > 1 ? 's' : ''} (Celestine the Stargazer).`);
       break;
