@@ -693,6 +693,29 @@ test('Professor Stainglass: discard an acquired card to draw 1 per Powerful perf
   assert.ok(s.discard.includes(dropped), 'the card not kept was discarded');
 });
 
+test('Professor Stainglass: the card you keep cannot itself be traded in for another draw', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.STAINGLASS;
+  const powerful = db.performers.filter((c) => c.characteristic === 'Powerful').map((c) => c.id);
+  p.slots[1] = powerful[0];
+  p.slots[2] = powerful[1];
+  const perf = db.performers.find((c) => !powerful.slice(0, 2).includes(c.id)).id;
+  s.draftRow[0] = perf;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
+  const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
+  applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, choice: 'stainglass' });
+  const keep = s.pending.find((x) => x.kind === 'stainglassKeep');
+  applyAction(s, { type: 'resolvePending', seat, pendingId: keep.id, cardId: keep.data.drawn[0] });
+  // Only the originally-acquired card may be traded in — otherwise the keep
+  // could be re-traded over and over, churning the deck from one acquisition.
+  assert.ok(
+    !s.pending.some((x) => x.kind === 'postAcquireDiscard'),
+    'the kept card must not raise another discard-to-draw offer'
+  );
+});
+
 test('Professor Stainglass: with no Powerful performer the trade is not offered at all', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
@@ -719,28 +742,60 @@ test('Professor Stainglass: "keep" leaves the card exactly as placed', () => {
   assert.equal(p.slots[0], perf);
 });
 
-test('The Vanishing Valentino: you take your turn first, then may end the draft as the turn closes', () => {
+test('The Vanishing Valentino: you take your turn first, then may discard a Dramatic performer to end the draft', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.VALENTINO;
-  const [a, b, c] = db.performers.slice(0, 3).map((x) => x.id);
+  const dram = db.performers.filter((c) => c.characteristic === 'Dramatic').map((c) => c.id);
+  p.slots[0] = dram[0]; // the performer that will pay the cost
+  const [a, b, c] = db.performers.filter((x) => x.id !== dram[0]).slice(0, 3).map((x) => x.id);
   s.draftRow = [a, b, c];
 
   // It is an end-of-turn choice now, not a start-of-turn one.
   assert.throws(() => applyAction(s, { type: 'valentinoEndDraft', seat }), /take your turn action first/);
 
   applyAction(s, { type: 'acquireDraft', seat, cardId: a });
-  assert.equal(p.slots[0], a, 'the normal turn action still happened');
   assert.equal(s.turn.seat, seat, 'the turn is held open rather than passing on');
   assert.equal(s.turn.valentinoWindow, true, 'the end-of-turn offer is open');
 
   const rowBefore = [...s.draftRow];
-  applyAction(s, { type: 'valentinoEndDraft', seat });
+  applyAction(s, { type: 'valentinoEndDraft', seat, cardId: dram[0] });
+  assert.equal(p.slots[0], null, 'the Dramatic performer was discarded to pay for it');
+  assert.ok(s.discard.includes(dram[0]));
   for (const id of rowBefore) assert.ok(s.discard.includes(id), 'the rest of the row is discarded');
-  assert.equal(p.slots[7], TRAINERS.VALENTINO, 'the trainer itself is not discarded (no self-discard clause)');
+  assert.equal(p.slots[7], TRAINERS.VALENTINO, 'the trainer itself is not discarded');
   driveDicePhase(s);
   assert.equal(s.round, 2);
+});
+
+test('The Vanishing Valentino: only an active Dramatic performer can pay, and with none the offer never opens', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.VALENTINO;
+  const dram = db.performers.find((c) => c.characteristic === 'Dramatic').id;
+  const nonDram = db.performers.find((c) => c.characteristic !== 'Dramatic').id;
+  p.slots[0] = dram;
+  p.slots[1] = nonDram;
+  s.draftRow = db.performers.filter((x) => ![dram, nonDram].includes(x.id)).slice(0, 3).map((x) => x.id);
+  applyAction(s, { type: 'acquireDraft', seat, cardId: s.draftRow[0] });
+  assert.throws(
+    () => applyAction(s, { type: 'valentinoEndDraft', seat, cardId: nonDram }),
+    /not one of your active Dramatic performers/
+  );
+
+  // No Dramatic performer on stage at all -> the window is never offered,
+  // rather than opening as a prompt that can't be paid.
+  const s2 = freshGame(2);
+  const seat2 = currentSeat(s2);
+  const p2 = s2.players[seat2];
+  p2.slots[7] = TRAINERS.VALENTINO;
+  const plain = db.performers.filter((c) => c.characteristic !== 'Dramatic').map((c) => c.id);
+  p2.slots[0] = plain[0];
+  s2.draftRow = [plain[1], plain[2], plain[3]];
+  applyAction(s2, { type: 'acquireDraft', seat: seat2, cardId: plain[1] });
+  assert.ok(!s2.turn || !s2.turn.valentinoWindow, 'no Dramatic performer, no offer');
 });
 
 test('The Vanishing Valentino: the end-of-turn offer can be declined, and is not offered when the row is already empty', () => {
@@ -748,22 +803,24 @@ test('The Vanishing Valentino: the end-of-turn offer can be declined, and is not
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.VALENTINO;
-  const [a, b, c] = db.performers.slice(0, 3).map((x) => x.id);
+  const dram = db.performers.find((c) => c.characteristic === 'Dramatic').id;
+  p.slots[0] = dram;
+  const [a, b, c] = db.performers.filter((x) => x.id !== dram).slice(0, 3).map((x) => x.id);
   s.draftRow = [a, b, c];
   applyAction(s, { type: 'acquireDraft', seat, cardId: a });
   assert.equal(s.turn.valentinoWindow, true);
-  // Declining just ends the turn and passes play on, leaving the row intact.
   applyAction(s, { type: 'endTurn', seat });
   assert.deepEqual(s.draftRow, [b, c], 'the draft row survives a declined offer');
+  assert.equal(p.slots[0], dram, 'and the Dramatic performer is not spent');
   assert.notEqual(s.turn.seat, seat, 'play moved on to the next seat');
 
-  // Taking the last card in the row leaves nothing to close, so no offer is
-  // made at all and the turn resolves straight into the end of the draft.
+  // Taking the last card in the row leaves nothing to close, so no offer.
   const s2 = freshGame(2);
   const seat2 = currentSeat(s2);
   s2.players[seat2].slots[7] = TRAINERS.VALENTINO;
-  s2.draftRow = [db.performers[0].id];
-  applyAction(s2, { type: 'acquireDraft', seat: seat2, cardId: db.performers[0].id });
+  s2.players[seat2].slots[0] = dram;
+  s2.draftRow = [db.performers.find((x) => x.id !== dram).id];
+  applyAction(s2, { type: 'acquireDraft', seat: seat2, cardId: s2.draftRow[0] });
   assert.ok(!s2.turn || !s2.turn.valentinoWindow, 'no offer with nothing left to end');
 });
 
@@ -2467,7 +2524,7 @@ test('ALT_SOLO_DIE_FACES has exactly 8 faces: 4 discard, 4 target (2 of which al
 
 // ---- AI draft valuation heuristics (scoreCard) ------------------------------
 
-test('scoreCard: Draw-2/3 "Card" resources are valued a bit above their linear face value', () => {
+test('scoreCard: a "draw N cards" Resource is valued as N acquisitions, not N coins', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const draw1 = firstOfName(db.resources, 'Resource 1 Card');
@@ -2476,8 +2533,18 @@ test('scoreCard: Draw-2/3 "Card" resources are valued a bit above their linear f
   const s1 = scoreCard(s, seat, draw1);
   const s2 = scoreCard(s, seat, draw2);
   const s3 = scoreCard(s, seat, draw3);
-  assert.ok(s2 > s1 * 2, 'Resource 2 Cards should score more than double the 1-card version');
-  assert.ok(s3 > s1 * 3, 'Resource 3 Cards should score more than triple the 1-card version');
+
+  // A drawn card is a real acquisition, so one draw should be worth roughly
+  // what an average board card is worth — not the ~0.9 a single coin is.
+  const coin1 = firstOfName(db.resources, 'Resource 1 Coin');
+  assert.ok(s1 > scoreCard(s, seat, coin1) * 2.5, 'drawing a card beats gaining a coin by a wide margin');
+  assert.ok(s1 > 3 && s1 < 5, `one draw should score near an average card, got ${s1}`);
+
+  // Monotonic and near-linear, with a mild diminishing return (the cards
+  // arrive together, so later ones are likelier to be bumped to reserve).
+  assert.ok(s2 > s1 && s3 > s2, 'more cards is strictly better');
+  assert.ok(s3 > s1 * 2.8 && s3 <= s1 * 3, 'Draw-3 is close to, but under, 3x a single draw');
+  assert.ok(s3 > 10, `Draw-3 should dominate a typical single pick (best draft card ~4), got ${s3}`);
 });
 
 console.log(`\nrules.test.js: ${passed} passing${process.exitCode ? ' (with failures)' : ''}`);

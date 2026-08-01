@@ -608,8 +608,14 @@ function turnBarHtml(s, p) {
     // precedence over Maximillian's end-turn button so we never render two
     // controls with the same id (both can be open at once).
     if (t.valentinoWindow) {
-      buttons.push(`<span class="yourturn">The Vanishing Valentino: you may end the draft now, cutting everyone else's remaining picks.</span>`);
-      buttons.push(`<button id="valentinoBtn" class="primary">End the draft</button>`);
+      const dramatic = p.slots.slice(0, 5).filter((id) => id && card(id).characteristic === 'Dramatic');
+      buttons.push(`<span class="yourturn">The Vanishing Valentino: discard a Dramatic performer to end the draft now, cutting everyone else's remaining picks.</span>`);
+      if (ui.mode === 'valentinoPick') {
+        buttons.push(`<span class="yourturn">Click the Dramatic performer to discard.</span>`);
+        buttons.push(`<button id="cancelMode">Cancel</button>`);
+      } else {
+        buttons.push(`<button id="valentinoBtn" class="primary" ${dramatic.length ? '' : 'disabled'} title="${dramatic.length ? '' : 'You have no Dramatic performer on stage to discard'}">End the draft (discard a Dramatic performer)</button>`);
+      }
       buttons.push(`<button id="endTurnBtn">Just end my turn</button>`);
     } else if (t.open) {
       buttons.push(`<button id="endTurnBtn" class="primary">End turn (Maximillian)</button>`);
@@ -814,6 +820,11 @@ function myMatHtml(s, p, pending) {
     return id !== amaraMove.from && capLeft(p, id) > 0;
   };
 
+  // The Vanishing Valentino: highlight the Dramatic performers that can be
+  // discarded to pay for ending the draft.
+  const valentinoEligible = (i, id) =>
+    ui.mode === 'valentinoPick' && i <= 4 && !!id && card(id).characteristic === 'Dramatic';
+
   return `<section class="mymat">
     <div class="mat-head">
       <h3>${esc(p.name)} <span class="hint">(you) · stand ${p.stand}</span></h3>
@@ -824,7 +835,7 @@ function myMatHtml(s, p, pending) {
         const sel = r?.picked?.zone === 'slot' && r.picked.index === i;
         const amaraSel = amaraMove && id === amaraMove.from;
         return `
-        <div class="slot ${placing && allowed.includes(i) ? 'highlight' : ''} ${amaraEligible(id) ? 'highlight' : ''} ${sel || amaraSel ? 'selected' : ''}" data-slot="${i}">
+        <div class="slot ${placing && allowed.includes(i) ? 'highlight' : ''} ${amaraEligible(id) ? 'highlight' : ''} ${valentinoEligible(i, id) ? 'highlight' : ''} ${sel || amaraSel ? 'selected' : ''}" data-slot="${i}">
           <span class="slotname">${SLOT_NAMES[i]}</span>
           ${id ? cardHtml(id, { size: 'lg', hearts: s.hearts[id] || 0 }) : '<div class="empty">empty</div>'}
         </div>`;
@@ -930,7 +941,10 @@ function wireGameEvents(s, p, pending) {
     ui.mode = null;
     send({ type: 'wendellTakeDiscard', cardId: el.dataset.cardid });
   });
-  document.getElementById('valentinoBtn')?.addEventListener('click', () => send({ type: 'valentinoEndDraft' }));
+  document.getElementById('valentinoBtn')?.addEventListener('click', () => {
+    ui.mode = 'valentinoPick';
+    render();
+  });
   document.getElementById('stainglassKeepRow')?.addEventListener('click', (e) => {
     const el = e.target.closest('[data-cardid]');
     if (!el || !pending) return;
@@ -956,6 +970,12 @@ function wireGameEvents(s, p, pending) {
     }
     if (ui.mode === 'rearrange') return pickForSwap('slot', i);
     if (ui.mode === 'amaraMove' && p.slots[i]) return pickForAmaraMove(p, p.slots[i]);
+    if (ui.mode === 'valentinoPick' && i <= 4 && p.slots[i] && card(p.slots[i]).characteristic === 'Dramatic') {
+      const cardId = p.slots[i];
+      ui.mode = null;
+      send({ type: 'valentinoEndDraft', cardId });
+      return;
+    }
   });
   document.getElementById('myReserve')?.addEventListener('click', (e) => {
     const el = e.target.closest('[data-reserve]');

@@ -203,6 +203,10 @@ function newTurn(seat, isBonus = false, bonusTiming = null) {
     // one turn window accrues one bonus buy each, and so a market buy can
     // never grant another (they don't chain).
     bonusBuys: 0,
+    // How many times the market has been reset this turn. Purely informational
+    // (resetting stays unlimited, 1 coin each) — the AI uses it to cap its own
+    // resets so it can never loop, since resetMarket doesn't spend the turn.
+    resets: 0,
   };
 }
 
@@ -701,9 +705,9 @@ function acquireCard(state, seat, cardId, chosenSlot) {
 // "acquired cards may be immediately discarded to..." Trainer reactions that
 // apply to it (Professor Stainglass). Not used for refills or rearranges —
 // only genuine new acquisitions.
-function placeAcquiredCard(state, seat, cardId, slot) {
+function placeAcquiredCard(state, seat, cardId, slot, { offerPostAcquire = true } = {}) {
   placeInSlot(state, seat, cardId, slot);
-  offerPostAcquireDiscard(state, seat, cardId);
+  if (offerPostAcquire) offerPostAcquireDiscard(state, seat, cardId);
 }
 
 function offerPostAcquireDiscard(state, seat, cardId) {
@@ -902,7 +906,12 @@ function setStartingHearts(state, seat, cardId) {
 // every natural slot for that card's type is already occupied, the player
 // chooses whether to place it anyway (bumping the current occupant to
 // reserve) or send the drawn card straight to reserve instead.
-function intakeDrawnCard(state, seat, cardId) {
+// offerPostAcquire=false suppresses Professor Stainglass's discard-to-draw
+// offer for this card. Used for the card he lets you keep: only the card you
+// originally acquired may be traded in, so the keep can't be recursively
+// re-traded for another draw (which would otherwise let one acquisition churn
+// the deck indefinitely).
+function intakeDrawnCard(state, seat, cardId, { offerPostAcquire = true } = {}) {
   const p = state.players[seat];
   const c = card(cardId);
   if (c.cardType === 'resource' || c.cardType === 'favor' || c.cardType === 'reroll') {
@@ -914,14 +923,14 @@ function intakeDrawnCard(state, seat, cardId) {
     const natural = SLOTS_FOR_TYPE[c.cardType];
     const emptySlot = natural.find((i) => p.slots[i] == null);
     if (emptySlot != null) {
-      placeAcquiredCard(state, seat, cardId, emptySlot);
+      placeAcquiredCard(state, seat, cardId, emptySlot, { offerPostAcquire });
       return;
     }
   }
   // Madame Barre active: always a genuine choice, any of the 8 mat slots
   // (or reserve — see the 'cardResourcePlacement' resolution), even when a
   // natural slot is open.
-  pushPending(state, 'cardResourcePlacement', seat, { cardId, allowedSlots: allowed });
+  pushPending(state, 'cardResourcePlacement', seat, { cardId, allowedSlots: allowed, noPostAcquire: !offerPostAcquire });
 }
 
 // ---------------------------------------------------------------------------
@@ -1589,6 +1598,7 @@ export function applyAction(state, action) {
       p.coins -= 1;
       state.discard.push(...state.market.filter(Boolean));
       state.market = draw(state, MARKET_SIZE);
+      state.turn.resets += 1;
       log(state, `${p.name} pays 1 coin to reset the market.`);
       break;
     }
@@ -1682,11 +1692,15 @@ export function applyAction(state, action) {
         throw new Error('You may only end the draft as your turn ends — take your turn action first.');
       }
       if (!trainerActive(state, seat, TRAINERS.VALENTINO)) throw new Error('The Vanishing Valentino is not your active Trainer.');
-      // Gated on having at least one Dramatic performer on stage.
-      if (countActivePerformers(state, seat, (c) => c.characteristic === 'Dramatic') < 1) {
-        throw new Error('You need at least one Dramatic performer on stage to end the draft.');
-      }
       const p = state.players[seat];
+      // A Dramatic performer on stage is the *cost*, not just a gate: name one
+      // and it's discarded to pay for ending the draft.
+      const dramatic = activePerformers(state, seat).filter((id) => card(id).characteristic === 'Dramatic');
+      if (dramatic.length === 0) throw new Error('You need a Dramatic performer on stage to discard.');
+      const payId = action.cardId ?? dramatic[0];
+      if (!dramatic.includes(payId)) throw new Error('That is not one of your active Dramatic performers.');
+      log(state, `${p.name} discards ${card(payId).name} to vanish the draft (The Vanishing Valentino).`);
+      discardOwnedCard(state, seat, payId);
       log(state, `${p.name} plays The Vanishing Valentino — the draft ends immediately!`);
       state.discard.push(...state.draftRow);
       state.draftRow = [];
@@ -1868,7 +1882,7 @@ function resolvePendingItem(state, item, action) {
       const slot = action.slot;
       if (!Number.isInteger(slot) || !it.allowedSlots.includes(slot)) throw new Error('Invalid slot for that card.');
       removePending(state, item.id);
-      placeAcquiredCard(state, seat, it.cardId, slot);
+      placeAcquiredCard(state, seat, it.cardId, slot, { offerPostAcquire: !it.noPostAcquire });
       break;
     }
     // Professor Stainglass: right after acquiring a matching card, its
@@ -1898,7 +1912,7 @@ function resolvePendingItem(state, item, action) {
         }
         log(state, `${p.name} discards ${cardName} (Professor Stainglass) to draw ${drawn.length} card(s) — keeping one.`);
         if (drawn.length === 1) {
-          intakeDrawnCard(state, seat, drawn[0]);
+          intakeDrawnCard(state, seat, drawn[0], { offerPostAcquire: false });
           break;
         }
         pushPending(state, 'stainglassKeep', seat, { drawn });
@@ -1916,7 +1930,9 @@ function resolvePendingItem(state, item, action) {
         if (id !== keepId) state.discard.push(id);
       }
       log(state, `${p.name} keeps ${card(keepId).name} and discards the rest (Professor Stainglass).`);
-      intakeDrawnCard(state, seat, keepId);
+      // The kept card may not itself be traded in for another draw — only the
+      // card originally acquired can be.
+      intakeDrawnCard(state, seat, keepId, { offerPostAcquire: false });
       break;
     }
     case 'heartAssign': {

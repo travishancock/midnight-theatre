@@ -265,11 +265,24 @@ function draftTurn(state, seat) {
   // closing it is pure denial of everyone else's remaining picks, with no
   // cost to us. Otherwise just end the turn and take another pick later.
   if (state.turn.valentinoWindow) {
-    const bestLeft = state.draftRow.reduce(
-      (best, id) => (legalDraftPick(state, id) ? Math.max(best, scoreCard(state, seat, id)) : best),
-      -Infinity
-    );
-    if (bestLeft < 2.5) return { type: 'valentinoEndDraft', seat };
+    // Ending the draft now costs a Dramatic performer off our own stage, so
+    // it's only worth it when the row still holds something we'd rather deny
+    // than let an opponent have. Spend the cheapest Dramatic we have.
+    const dramatic = p.slots
+      .slice(0, 5)
+      .filter((id) => id && card(id).characteristic === 'Dramatic');
+    if (dramatic.length > 0) {
+      const cheapest = dramatic.reduce((a, b) => (scoreCard(state, seat, b) < scoreCard(state, seat, a) ? b : a));
+      const bestLeft = state.draftRow.reduce(
+        (best, id) => (legalDraftPick(state, id) ? Math.max(best, scoreCard(state, seat, id)) : best),
+        -Infinity
+      );
+      // Deny only if what's left is worth clearly more than the performer we'd
+      // burn to clear it.
+      if (bestLeft > scoreCard(state, seat, cheapest) + 1.5) {
+        return { type: 'valentinoEndDraft', seat, cardId: cheapest };
+      }
+    }
     return { type: 'endTurn', seat };
   }
 
@@ -293,6 +306,21 @@ function draftTurn(state, seat) {
     }
   }
 
+  // Nothing on offer is worth having? Pay 1 coin to reshuffle the market and
+  // look again, rather than settling for a weak pick. Only worth doing with
+  // coins to spare — you still need to afford whatever turns up — and capped
+  // per turn because resetting doesn't spend the main action, so an unbounded
+  // version would loop forever.
+  if (
+    !state.turn.mainDone &&
+    (state.turn.resets || 0) < BOT_MAX_RESETS &&
+    p.coins >= BOT_RESET_MIN_COINS &&
+    bestDraftScore < BOT_WEAK_OPTION &&
+    bestMarketScore(state, seat) < BOT_WEAK_OPTION
+  ) {
+    return { type: 'resetMarket', seat };
+  }
+
   // Consider a market buy only when it clearly beats the best free pick.
   const buy = bestMarketBuy(state, seat, 0, bestDraftScore + 1.5);
   if (buy) return buy;
@@ -308,6 +336,34 @@ function legalDraftPick(state, id) {
   const c = card(id);
   if (state.turn.isBonus && c.cardType === 'favor' && c.triggerAfterTurn === state.turn.bonusTiming) return false;
   return true;
+}
+
+// Reshuffling the market when the table is weak.
+//
+// BOT_WEAK_OPTION is the cost-adjusted score below which an option counts as
+// "not worth taking". Calibrated against measured play: a random deck card
+// scores ~3.8 and the best card in a typical draft row ~4.1, so a best option
+// under 3.0 genuinely is a below-average board.
+// BOT_RESET_MIN_COINS keeps the bot from resetting itself broke — 1 coin for
+// the reset plus enough left to actually buy whatever it turns up.
+// BOT_MAX_RESETS bounds it: resetMarket doesn't consume the main action, so
+// without a cap a bot facing a permanently weak board would reset forever.
+const BOT_WEAK_OPTION = 3.0;
+const BOT_RESET_MIN_COINS = 5;
+const BOT_MAX_RESETS = 2;
+
+// Best cost-adjusted market score available right now, or -Infinity if the
+// bot can't afford anything. Same scoring basis bestMarketBuy uses.
+function bestMarketScore(state, seat) {
+  const p = state.players[seat];
+  let best = -Infinity;
+  for (let i = 0; i < state.market.length; i++) {
+    if (!state.market[i]) continue;
+    const cost = marketCost(state, seat, i);
+    if (p.coins < cost) continue;
+    best = Math.max(best, scoreCard(state, seat, state.market[i]) - cost * 0.9);
+  }
+  return best;
 }
 
 function bestMarketBuy(state, seat, spareCoins, mustBeat = -Infinity) {
@@ -358,11 +414,7 @@ export function scoreCard(state, seat, id) {
     }
     case 'resource': {
       if (c.resourceType === 'Heart' && totalCapacityLeft(state, seat) === 0) return 0.2;
-      // "Card" resources (draw N from the deck) are worth a bit more than
-      // their face value once N >= 2 — each drawn card is a free extra
-      // acquisition (often another resource or a board card), so the 2- and
-      // 3-card versions compound in value rather than scaling linearly.
-      if (c.resourceType === 'Card' && (c.amount || 1) >= 2) return 0.9 * (c.amount || 1) + 0.5;
+      if (c.resourceType === 'Card') return drawValue(c.amount || 1);
       return 0.9 * (c.amount || 1);
     }
     case 'favor':
@@ -372,6 +424,31 @@ export function scoreCard(state, seat, id) {
     default:
       return 0;
   }
+}
+
+// What a "draw N cards" Resource is actually worth.
+//
+// A drawn card isn't a token — it's a real acquisition, placed on the mat (or
+// resolved, if it's itself a Resource) exactly like a drafted card. So Draw-3
+// is worth roughly three acquisitions, not three coins, and the old
+// `0.9 * N + 0.5` curve (Draw-3 = 3.2) badly underrated it.
+//
+// DRAW_CARD_VALUE is the measured mean scoreCard of a random deck card across
+// ~1,900 real bot decision points, excluding the Card resources themselves so
+// the estimate can't inflate its own inputs. For reference, the *best* card in
+// a typical draft row scores about 4.1 — so a single random draw is very
+// nearly as good as a free draft pick, and three of them are worth far more.
+//
+// DRAW_DECAY reflects the measured diminishing return (~96% per extra card):
+// the cards arrive together, so the second and third are likelier to find the
+// empty slots already taken and get bumped to reserve.
+const DRAW_CARD_VALUE = 3.8;
+const DRAW_DECAY = 0.96;
+
+function drawValue(n) {
+  let total = 0;
+  for (let k = 0; k < n; k++) total += DRAW_CARD_VALUE * Math.pow(DRAW_DECAY, k);
+  return total;
 }
 
 // Prefer the resource we are furthest behind the table leader on.

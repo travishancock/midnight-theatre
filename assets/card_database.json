@@ -1226,7 +1226,7 @@
     {
       "id": "The-Vanishing-Valentino",
       "name": "The Vanishing Valentino",
-      "ability": "If you have at least one Dramatic performer you may end the draft at the end of your turn",
+      "ability": "At the end of your turn you may discard a Dramatic performer to end the draft",
       "startingHearts": 3,
       "image": "cards/Trainer The Vanishing Valentino.webp"
     },
