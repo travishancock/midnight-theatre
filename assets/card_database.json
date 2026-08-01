@@ -1184,7 +1184,7 @@
     {
       "id": "Professor-Stainglass",
       "name": "Professor Stainglass",
-      "ability": "Acquired cards may be immediately discarded to draw 1 card from the deck",
+      "ability": "Acquired cards may be immediately discarded to draw 1 card from the deck per Powerful performer; keep one",
       "startingHearts": 3,
       "image": "cards/Trainer Professor Stainglass.webp"
     },
@@ -1198,7 +1198,7 @@
     {
       "id": "Barnaby-Pennywhistle",
       "name": "Barnaby Pennywhistle",
-      "ability": "Market costs are -1 coin (re-setting market still costs 1 coin)",
+      "ability": "Market costs are -1 coin per Graceful performer",
       "startingHearts": 3,
       "image": "cards/Trainer Barnaby Pennywhistle.webp"
     },
@@ -1212,7 +1212,7 @@
     {
       "id": "Maximillian-the-Magnate",
       "name": "Maximillian the Magnate",
-      "ability": "You may buy any number of cards from the market on a turn",
+      "ability": "Each time you draft a card you may also buy one from the market",
       "startingHearts": 3,
       "image": "cards/Trainer Maximillian the Magnate.webp"
     },
@@ -1226,7 +1226,7 @@
     {
       "id": "The-Vanishing-Valentino",
       "name": "The Vanishing Valentino",
-      "ability": "To end your turn you may choose to end the draft",
+      "ability": "If you have at least one Dramatic performer you may end the draft at the end of your turn",
       "startingHearts": 3,
       "image": "cards/Trainer The Vanishing Valentino.webp"
     },
@@ -1247,14 +1247,14 @@
     {
       "id": "Amara-the-Reliquary",
       "name": "Amara the Reliquary",
-      "ability": "To start your turn you may move a heart from one card to another",
+      "ability": "To start your turn you may rearrange up to 3 hearts on any of your cards",
       "startingHearts": 3,
       "image": "cards/Trainer Amara the Reliquary.webp"
     },
     {
       "id": "Jonas-Quickfinger",
       "name": "Jonas Quickfinger",
-      "ability": "Spend your turn to discard a starting performer to take its resource times its power dots",
+      "ability": "Each time a Haunting performer leaves your stage, collect 2 of its resource",
       "startingHearts": 3,
       "image": "cards/Trainer Jonas Quickfinger.webp"
     },

@@ -30,6 +30,8 @@ const SLOT_NAMES = ['Performer 1', 'Performer 2', 'Performer 3', 'Performer 4', 
 // Mirrors CELESTINE_MAX_STARS / CELESTINE_STAR_COST in engine/engine.js — the
 // server stays authoritative, this just renders the same offer it will accept.
 const CELESTINE = { maxStars: 2, starCost: 2 };
+// Mirrors AMARA_MAX_MOVES in engine/engine.js.
+const AMARA = { maxMoves: 3 };
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -574,9 +576,6 @@ function turnBarHtml(s, p) {
       ? 'Amara the Reliquary: now click the card to move that heart onto.'
       : 'Amara the Reliquary: click one of your cards with a ❤ to move it from.'}</span>`);
     buttons.push(`<button id="cancelMode">Cancel</button>`);
-  } else if (ui.mode === 'jonasDiscard') {
-    buttons.push(`<span class="yourturn">Jonas Quickfinger: click one of your Performers below to discard it and take its resource × its power dots.</span>`);
-    buttons.push(`<button id="cancelMode">Cancel</button>`);
   } else if (ui.mode === 'wendellTake') {
     buttons.push(`<span class="yourturn">Wendell the Propmaster: click a card below to take it from the discard pile.</span>`);
     buttons.push(`<button id="cancelMode">Cancel</button>`);
@@ -588,10 +587,6 @@ function turnBarHtml(s, p) {
         const n = dancerCountOf(p);
         buttons.push(`<button id="tomassoBtn" ${n >= 1 ? '' : 'disabled'} title="${n < 1 ? 'You need at least 1 Dancer on your board' : ''}">Tomasso the Terrible: roll ${n} Tomato ${n === 1 ? 'die' : 'dice'} (uses turn)</button>`);
       }
-      if (trainers.includes('Jonas-Quickfinger')) {
-        const hasPerformer = p.slots.slice(0, 5).some(Boolean);
-        buttons.push(`<button id="jonasBtn" ${hasPerformer ? '' : 'disabled'} title="${hasPerformer ? '' : 'You have no active Performers'}">Jonas Quickfinger: discard a Performer for resources (uses turn)</button>`);
-      }
       if (trainers.includes('Wendell-the-Propmaster')) {
         const hasOption = s.discard.some((id) => card(id).cardType === 'prop' || card(id).cardType === 'backdrop');
         buttons.push(`<button id="wendellBtn" ${hasOption ? '' : 'disabled'} title="${hasOption ? '' : 'No Props or Backdrops are in the discard pile'}">Wendell the Propmaster: take a Prop/Backdrop from discard (uses turn)</button>`);
@@ -602,9 +597,10 @@ function turnBarHtml(s, p) {
           buttons.push(`<button class="small" data-celestine="${n}" ${p.coins >= cost ? '' : 'disabled'}>Celestine: buy ${n}⭐ (${cost}🪙)</button>`);
         }
       }
-      if (trainers.includes('Amara-the-Reliquary') && !t.amaraUsed) {
+      if (trainers.includes('Amara-the-Reliquary') && (t.amaraMoves || 0) < AMARA.maxMoves) {
         const has = anyMovableHeart(p);
-        buttons.push(`<button id="amaraMoveBtn" ${has ? '' : 'disabled'} title="${has ? '' : 'None of your cards currently hold a heart'}">Amara the Reliquary: move a heart (free)</button>`);
+        const left = AMARA.maxMoves - (t.amaraMoves || 0);
+        buttons.push(`<button id="amaraMoveBtn" ${has ? '' : 'disabled'} title="${has ? '' : 'None of your cards currently hold a heart'}">Amara the Reliquary: rearrange a heart (${left} left, free)</button>`);
       }
     }
     // The Vanishing Valentino's end-of-turn window: the main action is spent,
@@ -689,7 +685,7 @@ function promptHtml(s, p, item) {
     }
     case 'postAcquireDiscard': {
       const labels = {
-        stainglass: 'Discard it (Professor Stainglass) — draw 1 card',
+        stainglass: 'Discard it (Professor Stainglass) — draw 1 per Powerful performer, keep one',
       };
       return promptBox(`
         <div>You just acquired <b>${esc(item.data.cardName)}</b> — keep it, or discard it right now for a Trainer effect?</div>
@@ -697,6 +693,13 @@ function promptHtml(s, p, item) {
           ${item.data.choices.map((ch) => `<button data-postacquire="${esc(ch)}">${labels[ch]}</button>`).join('')}
         </div>
         <button id="postAcquireKeep" class="primary">Keep it</button>`);
+    }
+    case 'stainglassKeep': {
+      return promptBox(`
+        <div>Professor Stainglass drew <b>${item.data.drawn.length}</b> cards — click the one you want to keep. The rest are discarded.</div>
+        <div class="cardrow clickable" id="stainglassKeepRow">
+          ${item.data.drawn.map((id) => cardHtml(id, { size: 'md' })).join('')}
+        </div>`);
     }
     case 'diceResultsReview': {
       return promptBox(`
@@ -810,9 +813,6 @@ function myMatHtml(s, p, pending) {
     if (!amaraMove.from) return (s.hearts[id] || 0) > 0;
     return id !== amaraMove.from && capLeft(p, id) > 0;
   };
-  // Jonas Quickfinger: highlight any active Performer while the player is
-  // picking one to discard.
-  const jonasEligible = (i, id) => ui.mode === 'jonasDiscard' && i <= 4 && !!id;
 
   return `<section class="mymat">
     <div class="mat-head">
@@ -824,7 +824,7 @@ function myMatHtml(s, p, pending) {
         const sel = r?.picked?.zone === 'slot' && r.picked.index === i;
         const amaraSel = amaraMove && id === amaraMove.from;
         return `
-        <div class="slot ${placing && allowed.includes(i) ? 'highlight' : ''} ${amaraEligible(id) ? 'highlight' : ''} ${jonasEligible(i, id) ? 'highlight' : ''} ${sel || amaraSel ? 'selected' : ''}" data-slot="${i}">
+        <div class="slot ${placing && allowed.includes(i) ? 'highlight' : ''} ${amaraEligible(id) ? 'highlight' : ''} ${sel || amaraSel ? 'selected' : ''}" data-slot="${i}">
           <span class="slotname">${SLOT_NAMES[i]}</span>
           ${id ? cardHtml(id, { size: 'lg', hearts: s.hearts[id] || 0 }) : '<div class="empty">empty</div>'}
         </div>`;
@@ -920,10 +920,6 @@ function wireGameEvents(s, p, pending) {
     send({ type: 'rearrange', slots: r.slots, reserve: r.reserve });
   });
   document.getElementById('tomassoBtn')?.addEventListener('click', () => send({ type: 'tomassoRoll' }));
-  document.getElementById('jonasBtn')?.addEventListener('click', () => {
-    ui.mode = 'jonasDiscard';
-    render();
-  });
   document.getElementById('wendellBtn')?.addEventListener('click', () => {
     ui.mode = 'wendellTake';
     render();
@@ -935,6 +931,11 @@ function wireGameEvents(s, p, pending) {
     send({ type: 'wendellTakeDiscard', cardId: el.dataset.cardid });
   });
   document.getElementById('valentinoBtn')?.addEventListener('click', () => send({ type: 'valentinoEndDraft' }));
+  document.getElementById('stainglassKeepRow')?.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-cardid]');
+    if (!el || !pending) return;
+    send({ type: 'resolvePending', pendingId: pending.id, cardId: el.dataset.cardid });
+  });
   app.querySelectorAll('[data-celestine]').forEach((b) =>
     b.addEventListener('click', () => send({ type: 'celestineBuyStars', count: +b.dataset.celestine }))
   );
@@ -955,12 +956,6 @@ function wireGameEvents(s, p, pending) {
     }
     if (ui.mode === 'rearrange') return pickForSwap('slot', i);
     if (ui.mode === 'amaraMove' && p.slots[i]) return pickForAmaraMove(p, p.slots[i]);
-    if (ui.mode === 'jonasDiscard' && i <= 4 && p.slots[i]) {
-      const cardId = p.slots[i];
-      ui.mode = null;
-      send({ type: 'jonasDiscard', cardId });
-      return;
-    }
   });
   document.getElementById('myReserve')?.addEventListener('click', (e) => {
     const el = e.target.closest('[data-reserve]');

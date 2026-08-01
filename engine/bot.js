@@ -87,12 +87,20 @@ function resolvePrompt(state, seat, item) {
     // Professor Stainglass: the bot never proactively discards a
     // just-acquired card for this (keeps AI behavior simple and
     // non-regressive — the old engine's bot never used the equivalent
-    // discard ability either). Jonas Quickfinger and Wendell the Propmaster
-    // are never part of this prompt — see the separate 'jonasDiscard' and
-    // 'wendellTakeDiscard' turn actions, which the bot also never
-    // proactively uses, same conservative policy.
+    // discard ability either). Wendell the Propmaster is never part of this
+    // prompt — see the separate 'wendellTakeDiscard' turn action, which the
+    // bot also never proactively uses, same conservative policy.
     case 'postAcquireDiscard':
       return { ...base, choice: 'keep' };
+    // ...but if it somehow got here (a human-seat takeover mid-prompt), keep
+    // whichever drawn card scores best rather than stalling.
+    case 'stainglassKeep': {
+      const best = item.data.drawn.reduce(
+        (a, b) => (scoreCard(state, seat, b) > scoreCard(state, seat, a) ? b : a),
+        item.data.drawn[0]
+      );
+      return { ...base, cardId: best };
+    }
     // Post-dice-roll review: nothing for the bot to decide — just
     // acknowledge and let the round continue. Only meaningful for a human
     // watching the results, so this resolves instantly.

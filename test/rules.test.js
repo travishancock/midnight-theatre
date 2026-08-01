@@ -211,15 +211,35 @@ test('market reset costs 1 coin and deals 4 new cards', () => {
   for (const id of before) assert.ok(s.discard.includes(id));
 });
 
-test('Barnaby Pennywhistle reduces market costs by 1, down to 0 (never the reset)', () => {
+test('Barnaby Pennywhistle: market costs drop 1 per Graceful performer on stage, down to 0 (never the reset)', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
-  s.players[seat].slots[7] = TRAINERS.BARNABY;
-  assert.equal(marketCost(s, seat, 0), 0, 'slot 0 (normally 1 coin) is free with Barnaby');
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.BARNABY;
+  const graceful = db.performers.filter((c) => c.characteristic === 'Graceful').map((c) => c.id);
+
+  // No Graceful performers: Barnaby does nothing at all.
+  assert.equal(marketCost(s, seat, 0), 1, 'no discount without a Graceful performer');
+  assert.equal(marketCost(s, seat, 3), 4);
+
+  // One Graceful performer: -1.
+  p.slots[0] = graceful[0];
+  assert.equal(marketCost(s, seat, 0), 0, 'slot 0 (normally 1 coin) is free');
   assert.equal(marketCost(s, seat, 3), 3);
-  s.players[seat].coins = 1;
-  applyAction(s, { type: 'resetMarket', seat }); // still costs the full 1 coin
-  assert.equal(s.players[seat].coins, 0);
+
+  // Two: -2, and the discount never goes below 0.
+  p.slots[1] = graceful[1];
+  assert.equal(marketCost(s, seat, 3), 2);
+  assert.equal(marketCost(s, seat, 0), 0, 'clamped at 0, never negative');
+
+  // Reserve Graceful performers never count (the active-performer rule).
+  p.reserve.push(graceful[2], graceful[3]);
+  assert.equal(marketCost(s, seat, 3), 2, 'reserve performers do not add to the discount');
+
+  // The 1-coin market reset is unaffected either way.
+  p.coins = 1;
+  applyAction(s, { type: 'resetMarket', seat });
+  assert.equal(p.coins, 0);
 });
 
 test('Barnaby Pennywhistle: a free (0-coin) market slot still costs the turn to acquire', () => {
@@ -227,6 +247,7 @@ test('Barnaby Pennywhistle: a free (0-coin) market slot still costs the turn to 
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.BARNABY;
+  p.slots[0] = db.performers.find((c) => c.characteristic === 'Graceful').id; // powers the discount
   p.coins = 0;
   s.market = db.performers.slice(20, 24).map((c) => c.id); // pin to performers
   applyAction(s, { type: 'buyMarket', seat, index: 0 });
@@ -503,30 +524,52 @@ test('Favor timing: "1st" is usable turn 1 or any later turn (never expires); "2
   assert.deepEqual(eligibleFavors(s, seat), [favor1, favor2]);
 });
 
-test('Maximillian may chain market buys but not draft after buying; prices stay frozen until the turn ends', () => {
+test('Maximillian: drafting earns one market buy; a market buy alone earns nothing and cannot chain', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.MAXIMILLIAN;
   p.coins = 10;
   s.market = db.performers.slice(30, 34).map((c) => c.id); // pin to performers
-  const slot1Card = s.market[1];
-  applyAction(s, { type: 'buyMarket', seat, index: 0 }); // costs 1
+
+  // Buying as the main action grants nothing extra — the turn just ends.
+  applyAction(s, { type: 'buyMarket', seat, index: 0 });
   assert.equal(p.coins, 9);
-  assert.equal(s.turn.done, false, 'turn stays open');
-  assert.equal(s.market[0], null, 'the sold slot sits empty, not refilled mid-turn');
-  assert.equal(s.market[1], slot1Card, 'other slots keep their original card in place');
-  assert.throws(() => applyAction(s, { type: 'acquireDraft', seat, cardId: s.draftRow[0] }));
-  assert.throws(
-    () => applyAction(s, { type: 'buyMarket', seat, index: 0 }),
-    /already been sold/,
-    'the emptied slot cannot be bought again this turn'
-  );
-  applyAction(s, { type: 'buyMarket', seat, index: 1 }); // still costs its original 2, not discounted
-  assert.equal(p.coins, 7, 'slot 1 cost its original 2 coins, unaffected by slot 0 selling out earlier this turn');
+  assert.notEqual(s.turn?.seat, seat, 'a plain market buy ends the turn — buys do not chain');
+});
+
+test('Maximillian: the bonus buy keeps prices frozen and cannot be spent on a second draft', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.MAXIMILLIAN;
+  p.coins = 10;
+  s.market = db.performers.slice(30, 34).map((c) => c.id);
+  s.draftRow = db.performers.slice(40, 45).map((c) => c.id);
+  const slot1Card = s.market[1];
+
+  applyAction(s, { type: 'acquireDraft', seat, cardId: s.draftRow[0] });
+  assert.equal(s.turn.done, false, 'the turn stays open for the earned market buy');
+  assert.equal(s.turn.bonusBuys, 1);
+  assert.throws(() => applyAction(s, { type: 'acquireDraft', seat, cardId: s.draftRow[0] }), /already acquired/);
+  assert.equal(s.market[1], slot1Card, 'market slots keep their original cards mid-turn');
+
+  applyAction(s, { type: 'buyMarket', seat, index: 1 }); // original price of 2
+  assert.equal(p.coins, 8, 'paid the unshifted slot-1 price');
+  assert.notEqual(s.turn?.seat, seat, 'the earned buy is spent, so the turn ends');
+  assert.ok(!s.market.includes(null), 'the market refilled once the turn actually ended');
+});
+
+test('Maximillian: the earned market buy may simply be declined', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.MAXIMILLIAN;
+  s.draftRow = db.performers.slice(40, 45).map((c) => c.id);
+  applyAction(s, { type: 'acquireDraft', seat, cardId: s.draftRow[0] });
+  assert.equal(s.turn.done, false);
   applyAction(s, { type: 'endTurn', seat });
-  assert.ok(s.turn === null || s.turn.seat !== seat);
-  assert.ok(!s.market.includes(null), 'the market fully refilled once the turn actually ended');
+  assert.notEqual(s.turn?.seat, seat, 'declining just ends the turn');
 });
 
 test('Madame Coeur: drafted/placed cards start at their printed maximum heart count', () => {
@@ -619,23 +662,47 @@ test('Auric the Alchemist: converting received hearts into coins skips heart pla
   assert.ok(!s.pending.some((x) => x.kind === 'heartAssign'), 'no heart-placement prompt — they were converted, not kept as hearts');
 });
 
-test('Professor Stainglass: acquired cards may be immediately discarded to draw 1', () => {
+test('Professor Stainglass: discard an acquired card to draw 1 per Powerful performer, then keep exactly one', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.STAINGLASS;
-  const perf = performer((c) => c.startingHearts != null);
+  // Two Powerful performers on stage -> draws 2, keeps 1.
+  const powerful = db.performers.filter((c) => c.characteristic === 'Powerful').map((c) => c.id);
+  p.slots[1] = powerful[0];
+  p.slots[2] = powerful[1];
+  const perf = db.performers.find((c) => !powerful.slice(0, 2).includes(c.id)).id;
   s.draftRow[0] = perf;
-  const deckTop = s.deck[s.deck.length - 1];
+  const deckTop = [s.deck[s.deck.length - 1], s.deck[s.deck.length - 2]];
   applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
   assert.equal(p.slots[0], perf, 'placed normally first');
   const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
   assert.ok(offer, 'expected a postAcquireDiscard prompt');
   assert.deepEqual(offer.data.choices, ['stainglass']);
   applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, choice: 'stainglass' });
-  assert.ok(s.discard.includes(perf), 'discarded');
-  assert.equal(p.slots[0], null);
-  assert.ok(p.reserve.includes(deckTop), 'drew the top card into reserve');
+  assert.ok(s.discard.includes(perf), 'the acquired card was discarded');
+
+  const keep = s.pending.find((x) => x.kind === 'stainglassKeep');
+  assert.ok(keep, 'expected a keep-one prompt for the 2 drawn cards');
+  assert.deepEqual(keep.data.drawn.slice().sort(), deckTop.slice().sort());
+  const kept = keep.data.drawn[0];
+  const dropped = keep.data.drawn[1];
+  applyAction(s, { type: 'resolvePending', seat, pendingId: keep.id, cardId: kept });
+  const owned = [...p.slots.filter(Boolean), ...p.reserve];
+  assert.ok(owned.includes(kept), 'the kept card entered play like a normal acquisition');
+  assert.ok(s.discard.includes(dropped), 'the card not kept was discarded');
+});
+
+test('Professor Stainglass: with no Powerful performer the trade is not offered at all', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.STAINGLASS;
+  const perf = performer((c) => c.characteristic !== 'Powerful');
+  s.draftRow[0] = perf;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
+  assert.ok(!s.pending.some((x) => x.kind === 'postAcquireDiscard'), 'nothing to draw, so no offer');
+  assert.equal(p.slots[0], perf);
 });
 
 test('Professor Stainglass: "keep" leaves the card exactly as placed', () => {
@@ -643,7 +710,8 @@ test('Professor Stainglass: "keep" leaves the card exactly as placed', () => {
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.STAINGLASS;
-  const perf = performer((c) => c.startingHearts != null);
+  p.slots[1] = db.performers.find((c) => c.characteristic === 'Powerful').id; // so the offer appears
+  const perf = performer((c) => c.characteristic !== 'Powerful');
   s.draftRow[0] = perf;
   applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
   const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
@@ -1480,11 +1548,12 @@ test('trainerActive scans all 3 trainer slots — up to 3 Trainers active at onc
   p.slots[5] = TRAINERS.BARNABY;
   p.slots[6] = TRAINERS.MAXIMILLIAN;
   p.slots[7] = TRAINERS.COEUR;
+  p.slots[0] = db.performers.find((c) => c.characteristic === 'Graceful').id;
   assert.equal(marketCost(s, seat, 0), 0, 'Barnaby active from slot 5');
   s.players[seat].coins = 10;
-  s.market = db.performers.slice(40, 44).map((c) => c.id); // pin to plain performers
-  applyAction(s, { type: 'buyMarket', seat, index: 0 });
-  assert.equal(s.turn.open, true, 'Maximillian active from slot 6 keeps the turn open after a buy');
+  s.draftRow = db.performers.slice(40, 45).map((c) => c.id);
+  applyAction(s, { type: 'acquireDraft', seat, cardId: s.draftRow[1] });
+  assert.equal(s.turn.open, true, 'Maximillian active from slot 6 earns a market buy after a draft');
 });
 
 test('acquiring a Trainer places it straight into slot 8 (Trainer-only) when open', () => {
@@ -1577,44 +1646,65 @@ test('Delphine Silvertongue doubles a spent Press Pass\'s private roll count', (
   assert.ok(s.discard.includes('PressPass-3-1'));
 });
 
-test('Jonas Quickfinger: spend the turn to discard a Performer for its resource × power dots', () => {
+test('Jonas Quickfinger: a Haunting performer leaving the stage collects 2 of its resource', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.JONAS;
   p.coins = 0;
-  const perf = performer((c) => c.resource === 'Coin' && c.powerDots >= 2);
-  const dots = card(perf).powerDots;
-  p.slots[0] = perf;
-  applyAction(s, { type: 'jonasDiscard', seat, cardId: perf });
-  assert.equal(p.coins, dots, `collects ${dots} coins — the discarded performer's power dots, not a flat 1`);
-  assert.equal(p.slots[0], null, 'the performer is discarded, not kept');
-  assert.ok(s.discard.includes(perf));
-  assert.notEqual(s.turn?.seat, seat, 'using the ability ended the turn — play moved to the next stand');
+  const haunting = performer((c) => c.characteristic === 'Haunting' && c.resource === 'Coin');
+  p.slots[0] = haunting;
+  s.hearts[haunting] = 0; // already at 0, so the next hit discards it
+  p.roundStars = 5; // make sure this seat takes the Trophy, so fatigue lands here
+  assignTrophy(s); // trophy fatigue hits every slot -> the performer leaves play
+  assert.equal(p.slots[0], null, 'the performer left the stage');
+  assert.equal(p.coins, 2, 'collected 2 of its printed resource, regardless of power dots');
 });
 
-test('Jonas Quickfinger: requires Jonas active and a genuine active Performer target', () => {
+test('Jonas Quickfinger: only Haunting performers trigger it, and only for its own holder', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
-  const perf = performer(() => true);
-  p.slots[0] = perf;
-  assert.throws(
-    () => applyAction(s, { type: 'jonasDiscard', seat, cardId: perf }),
-    /Jonas Quickfinger is not your active Trainer/
-  );
   p.slots[7] = TRAINERS.JONAS;
-  assert.throws(
-    () => applyAction(s, { type: 'jonasDiscard', seat, cardId: 'Prop-Graceful' }),
-    /not one of your active Performers/
-  );
-  p.reserve = [db.performers.find((c) => c.id !== perf).id];
-  assert.throws(
-    () => applyAction(s, { type: 'jonasDiscard', seat, cardId: p.reserve[0] }),
-    /not one of your active Performers/,
-    'a reserved performer is not eligible, only ones actually on the mat'
-  );
+  p.coins = 0;
+  const plain = performer((c) => c.characteristic !== 'Haunting' && c.resource === 'Coin');
+  p.slots[0] = plain;
+  s.hearts[plain] = 0;
+  p.roundStars = 5;
+  assignTrophy(s);
+  assert.equal(p.slots[0], null, 'it did leave the stage');
+  assert.equal(p.coins, 0, 'non-Haunting performers do not trigger Jonas');
+
+  const s2 = freshGame(2);
+  const seat2 = currentSeat(s2);
+  const other2 = s2.players.find((x) => x.seat !== seat2).seat;
+  s2.players[seat2].slots[7] = TRAINERS.JONAS;
+  s2.players[seat2].coins = 0;
+  const h2 = performer((c) => c.characteristic === 'Haunting' && c.resource === 'Coin');
+  s2.players[other2].slots[0] = h2;
+  s2.hearts[h2] = 0;
+  s2.players[other2].roundStars = 5; // the OTHER player wins, so their card takes the fatigue
+  assignTrophy(s2);
+  assert.equal(s2.players[other2].slots[0], null, "the other player's performer left play");
+  assert.equal(s2.players[seat2].coins, 0, "another player's performer leaving is not your trigger");
 });
+
+test('Jonas Quickfinger: a performer merely bumped into reserve does NOT trigger it', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.coins = 0;
+  const haunting = db.performers.filter((c) => c.characteristic === 'Haunting').map((c) => c.id);
+  p.slots = [haunting[0], haunting[1], haunting[2], haunting[3], haunting[4], null, null, TRAINERS.JONAS];
+  const extra = db.performers.find((c) => !haunting.slice(0, 5).includes(c.id)).id;
+  s.draftRow = [extra, ...s.draftRow.slice(1)];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: extra });
+  const place = s.pending.find((x) => x.kind === 'placement');
+  applyAction(s, { type: 'resolvePending', seat, pendingId: place.id, slot: 0 });
+  assert.ok(p.reserve.includes(haunting[0]), 'it was bumped to reserve, still owned');
+  assert.equal(p.coins, 0, 'leaving the stage for your own reserve is not leaving play');
+});
+
 
 test('Wendell the Propmaster: spend the turn to take any Prop or Backdrop from the discard pile, full-hearted', () => {
   const s = freshGame(2);
@@ -1760,25 +1850,48 @@ test('Ezra the Sleight-of-Hand: a leftover Resource card resolves its effect and
   assert.ok(!p.reserve.includes(leftover));
 });
 
-test('Amara the Reliquary: move a heart from one of your cards to another, once per turn', () => {
+test('Amara the Reliquary: rearrange up to 3 hearts per turn, across mat and reserve cards', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.AMARA;
-  const perfA = performer((c) => c.maxHearts >= 2);
-  const perfB = performer((c) => c.id !== perfA && c.maxHearts >= 1);
+  const perfA = performer((c) => c.maxHearts >= 3);
+  const perfB = performer((c) => c.id !== perfA && c.maxHearts >= 3);
   p.slots[0] = perfA;
   p.slots[1] = perfB;
-  s.hearts[perfA] = 2;
+  s.hearts[perfA] = 3;
   s.hearts[perfB] = 0;
-  applyAction(s, { type: 'amaraMoveHeart', seat, fromCardId: perfA, toCardId: perfB });
-  assert.equal(s.hearts[perfA], 1, 'source card lost a heart');
-  assert.equal(s.hearts[perfB], 1, 'destination card gained a heart');
+
+  for (let i = 0; i < 3; i++) {
+    applyAction(s, { type: 'amaraMoveHeart', seat, fromCardId: perfA, toCardId: perfB });
+  }
+  assert.equal(s.hearts[perfA], 0, 'source gave up 3 hearts');
+  assert.equal(s.hearts[perfB], 3, 'destination received all 3');
   assert.throws(
-    () => applyAction(s, { type: 'amaraMoveHeart', seat, fromCardId: perfA, toCardId: perfB }),
-    /already used/,
-    'only usable once per turn'
+    () => applyAction(s, { type: 'amaraMoveHeart', seat, fromCardId: perfB, toCardId: perfA }),
+    /already rearranged 3 hearts/,
+    'capped at 3 moves per turn'
   );
+});
+
+test('Amara the Reliquary: reserve cards are eligible on both ends (her documented exception)', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.AMARA;
+  const onMat = performer((c) => c.maxHearts >= 2);
+  // Keep the Performer row full so the reserve card legally stays in reserve.
+  const fillers = db.performers.filter((c) => c.id !== onMat && c.maxHearts >= 1).slice(0, 5).map((c) => c.id);
+  p.slots = [onMat, ...fillers.slice(0, 4), null, null, TRAINERS.AMARA];
+  const inReserve = fillers[4];
+  p.reserve = [inReserve];
+  s.hearts[onMat] = 2;
+  s.hearts[inReserve] = 0;
+  applyAction(s, { type: 'amaraMoveHeart', seat, fromCardId: onMat, toCardId: inReserve });
+  assert.equal(s.hearts[inReserve], 1, 'a reserve card can receive a heart');
+  applyAction(s, { type: 'amaraMoveHeart', seat, fromCardId: inReserve, toCardId: onMat });
+  assert.equal(s.hearts[inReserve], 0, 'and can give one back');
+  assert.equal(s.hearts[onMat], 2);
 });
 
 test('Amara the Reliquary: cannot move a heart from an empty card or onto a full one', () => {

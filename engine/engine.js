@@ -92,6 +92,14 @@ export const TOKEN_SUPPLY = { hearts: 90, stars: 30, coins: 80 };
 export const CELESTINE_MAX_STARS = 2;
 export const CELESTINE_STAR_COST = 2;
 
+// Amara the Reliquary: how many individual heart relocations she may make in
+// one turn. Mirrored by the client (see AMARA in client/src/main.js).
+export const AMARA_MAX_MOVES = 3;
+
+// Jonas Quickfinger: units of its printed resource collected each time one of
+// your Haunting performers leaves play entirely.
+const JONAS_RESOURCE_UNITS = 2;
+
 const ALT_SOLO_TROPHY_GOAL = 5;
 const ALT_SOLO_LOSS_LIMIT = 5;
 const ALT_SOLO_DRAFT_ROW_SIZE = 5;
@@ -181,12 +189,20 @@ export function createGame({ players, seed, solo, altSolo }) {
 function newTurn(seat, isBonus = false, bonusTiming = null) {
   return {
     seat, mainDone: false, done: false, open: false, buys: 0, isBonus, bonusTiming,
-    curioDone: false, celestineUsed: false, amaraUsed: false,
+    curioDone: false, celestineUsed: false,
+    // Amara the Reliquary: up to AMARA_MAX_MOVES individual heart relocations
+    // per turn, counted rather than a single-use flag.
+    amaraMoves: 0,
     // The Vanishing Valentino's end-of-turn window: opened once per turn by
     // advance() after the main action resolves, closed by either
     // valentinoEndDraft or endTurn. Kept separate from `open` (Maximillian's
     // keep-buying flag) so holding Valentino never grants extra market buys.
     valentinoWindow: false, valentinoOffered: false,
+    // Maximillian the Magnate: each draft-row draft grants one bonus market
+    // buy. Counted rather than boolean so a Favor chain of several drafts in
+    // one turn window accrues one bonus buy each, and so a market buy can
+    // never grant another (they don't chain).
+    bonusBuys: 0,
   };
 }
 
@@ -268,9 +284,14 @@ export function totalCapacityLeft(state, seat) {
 
 export function marketCost(state, seat, index) {
   let cost = index + 1;
-  // Barnaby's discount applies fully, even down to 0 coins (a free-to-take
-  // market slot still costs the player's turn to acquire, just no coins).
-  if (trainerActive(state, seat, TRAINERS.BARNABY)) cost = Math.max(0, cost - 1);
+  // Barnaby Pennywhistle: -1 coin per Graceful performer on stage, so the
+  // discount scales with the troupe rather than being a flat -1 (and is
+  // nothing at all with no Graceful performers). Applies fully, even down to
+  // 0 coins — a free-to-take market slot still costs the player's turn to
+  // acquire, just no coins.
+  if (trainerActive(state, seat, TRAINERS.BARNABY)) {
+    cost = Math.max(0, cost - countActivePerformers(state, seat, (c) => c.characteristic === 'Graceful'));
+  }
   return cost;
 }
 
@@ -377,6 +398,24 @@ function heartHit(state, seat, slotIdx, why) {
   state.discard.push(id);
   log(state, `${p.name}'s ${card(id).name} (${SLOT_NAMES[slotIdx]}) loses its last heart and leaves the stage! (${why})`);
   if (id === TRAINERS.BARRE) relocateReserveOnBarreLeaving(state, seat);
+  onCardLeavesPlay(state, seat, id, slotIdx <= 4);
+}
+
+// Fires whenever one of this seat's cards leaves play entirely (discarded),
+// with `fromStage` true only if it was in an active Performer slot (0-4).
+//
+// Jonas Quickfinger: "Each time a Haunting performer leaves your stage,
+// collect 2 of its resource." Deliberately scoped to leaving *play* — a
+// performer merely bumped into your own reserve is still yours and does not
+// trigger, which is what stops the payout being farmed by cycling the same
+// card on and off the stage (Madame Barre would make that trivial otherwise).
+function onCardLeavesPlay(state, seat, cardId, fromStage) {
+  if (!fromStage) return;
+  const c = card(cardId);
+  if (c.cardType !== 'performer' || c.characteristic !== 'Haunting') return;
+  if (!trainerActive(state, seat, TRAINERS.JONAS)) return;
+  log(state, `${nameOf(state, seat)}'s ${c.name} leaves the stage — Jonas Quickfinger collects ${JONAS_RESOURCE_UNITS} ${c.resource.toLowerCase()}(s).`);
+  collectResourceUnits(state, seat, c, JONAS_RESOURCE_UNITS, 'Jonas Quickfinger');
 }
 
 // ---------------------------------------------------------------------------
@@ -476,10 +515,15 @@ export function hasFullSet(state, seat, boostKind) {
 // Single-match cards (a `boosts` list of length 1) have no such gate.
 function boostCount(state, seat, performer) {
   let n = 0;
-  for (const slotIdx of [5, 6]) {
+  // Scan every mat slot, not just the natural Backdrop/Prop pair: Madame
+  // Barre can place an acquired card in any of the 8 slots, and a Prop or
+  // Backdrop sitting in a non-traditional slot is still equipped and still
+  // boosts. (Reserve is excluded — a card in reserve isn't in play.)
+  for (let slotIdx = 0; slotIdx < 8; slotIdx++) {
     const id = state.players[seat].slots[slotIdx];
     if (!id) continue;
     const b = card(id);
+    if (b.cardType !== 'prop' && b.cardType !== 'backdrop') continue;
     if (!b.boosts) continue;
     const key = b.boostKind === 'characteristic' ? performer.characteristic : performer.type;
     if (!b.boosts.includes(key)) continue;
@@ -665,7 +709,14 @@ function placeAcquiredCard(state, seat, cardId, slot) {
 function offerPostAcquireDiscard(state, seat, cardId) {
   const c = card(cardId);
   const choices = [];
-  if (trainerActive(state, seat, TRAINERS.STAINGLASS)) choices.push('stainglass');
+  // Stainglass draws 1 per Powerful performer on stage, so with none there is
+  // nothing the trade could produce — don't offer it at all.
+  if (
+    trainerActive(state, seat, TRAINERS.STAINGLASS) &&
+    countActivePerformers(state, seat, (x) => x.characteristic === 'Powerful') > 0
+  ) {
+    choices.push('stainglass');
+  }
   if (choices.length === 0) return;
   pushPending(state, 'postAcquireDiscard', seat, { cardId, cardName: c.name, cardType: c.cardType, choices });
 }
@@ -683,6 +734,7 @@ function discardOwnedCard(state, seat, cardId) {
   state.hearts[cardId] = 0;
   state.discard.push(cardId);
   if (cardId === TRAINERS.BARRE) relocateReserveOnBarreLeaving(state, seat);
+  onCardLeavesPlay(state, seat, cardId, slotIdx >= 0 && slotIdx <= 4);
 }
 
 // Madame Barre: while active, acquired cards may be freely parked in reserve
@@ -780,27 +832,44 @@ function collectResourceUnits(state, seat, c, amount, reason) {
   }
 }
 
-// Tomasso the Terrible: how many Dancer performers this seat has on board —
-// determines how many Tomato dice they may roll (at least 1 required).
-function dancerCount(state, seat) {
+// THE ACTIVE-PERFORMER RULE
+// -------------------------
+// Whenever a Trainer's ability keys off "your performers", it means only the
+// ones actually on stage — mat slots 0-4. Cards in reserve are held, not
+// performing, and never count. Every performer-counting ability routes
+// through these two helpers so the rule can't drift apart card by card.
+//
+// There are exactly two deliberate exceptions, both written into the
+// Trainer's own printed text rather than handled here:
+//   - Bellacanto the Choirmistress: her Singers in reserve also collect on a
+//     matching Collection Die (see resolveCollectionDie's reserve branch).
+//   - Amara the Reliquary: she may move hearts on any of her cards, reserve
+//     included (see the 'amaraMoveHearts' action).
+export function activePerformers(state, seat) {
   const p = state.players[seat];
-  let n = 0;
+  const out = [];
   for (let i = 0; i < 5; i++) {
     const id = p.slots[i];
-    if (id && card(id).type === 'Dancer') n++;
+    if (id && card(id).cardType === 'performer') out.push(id);
   }
-  return n;
+  return out;
 }
 
-// Ezra the Sleight-of-Hand: does this seat have at least one Illusionist on
-// their board?
+// Count active performers matching a predicate over the card data — e.g.
+// (c) => c.type === 'Dancer', or (c) => c.characteristic === 'Graceful'.
+export function countActivePerformers(state, seat, pred) {
+  return activePerformers(state, seat).filter((id) => pred(card(id))).length;
+}
+
+// Tomasso the Terrible: how many Dancer performers this seat has on stage —
+// determines how many Tomato dice they may roll (at least 1 required).
+function dancerCount(state, seat) {
+  return countActivePerformers(state, seat, (c) => c.type === 'Dancer');
+}
+
+// Ezra the Sleight-of-Hand: at least one Illusionist on stage?
 function hasIllusionist(state, seat) {
-  const p = state.players[seat];
-  for (let i = 0; i < 5; i++) {
-    const id = p.slots[i];
-    if (id && card(id).type === 'Illusionist') return true;
-  }
-  return false;
+  return countActivePerformers(state, seat, (c) => c.type === 'Illusionist') > 0;
 }
 
 function placeInSlot(state, seat, cardId, slot) {
@@ -811,11 +880,19 @@ function placeInSlot(state, seat, cardId, slot) {
     log(state, `${p.name}'s ${card(old).name} moves to reserve.`);
   }
   p.slots[slot] = cardId;
-  // Madame Coeur: newly placed/drafted cards start at their printed maximum
-  // heart count instead of their normal starting-heart value.
+  setStartingHearts(state, seat, cardId);
+  const startFull = trainerActive(state, seat, TRAINERS.COEUR);
+  log(state, `${p.name} places ${card(cardId).name} in ${SLOT_NAMES[slot]}${startFull ? ' at full hearts (Madame Coeur)' : ''}.`);
+}
+
+// Give a newly acquired card its printed starting hearts. Applies wherever it
+// lands — a card sent straight to reserve is just as "acquired" as one placed
+// on the mat, and arrives with the same hearts filled in, so it's ready to go
+// the moment it's promoted into a slot.
+// Madame Coeur: acquired cards start at their printed maximum instead.
+function setStartingHearts(state, seat, cardId) {
   const startFull = trainerActive(state, seat, TRAINERS.COEUR);
   state.hearts[cardId] = startFull ? maxHearts(state, seat, cardId) : (card(cardId).startingHearts ?? 0);
-  log(state, `${p.name} places ${card(cardId).name} in ${SLOT_NAMES[slot]}${startFull ? ' at full hearts (Madame Coeur)' : ''}.`);
 }
 
 // A card drawn straight from the deck (currently only via the "Card"
@@ -1206,7 +1283,10 @@ function advance(state) {
         state.turn.done &&
         !state.turn.valentinoOffered &&
         state.draftRow.length > 0 &&
-        trainerActive(state, state.turn.seat, TRAINERS.VALENTINO)
+        trainerActive(state, state.turn.seat, TRAINERS.VALENTINO) &&
+        // Gated on a Dramatic performer on stage, so the window only opens
+        // when the ability is actually usable rather than as a dead prompt.
+        countActivePerformers(state, state.turn.seat, (c) => c.characteristic === 'Dramatic') > 0
       ) {
         state.turn.valentinoOffered = true;
         state.turn.valentinoWindow = true;
@@ -1393,11 +1473,11 @@ function resolveGhostRoll(state, seat) {
     acquireCard(state, seat, cardId, null);
     state.turn.mainDone = true;
     state.turn.buys = (state.turn.buys || 0) + 1;
-    if (trainerActive(state, seat, TRAINERS.MAXIMILLIAN)) {
-      state.turn.open = true; // may keep buying — driver rolls again
-    } else {
-      state.turn.done = true;
-    }
+    // Same as a human's buyMarket: consumes a Maximillian bonus buy if one is
+    // owed, and never grants another.
+    if (state.turn.bonusBuys > 0) state.turn.bonusBuys -= 1;
+    state.turn.open = state.turn.bonusBuys > 0;
+    state.turn.done = !state.turn.open;
     return;
   }
 
@@ -1417,10 +1497,16 @@ function resolveGhostRoll(state, seat) {
   log(state, `${p.name} (Ghost) drafts ${c.name} for free.`);
   acquireCard(state, seat, cardId, null);
   state.turn.mainDone = true;
+  // Maximillian: a Ghost's draft earns a market buy too, taken by rolling
+  // again (a buyMarket face consumes it; anything else simply forfeits it).
+  if (trainerActive(state, seat, TRAINERS.MAXIMILLIAN)) {
+    state.turn.bonusBuys += 1;
+    state.turn.open = true;
+  }
   if (face.again) {
     // Extra roll granted — the turn continues, offering a fresh main action.
     state.turn.mainDone = false;
-  } else {
+  } else if (!state.turn.open) {
     state.turn.done = true;
   }
 }
@@ -1458,7 +1544,15 @@ export function applyAction(state, action) {
       log(state, `${nameOf(state, seat)} drafts ${c.name} for free.`);
       acquireCard(state, seat, action.cardId, action.slot ?? null);
       state.turn.mainDone = true;
-      state.turn.done = true;
+      // Maximillian the Magnate: drafting a card also earns one market buy,
+      // so the turn stays open for it (declined via endTurn).
+      if (trainerActive(state, seat, TRAINERS.MAXIMILLIAN)) {
+        state.turn.bonusBuys += 1;
+        state.turn.open = true;
+        log(state, `${nameOf(state, seat)} may also buy one card from the market (Maximillian the Magnate).`);
+      } else {
+        state.turn.done = true;
+      }
       break;
     }
     case 'buyMarket': {
@@ -1480,11 +1574,11 @@ export function applyAction(state, action) {
       acquireCard(state, seat, cardId, action.slot ?? null);
       state.turn.mainDone = true;
       state.turn.buys++;
-      if (trainerActive(state, seat, TRAINERS.MAXIMILLIAN)) {
-        state.turn.open = true; // Maximillian: may keep buying, must end turn explicitly
-      } else {
-        state.turn.done = true;
-      }
+      // A market buy consumes a Maximillian bonus buy if one is owed, and
+      // never grants another — only drafting earns them, so buys can't chain.
+      if (state.turn.bonusBuys > 0) state.turn.bonusBuys -= 1;
+      state.turn.open = state.turn.bonusBuys > 0;
+      state.turn.done = !state.turn.open;
       break;
     }
     case 'resetMarket': {
@@ -1552,27 +1646,6 @@ export function applyAction(state, action) {
       state.turn.done = true;
       break;
     }
-    // Jonas Quickfinger: spend your whole turn to discard one of your active
-    // Performers and take that many units of its printed resource, where
-    // "that many" is the discarded Performer's power dots (1-4). A straight
-    // cash-in, not a Collection Die roll — no boosts apply.
-    case 'jonasDiscard': {
-      requireTurn(state, seat);
-      if (state.turn.mainDone) throw new Error('You have already acted this turn.');
-      if (!trainerActive(state, seat, TRAINERS.JONAS)) throw new Error('Jonas Quickfinger is not your active Trainer.');
-      const p = state.players[seat];
-      const cardId = action.cardId;
-      const slotIdx = p.slots.indexOf(cardId);
-      if (slotIdx < 0 || slotIdx > 4) throw new Error('That is not one of your active Performers.');
-      const c = card(cardId);
-      const amount = c.powerDots;
-      log(state, `${p.name} spends the turn with Jonas Quickfinger — discards ${c.name} for ${amount} ${c.resource.toLowerCase()}${amount === 1 ? '' : 's'}.`);
-      discardOwnedCard(state, seat, cardId);
-      collectResourceUnits(state, seat, c, amount, 'Jonas Quickfinger');
-      state.turn.mainDone = true;
-      state.turn.done = true;
-      break;
-    }
     // Wendell the Propmaster: spend your whole turn to take any Prop or
     // Backdrop card, your choice, straight out of the discard pile. Placed
     // exactly like any other acquisition (natural slot, or the usual
@@ -1609,6 +1682,10 @@ export function applyAction(state, action) {
         throw new Error('You may only end the draft as your turn ends — take your turn action first.');
       }
       if (!trainerActive(state, seat, TRAINERS.VALENTINO)) throw new Error('The Vanishing Valentino is not your active Trainer.');
+      // Gated on having at least one Dramatic performer on stage.
+      if (countActivePerformers(state, seat, (c) => c.characteristic === 'Dramatic') < 1) {
+        throw new Error('You need at least one Dramatic performer on stage to end the draft.');
+      }
       const p = state.players[seat];
       log(state, `${p.name} plays The Vanishing Valentino — the draft ends immediately!`);
       state.discard.push(...state.draftRow);
@@ -1636,14 +1713,18 @@ export function applyAction(state, action) {
       log(state, `${p.name} spends ${cost} coins to buy ${n} star${n > 1 ? 's' : ''} (Celestine the Stargazer).`);
       break;
     }
-    // Amara the Reliquary: to start your turn, you may move a heart from
-    // one of your cards (mat or reserve) to another, capped by the
-    // destination's printed heart capacity.
+    // Amara the Reliquary: to start your turn, you may rearrange up to 3
+    // hearts across your cards — submitted one move at a time, each from one
+    // card to another, capped by the destination's printed capacity. Hearts
+    // are only ever relocated, never created or destroyed, so a player's
+    // total is unchanged. Reserve cards are eligible on both ends: Amara is
+    // one of the two documented exceptions to the active-performer rule (see
+    // activePerformers), because her text says "any of your cards".
     case 'amaraMoveHeart': {
       requireTurn(state, seat);
       if (state.turn.mainDone) throw new Error('This must be used before your main turn action.');
       if (!trainerActive(state, seat, TRAINERS.AMARA)) throw new Error('Amara the Reliquary is not your active Trainer.');
-      if (state.turn.amaraUsed) throw new Error('You have already used that this turn.');
+      if (state.turn.amaraMoves >= AMARA_MAX_MOVES) throw new Error(`You have already rearranged ${AMARA_MAX_MOVES} hearts this turn.`);
       const p = state.players[seat];
       const { fromCardId, toCardId } = action;
       const owned = new Set([...p.slots.filter(Boolean), ...p.reserve]);
@@ -1653,8 +1734,8 @@ export function applyAction(state, action) {
       if (capacityLeft(state, seat, toCardId) < 1) throw new Error('That card has no room for another heart.');
       state.hearts[fromCardId] -= 1;
       state.hearts[toCardId] = (state.hearts[toCardId] || 0) + 1;
-      state.turn.amaraUsed = true;
-      log(state, `${p.name} moves a heart from ${card(fromCardId).name} to ${card(toCardId).name} (Amara the Reliquary).`);
+      state.turn.amaraMoves += 1;
+      log(state, `${p.name} moves a heart from ${card(fromCardId).name} to ${card(toCardId).name} (Amara the Reliquary, ${state.turn.amaraMoves}/${AMARA_MAX_MOVES}).`);
       break;
     }
     // ----- Ghost seats (solo mode) ---------------------------------------
@@ -1765,6 +1846,7 @@ function resolvePendingItem(state, item, action) {
         if (!item.data.allowReserve) throw new Error('That card must be placed, not reserved.');
         removePending(state, item.id);
         p.reserve.push(item.data.cardId);
+        setStartingHearts(state, seat, item.data.cardId); // reserved cards still arrive with their hearts filled in
         log(state, `${p.name} sends ${card(item.data.cardId).name} to reserve instead of placing it.`);
         break;
       }
@@ -1779,6 +1861,7 @@ function resolvePendingItem(state, item, action) {
       if (action.toReserve) {
         removePending(state, item.id);
         p.reserve.push(it.cardId);
+        setStartingHearts(state, seat, it.cardId); // reserved cards still arrive with their hearts filled in
         log(state, `${p.name} sends ${card(it.cardId).name} to reserve instead of placing it.`);
         break;
       }
@@ -1801,11 +1884,39 @@ function resolvePendingItem(state, item, action) {
       removePending(state, item.id);
       if (choice === 'keep') break;
       if (choice === 'stainglass') {
+        // Professor Stainglass: discard the card you just acquired to draw 1
+        // per Powerful performer on stage, then keep exactly one of them —
+        // the rest are discarded. With no Powerful performers there is
+        // nothing to draw, so the offer isn't made in the first place (see
+        // offerPostAcquireDiscard).
+        const n = countActivePerformers(state, seat, (c) => c.characteristic === 'Powerful');
         discardOwnedCard(state, seat, cardId);
-        const drawn = draw(state, 1);
-        p.reserve.push(...drawn);
-        log(state, `${p.name} discards ${cardName} (Professor Stainglass) to draw ${drawn.length ? card(drawn[0]).name : 'nothing — the deck is empty'}.`);
+        const drawn = draw(state, n);
+        if (drawn.length === 0) {
+          log(state, `${p.name} discards ${cardName} (Professor Stainglass) but the deck is empty — nothing drawn.`);
+          break;
+        }
+        log(state, `${p.name} discards ${cardName} (Professor Stainglass) to draw ${drawn.length} card(s) — keeping one.`);
+        if (drawn.length === 1) {
+          intakeDrawnCard(state, seat, drawn[0]);
+          break;
+        }
+        pushPending(state, 'stainglassKeep', seat, { drawn });
       }
+      break;
+    }
+    // Professor Stainglass: pick exactly one of the cards just drawn to keep
+    // (placed like any normal acquisition); the others go to the discard pile.
+    case 'stainglassKeep': {
+      const { drawn } = item.data;
+      const keepId = action.cardId;
+      if (!drawn.includes(keepId)) throw new Error('That is not one of the cards you drew.');
+      removePending(state, item.id);
+      for (const id of drawn) {
+        if (id !== keepId) state.discard.push(id);
+      }
+      log(state, `${p.name} keeps ${card(keepId).name} and discards the rest (Professor Stainglass).`);
+      intakeDrawnCard(state, seat, keepId);
       break;
     }
     case 'heartAssign': {
@@ -1903,8 +2014,11 @@ function resolvePendingItem(state, item, action) {
         log(state, `${p.name} refills ${SLOT_NAMES[a.slot]} with ${card(a.cardId).name} from reserve.`);
       }
       // Refill is mandatory where possible: no empty slot may remain if a
-      // suitable reserve card is still available.
-      if (refillIsNeeded(state, seat)) {
+      // suitable reserve card is still available. Madame Barre is the
+      // exception — her holder MAY fill empty slots at the end of a round but
+      // is never required to, the same standing "reserve is yours to use"
+      // privilege that exempts her from enforceReservePlacement mid-draft.
+      if (!trainerActive(state, seat, TRAINERS.BARRE) && refillIsNeeded(state, seat)) {
         // put everything back and reject
         for (const a of assignments) {
           p.slots[a.slot] = null;
