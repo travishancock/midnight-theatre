@@ -647,9 +647,32 @@ function resolveTomatoDie(state, n, excludeSeat = null) {
 // Acquisition & placement
 // ---------------------------------------------------------------------------
 
-function acquireCard(state, seat, cardId, chosenSlot) {
+// offerStainglass=false is used for cards that arrive as a *consequence* of
+// an acquisition rather than being acquired themselves — the cards a "draw N"
+// Resource produces, Ezra's leftover, and the card Stainglass himself lets
+// you keep. Per the owner's ruling, acquiring a draw-N Resource counts as
+// acquiring one card: the offer is made once, for the Resource, before it
+// resolves, so you can trade the Resource itself away instead of drawing.
+function acquireCard(state, seat, cardId, chosenSlot, { offerStainglass = true } = {}) {
   const p = state.players[seat];
   const c = card(cardId);
+
+  // Professor Stainglass: offered the instant the card is acquired, BEFORE it
+  // is placed or resolved. Deliberately not at placement time — a card sent
+  // to reserve (because the slots are full) or a Resource/Favor/Press Pass
+  // that never occupies a slot at all would otherwise silently skip the offer.
+  // The card is held in the pending until the choice is made.
+  if (offerStainglass && stainglassCanTrade(state, seat)) {
+    pushPending(state, 'postAcquireDiscard', seat, {
+      cardId,
+      cardName: c.name,
+      cardType: c.cardType,
+      choices: ['stainglass'],
+      slot: chosenSlot ?? null,
+    });
+    return;
+  }
+
   switch (c.cardType) {
     case 'resource': {
       state.discard.push(cardId);
@@ -725,28 +748,20 @@ function acquireCard(state, seat, cardId, chosenSlot) {
   }
 }
 
-// Place a freshly-acquired (drafted/bought/drawn) card, then offer any
-// "acquired cards may be immediately discarded to..." Trainer reactions that
-// apply to it (Professor Stainglass). Not used for refills or rearranges —
-// only genuine new acquisitions.
-function placeAcquiredCard(state, seat, cardId, slot, { offerPostAcquire = true } = {}) {
+// Place a freshly-acquired (drafted/bought/drawn) card. Professor
+// Stainglass's offer is NOT made here — it happens at acquisition time in
+// acquireCard, before the card is ever placed.
+function placeAcquiredCard(state, seat, cardId, slot) {
   placeInSlot(state, seat, cardId, slot);
-  if (offerPostAcquire) offerPostAcquireDiscard(state, seat, cardId);
 }
 
-function offerPostAcquireDiscard(state, seat, cardId) {
-  const c = card(cardId);
-  const choices = [];
-  // Stainglass draws 1 per Powerful performer on stage, so with none there is
-  // nothing the trade could produce — don't offer it at all.
-  if (
+// Stainglass draws 1 card per Powerful performer on stage, so with none on
+// stage the trade could produce nothing — don't offer it at all.
+function stainglassCanTrade(state, seat) {
+  return (
     trainerActive(state, seat, TRAINERS.STAINGLASS) &&
     countActivePerformers(state, seat, (x) => x.characteristic === 'Powerful') > 0
-  ) {
-    choices.push('stainglass');
-  }
-  if (choices.length === 0) return;
-  pushPending(state, 'postAcquireDiscard', seat, { cardId, cardName: c.name, cardType: c.cardType, choices });
+  );
 }
 
 // Remove a card the player currently owns (mat slot or reserve) and send it
@@ -940,16 +955,15 @@ function setStartingHearts(state, seat, cardId) {
 // every natural slot for that card's type is already occupied, the player
 // chooses whether to place it anyway (bumping the current occupant to
 // reserve) or send the drawn card straight to reserve instead.
-// offerPostAcquire=false suppresses Professor Stainglass's discard-to-draw
-// offer for this card. Used for the card he lets you keep: only the card you
-// originally acquired may be traded in, so the keep can't be recursively
-// re-traded for another draw (which would otherwise let one acquisition churn
-// the deck indefinitely).
-function intakeDrawnCard(state, seat, cardId, { offerPostAcquire = true } = {}) {
+// Cards arriving as a consequence of something else (a draw-N Resource,
+// Ezra's leftover, Stainglass's own keep) are never themselves "acquired",
+// so they never raise a Stainglass offer — that already happened once, for
+// the acquisition that produced them.
+function intakeDrawnCard(state, seat, cardId) {
   const p = state.players[seat];
   const c = card(cardId);
   if (c.cardType === 'resource' || c.cardType === 'favor' || c.cardType === 'reroll') {
-    acquireCard(state, seat, cardId, null);
+    acquireCard(state, seat, cardId, null, { offerStainglass: false });
     return;
   }
   const allowed = allowedSlots(state, seat, cardId);
@@ -957,14 +971,14 @@ function intakeDrawnCard(state, seat, cardId, { offerPostAcquire = true } = {}) 
     const natural = SLOTS_FOR_TYPE[c.cardType];
     const emptySlot = natural.find((i) => p.slots[i] == null);
     if (emptySlot != null) {
-      placeAcquiredCard(state, seat, cardId, emptySlot, { offerPostAcquire });
+      placeAcquiredCard(state, seat, cardId, emptySlot);
       return;
     }
   }
   // Madame Barre active: always a genuine choice, any of the 8 mat slots
   // (or reserve — see the 'cardResourcePlacement' resolution), even when a
   // natural slot is open.
-  pushPending(state, 'cardResourcePlacement', seat, { cardId, allowedSlots: allowed, noPostAcquire: !offerPostAcquire });
+  pushPending(state, 'cardResourcePlacement', seat, { cardId, allowedSlots: allowed });
 }
 
 // ---------------------------------------------------------------------------
@@ -1921,29 +1935,30 @@ function resolvePendingItem(state, item, action) {
       const slot = action.slot;
       if (!Number.isInteger(slot) || !it.allowedSlots.includes(slot)) throw new Error('Invalid slot for that card.');
       removePending(state, item.id);
-      placeAcquiredCard(state, seat, it.cardId, slot, { offerPostAcquire: !it.noPostAcquire });
+      placeAcquiredCard(state, seat, it.cardId, slot);
       break;
     }
-    // Professor Stainglass: right after acquiring a matching card, its
-    // owner may immediately discard it for that Trainer's stated effect
-    // instead of keeping it. See offerPostAcquireDiscard. (Jonas Quickfinger
-    // has never been part of this prompt — see the separate 'jonasDiscard'
-    // turn action instead; Wendell the Propmaster is a whole-turn action
-    // now — see the 'wendellTakeDiscard' turn action instead.)
+    // Professor Stainglass: raised the instant a card is acquired, before it
+    // is placed or resolved (see acquireCard). The card is held in this
+    // pending meanwhile — 'keep' completes the acquisition it interrupted,
+    // 'stainglass' trades the card away for the draw instead. (Jonas
+    // Quickfinger and Wendell the Propmaster are not part of this prompt —
+    // both are separate start-of-turn/whole-turn actions.)
     case 'postAcquireDiscard': {
       const choice = action.choice;
       if (!item.data.choices.includes(choice) && choice !== 'keep') throw new Error('Invalid choice.');
-      const { cardId, cardName } = item.data;
+      const { cardId, cardName, slot } = item.data;
       removePending(state, item.id);
-      if (choice === 'keep') break;
+      if (choice === 'keep') {
+        // Complete the acquisition that was held pending this decision.
+        acquireCard(state, seat, cardId, slot, { offerStainglass: false });
+        break;
+      }
       if (choice === 'stainglass') {
-        // Professor Stainglass: discard the card you just acquired to draw 1
-        // per Powerful performer on stage, then keep exactly one of them —
-        // the rest are discarded. With no Powerful performers there is
-        // nothing to draw, so the offer isn't made in the first place (see
-        // offerPostAcquireDiscard).
+        // The acquired card is traded away before it ever entered play, so it
+        // goes straight to the discard pile (nothing to remove from the mat).
         const n = countActivePerformers(state, seat, (c) => c.characteristic === 'Powerful');
-        discardOwnedCard(state, seat, cardId);
+        state.discard.push(cardId);
         const drawn = draw(state, n);
         if (drawn.length === 0) {
           log(state, `${p.name} discards ${cardName} (Professor Stainglass) but the deck is empty — nothing drawn.`);
@@ -1951,7 +1966,7 @@ function resolvePendingItem(state, item, action) {
         }
         log(state, `${p.name} discards ${cardName} (Professor Stainglass) to draw ${drawn.length} card(s) — keeping one.`);
         if (drawn.length === 1) {
-          intakeDrawnCard(state, seat, drawn[0], { offerPostAcquire: false });
+          intakeDrawnCard(state, seat, drawn[0]);
           break;
         }
         pushPending(state, 'stainglassKeep', seat, { drawn });
@@ -1969,9 +1984,7 @@ function resolvePendingItem(state, item, action) {
         if (id !== keepId) state.discard.push(id);
       }
       log(state, `${p.name} keeps ${card(keepId).name} and discards the rest (Professor Stainglass).`);
-      // The kept card may not itself be traded in for another draw — only the
-      // card originally acquired can be.
-      intakeDrawnCard(state, seat, keepId, { offerPostAcquire: false });
+      intakeDrawnCard(state, seat, keepId);
       break;
     }
     case 'heartAssign': {

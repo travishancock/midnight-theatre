@@ -703,35 +703,104 @@ test('Auric the Alchemist: converting received hearts into coins skips heart pla
   assert.ok(!s.pending.some((x) => x.kind === 'heartAssign'), 'no heart-placement prompt — they were converted, not kept as hearts');
 });
 
-test('Professor Stainglass: discard an acquired card to draw 1 per Powerful performer, then keep exactly one', () => {
+test('Professor Stainglass: the offer comes at acquisition, before the card is placed', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.STAINGLASS;
-  // Two Powerful performers on stage -> draws 2, keeps 1.
   const powerful = db.performers.filter((c) => c.characteristic === 'Powerful').map((c) => c.id);
   p.slots[1] = powerful[0];
-  p.slots[2] = powerful[1];
+  p.slots[2] = powerful[1]; // 2 Powerful -> draws 2, keeps 1
   const perf = db.performers.find((c) => !powerful.slice(0, 2).includes(c.id)).id;
   s.draftRow[0] = perf;
   const deckTop = [s.deck[s.deck.length - 1], s.deck[s.deck.length - 2]];
-  applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
-  assert.equal(p.slots[0], perf, 'placed normally first');
-  const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
-  assert.ok(offer, 'expected a postAcquireDiscard prompt');
-  assert.deepEqual(offer.data.choices, ['stainglass']);
-  applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, choice: 'stainglass' });
-  assert.ok(s.discard.includes(perf), 'the acquired card was discarded');
 
+  applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
+  const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
+  assert.ok(offer, 'expected the offer');
+  assert.equal(p.slots[0], null, 'the card is held pending the decision, not placed yet');
+  assert.ok(!p.reserve.includes(perf));
+
+  applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, choice: 'stainglass' });
+  assert.ok(s.discard.includes(perf), 'the acquired card was traded away');
   const keep = s.pending.find((x) => x.kind === 'stainglassKeep');
-  assert.ok(keep, 'expected a keep-one prompt for the 2 drawn cards');
+  assert.ok(keep, 'expected a keep-one prompt');
   assert.deepEqual(keep.data.drawn.slice().sort(), deckTop.slice().sort());
   const kept = keep.data.drawn[0];
   const dropped = keep.data.drawn[1];
   applyAction(s, { type: 'resolvePending', seat, pendingId: keep.id, cardId: kept });
-  const owned = [...p.slots.filter(Boolean), ...p.reserve];
-  assert.ok(owned.includes(kept), 'the kept card entered play like a normal acquisition');
+  assert.ok([...p.slots.filter(Boolean), ...p.reserve].includes(kept), 'the kept card entered play');
   assert.ok(s.discard.includes(dropped), 'the card not kept was discarded');
+});
+
+test('Professor Stainglass: "keep" completes the acquisition that was interrupted', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.STAINGLASS;
+  p.slots[1] = db.performers.find((c) => c.characteristic === 'Powerful').id;
+  const perf = performer((c) => c.characteristic !== 'Powerful');
+  s.draftRow[0] = perf;
+  applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
+  const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
+  applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, choice: 'keep' });
+  assert.equal(p.slots[0], perf, 'the card was placed normally after keeping it');
+});
+
+test('Professor Stainglass: the offer also fires for cards that never take a slot (regression)', () => {
+  // The offer used to be raised at *placement* time, so it silently never
+  // appeared for a card sent to reserve because the slots were full, nor for
+  // Resource / Favor / Press Pass cards, which never occupy a slot at all.
+  const powerful = db.performers.filter((c) => c.characteristic === 'Powerful').map((c) => c.id);
+  const setup = () => {
+    const s = freshGame(2);
+    const seat = currentSeat(s);
+    const p = s.players[seat];
+    p.slots = [powerful[0], powerful[1], powerful[2], powerful[3], powerful[4], null, null, TRAINERS.STAINGLASS];
+    return { s, seat, p };
+  };
+
+  // A Performer with every Performer slot full.
+  {
+    const { s, seat } = setup();
+    const extra = db.performers.find((c) => !powerful.slice(0, 5).includes(c.id)).id;
+    s.draftRow[0] = extra;
+    applyAction(s, { type: 'acquireDraft', seat, cardId: extra });
+    assert.ok(s.pending.some((x) => x.kind === 'postAcquireDiscard'), 'full slots must still offer');
+  }
+  // A Favor — goes to reserve, never takes a slot.
+  {
+    const { s, seat } = setup();
+    s.draftRow[0] = 'Favor-1-1';
+    applyAction(s, { type: 'acquireDraft', seat, cardId: 'Favor-1-1' });
+    assert.ok(s.pending.some((x) => x.kind === 'postAcquireDiscard'), 'a Favor must still offer');
+  }
+  // A Press Pass — likewise.
+  {
+    const { s, seat } = setup();
+    s.draftRow[0] = 'PressPass-3-1';
+    applyAction(s, { type: 'acquireDraft', seat, cardId: 'PressPass-3-1' });
+    assert.ok(s.pending.some((x) => x.kind === 'postAcquireDiscard'), 'a Press Pass must still offer');
+  }
+  // A draw-N Resource: offered ONCE, for the Resource itself, before it
+  // resolves — so it can be traded away instead of drawing.
+  {
+    const { s, seat, p } = setup();
+    const draw3 = firstOfName(db.resources, 'Resource 3 Cards');
+    s.draftRow[0] = draw3;
+    const coinsBefore = p.coins;
+    applyAction(s, { type: 'acquireDraft', seat, cardId: draw3 });
+    const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
+    assert.ok(offer, 'a Resource must offer, before resolving');
+    assert.equal(offer.data.cardId, draw3, 'the offer is for the Resource itself');
+    // Keeping it resolves the draw, and the cards it draws do NOT each re-offer.
+    applyAction(s, { type: 'resolvePending', seat, pendingId: offer.id, choice: 'keep' });
+    assert.ok(s.discard.includes(draw3), 'the Resource resolved and was discarded');
+    assert.ok(
+      !s.pending.some((x) => x.kind === 'postAcquireDiscard'),
+      'cards drawn by the Resource must not each raise their own offer'
+    );
+  }
 });
 
 test('Professor Stainglass: the card you keep cannot itself be traded in for another draw', () => {

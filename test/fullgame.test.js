@@ -28,7 +28,12 @@ function cardCount(s) {
   // A card awaiting a placement decision is "in hand": acquired but not yet
   // on the mat, so it lives only in the pending prompt.
   for (const item of s.pending) {
+    // A card awaiting a decision is "in hand": out of the deck/row but not
+    // yet owned. postAcquireDiscard holds the just-acquired card while
+    // Stainglass's offer is open; stainglassKeep holds the cards drawn for it.
     if (item.kind === 'placement' || item.kind === 'cardResourcePlacement') n += 1;
+    if (item.kind === 'postAcquireDiscard') n += 1;
+    if (item.kind === 'stainglassKeep') n += item.data.drawn.length;
   }
   return n;
 }
