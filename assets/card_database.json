@@ -1226,7 +1226,7 @@
     {
       "id": "The-Vanishing-Valentino",
       "name": "The Vanishing Valentino",
-      "ability": "At the end of your turn you may discard a Dramatic performer (on stage or in reserve) to end the draft",
+      "ability": "To start your turn you may discard 1 card from the draft per Dramatic performer",
       "startingHearts": 3,
       "image": "cards/Trainer The Vanishing Valentino.webp"
     },
@@ -1254,7 +1254,7 @@
     {
       "id": "Jonas-Quickfinger",
       "name": "Jonas Quickfinger",
-      "ability": "Each time a Haunting performer is discarded from any player, collect 1 of its resource",
+      "ability": "To start your turn you may discard a Haunting performer to take their resource times their power dot amount",
       "startingHearts": 3,
       "image": "cards/Trainer Jonas Quickfinger.webp"
     },

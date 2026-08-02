@@ -96,9 +96,6 @@ export const CELESTINE_STAR_COST = 2;
 // one turn. Mirrored by the client (see AMARA in client/src/main.js).
 export const AMARA_MAX_MOVES = 3;
 
-// Jonas Quickfinger: units of its printed resource collected each time ANY
-// player's Haunting performer is discarded.
-const JONAS_RESOURCE_UNITS = 1;
 
 const ALT_SOLO_TROPHY_GOAL = 5;
 const ALT_SOLO_LOSS_LIMIT = 5;
@@ -194,11 +191,8 @@ function newTurn(seat, isBonus = false, bonusTiming = null) {
     // Amara the Reliquary: up to AMARA_MAX_MOVES individual heart relocations
     // per turn, counted rather than a single-use flag.
     amaraMoves: 0,
-    // The Vanishing Valentino's end-of-turn window: opened once per turn by
-    // advance() after the main action resolves, closed by either
-    // valentinoEndDraft or endTurn. Kept separate from `open` (Maximillian's
-    // keep-buying flag) so holding Valentino never grants extra market buys.
-    valentinoWindow: false, valentinoOffered: false,
+    // Free once-per-turn Trainer actions taken before the main action.
+    jonasUsed: false, valentinoUsed: false,
     // Maximillian the Magnate: each draft-row draft grants one bonus market
     // buy. Counted rather than boolean so a Favor chain of several drafts in
     // one turn window accrues one bonus buy each, and so a market buy can
@@ -403,30 +397,8 @@ function heartHit(state, seat, slotIdx, why) {
   state.discard.push(id);
   log(state, `${p.name}'s ${card(id).name} (${SLOT_NAMES[slotIdx]}) loses its last heart and leaves the stage! (${why})`);
   if (id === TRAINERS.BARRE) relocateReserveOnBarreLeaving(state, seat);
-  onCardLeavesPlay(state, seat, id);
 }
 
-// Fires whenever a card owned by `seat` leaves play entirely (is discarded),
-// from a mat slot or from reserve.
-//
-// Jonas Quickfinger: "Each time a Haunting performer is discarded from any
-// player, collect 1 of its resource." The trigger is table-wide — whoever
-// holds Jonas profits from every Haunting performer that hits the discard
-// pile, including their own, and including ones discarded out of a reserve.
-// Still scoped to genuinely leaving play: a performer merely bumped into its
-// owner's reserve is still in that player's possession and does not trigger,
-// which is what stops the payout being farmed by cycling one card in and out.
-// Cards discarded from the draft row or market never trigger it either —
-// they were never "from any player".
-function onCardLeavesPlay(state, seat, cardId) {
-  const c = card(cardId);
-  if (c.cardType !== 'performer' || c.characteristic !== 'Haunting') return;
-  for (const holder of state.players) {
-    if (!trainerActive(state, holder.seat, TRAINERS.JONAS)) continue;
-    log(state, `${nameOf(state, seat)}'s ${c.name} is discarded — ${holder.name} collects ${JONAS_RESOURCE_UNITS} ${c.resource.toLowerCase()} (Jonas Quickfinger).`);
-    collectResourceUnits(state, holder.seat, c, JONAS_RESOURCE_UNITS, 'Jonas Quickfinger');
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Die events (a rolled die that is open to re-roll card reactions)
@@ -541,6 +513,35 @@ function boostCount(state, seat, performer) {
     n++;
   }
   return n;
+}
+
+// Expected resource units this seat would collect from ONE Collection Die
+// roll, given their board right now. Mirrors resolveCollectionDie's payout
+// exactly — boosts, Orsino's G/H bonus and Bellacanto's reserve Singers all
+// included — weighted by each letter's frequency on the d20.
+//
+// Exported for the AI, which needs it to price a Press Pass (N private rolls)
+// against everything else on offer. A flat score can't work: the same card is
+// worth nothing to an empty board and a great deal to a full one.
+export function expectedUnitsPerCollectionRoll(state, seat) {
+  const p = state.players[seat];
+  const sources = [...p.slots.slice(0, 5)];
+  if (trainerActive(state, seat, TRAINERS.BELLACANTO)) {
+    for (const id of p.reserve) {
+      const c = card(id);
+      if (c.cardType === 'performer' && c.type === 'Singer') sources.push(id);
+    }
+  }
+  let ev = 0;
+  for (const id of sources) {
+    if (!id) continue;
+    const c = card(id);
+    if (c.cardType !== 'performer') continue;
+    let units = 1 + boostCount(state, seat, c);
+    if ((c.letter === 'G' || c.letter === 'H') && trainerActive(state, seat, TRAINERS.ORSINO)) units += 3;
+    ev += ((LETTER_FREQ[c.letter] || 0) / 20) * units;
+  }
+  return ev;
 }
 
 // typeFilterFn, if given, further restricts which performers can collect
@@ -761,7 +762,6 @@ function discardOwnedCard(state, seat, cardId) {
   state.hearts[cardId] = 0;
   state.discard.push(cardId);
   if (cardId === TRAINERS.BARRE) relocateReserveOnBarreLeaving(state, seat);
-  onCardLeavesPlay(state, seat, cardId);
 }
 
 // Madame Barre: while active, acquired cards may be freely parked in reserve
@@ -1320,26 +1320,6 @@ function advance(state) {
         }
         return;
       }
-      // The Vanishing Valentino: "to end your turn you may choose to end the
-      // draft." The turn has finished its main action but hasn't passed on
-      // yet — hold it open once so the holder can decide. They either end the
-      // draft (valentinoEndDraft) or just end the turn (endTurn); both close
-      // the window. Nothing to offer if the draft row is already empty.
-      if (
-        state.turn.done &&
-        !state.turn.valentinoOffered &&
-        state.draftRow.length > 0 &&
-        trainerActive(state, state.turn.seat, TRAINERS.VALENTINO) &&
-        // Needs a Dramatic performer to spend (stage or reserve), so the
-        // window only opens when the cost can actually be paid rather than
-        // appearing as a dead prompt.
-        dramaticPerformersOwned(state, state.turn.seat).length > 0
-      ) {
-        state.turn.valentinoOffered = true;
-        state.turn.valentinoWindow = true;
-        state.turn.done = false;
-        return; // waiting on their decision
-      }
       if (state.turn.done) {
         finishTurn(state);
         continue;
@@ -1651,10 +1631,7 @@ export function applyAction(state, action) {
     }
     case 'endTurn': {
       requireTurn(state, seat);
-      // Legal either as Maximillian's explicit stop-buying (turn.open) or as
-      // declining The Vanishing Valentino's end-of-turn offer.
-      if (!state.turn.open && !state.turn.valentinoWindow) throw new Error('You cannot end your turn without acting.');
-      state.turn.valentinoWindow = false;
+      if (!state.turn.open) throw new Error('You cannot end your turn without acting.');
       state.turn.done = true;
       break;
     }
@@ -1719,32 +1696,56 @@ export function applyAction(state, action) {
       state.turn.done = true;
       break;
     }
-    // The Vanishing Valentino: as your turn ends, you may end the draft
-    // immediately (discarding whatever remains in the draft row). Taken
-    // *after* your normal turn action, in the end-of-turn window advance()
-    // opens for you — so you get your acquisition and close the draft on
-    // everyone else. Free and unlimited while active.
-    case 'valentinoEndDraft': {
+    // The Vanishing Valentino: to start your turn, you may discard 1 card from
+    // the draft row per Dramatic performer on stage. Free (the turn's main
+    // action is untouched) and once per turn, like every other "to start your
+    // turn" Trainer. The player chooses exactly which cards go, so it's
+    // targeted denial rather than a blind trim; taking fewer than the maximum
+    // is allowed. Reserve Dramatic performers do not count — the standard
+    // active-performer rule applies.
+    case 'valentinoTrimDraft': {
       requireTurn(state, seat);
-      if (!state.turn.valentinoWindow) {
-        throw new Error('You may only end the draft as your turn ends — take your turn action first.');
-      }
+      if (state.turn.mainDone) throw new Error('This must be used before your main turn action.');
       if (!trainerActive(state, seat, TRAINERS.VALENTINO)) throw new Error('The Vanishing Valentino is not your active Trainer.');
+      if (state.turn.valentinoUsed) throw new Error('You have already used that this turn.');
       const p = state.players[seat];
-      // A Dramatic performer is the *cost*, not just a gate: name one and it's
-      // discarded to pay for ending the draft. Reserve counts here as well as
-      // the stage — the card only has to be yours, not performing.
-      const dramatic = dramaticPerformersOwned(state, seat);
-      if (dramatic.length === 0) throw new Error('You need a Dramatic performer to discard.');
-      const payId = action.cardId ?? dramatic[0];
-      if (!dramatic.includes(payId)) throw new Error('That is not one of your Dramatic performers.');
-      log(state, `${p.name} discards ${card(payId).name} to vanish the draft (The Vanishing Valentino).`);
-      discardOwnedCard(state, seat, payId);
-      log(state, `${p.name} plays The Vanishing Valentino — the draft ends immediately!`);
-      state.discard.push(...state.draftRow);
-      state.draftRow = [];
-      state.turn.valentinoWindow = false;
-      state.turn.done = true;
+      const allowance = countActivePerformers(state, seat, (c) => c.characteristic === 'Dramatic');
+      if (allowance < 1) throw new Error('You need at least one Dramatic performer on stage.');
+      const ids = action.cardIds || [];
+      if (ids.length < 1) throw new Error('Choose at least one draft card to discard.');
+      if (ids.length > allowance) throw new Error(`You may discard at most ${allowance} draft card(s).`);
+      if (new Set(ids).size !== ids.length) throw new Error('Card listed twice.');
+      for (const id of ids) {
+        if (!state.draftRow.includes(id)) throw new Error('That card is not in the draft row.');
+      }
+      for (const id of ids) {
+        state.draftRow.splice(state.draftRow.indexOf(id), 1);
+        state.discard.push(id);
+      }
+      state.turn.valentinoUsed = true;
+      log(state, `${p.name} vanishes ${ids.map((id) => card(id).name).join(', ')} from the draft (The Vanishing Valentino).`);
+      break;
+    }
+    // Jonas Quickfinger: to start your turn, you may discard one Haunting
+    // performer from your stage and take its printed resource times its power
+    // dots. Free (the main action is untouched) and once per turn. Only
+    // active performers are eligible — the standard active-performer rule.
+    case 'jonasDiscard': {
+      requireTurn(state, seat);
+      if (state.turn.mainDone) throw new Error('This must be used before your main turn action.');
+      if (!trainerActive(state, seat, TRAINERS.JONAS)) throw new Error('Jonas Quickfinger is not your active Trainer.');
+      if (state.turn.jonasUsed) throw new Error('You have already used that this turn.');
+      const p = state.players[seat];
+      const cardId = action.cardId;
+      const slotIdx = p.slots.indexOf(cardId);
+      if (slotIdx < 0 || slotIdx > 4) throw new Error('That is not one of your active Performers.');
+      const c = card(cardId);
+      if (c.characteristic !== 'Haunting') throw new Error('Jonas Quickfinger only takes Haunting performers.');
+      const amount = c.powerDots;
+      log(state, `${p.name} discards ${c.name} for ${amount} ${c.resource.toLowerCase()}${amount === 1 ? '' : 's'} (Jonas Quickfinger).`);
+      discardOwnedCard(state, seat, cardId);
+      collectResourceUnits(state, seat, c, amount, 'Jonas Quickfinger');
+      state.turn.jonasUsed = true;
       break;
     }
     // Celestine the Stargazer: to start your turn, you may buy up to 2

@@ -46,12 +46,6 @@ export function ghostAction(state, seat) {
   //    turn it committed to spending it on. Never produces the main action
   //    itself (draft/buy/reset) — that's the human's 'rollGhostDie'.
   if (state.phase === 'draft' && state.turn && state.turn.seat === seat && !state.turn.done) {
-    // The Vanishing Valentino's end-of-turn window (see engine.js). Ending
-    // the draft early isn't one of the owner's fixed Ghost rules, so a Ghost
-    // always declines and simply ends its turn — this also keeps the window
-    // from deadlocking a Ghost seat, whose only other input is the human's
-    // 'rollGhostDie' (illegal once the main action is already spent).
-    if (state.turn.valentinoWindow) return { type: 'endTurn', seat };
     if (!state.turn.mainDone) {
       const favorId = ghostFavorToSpend(state, seat);
       if (favorId) return { type: 'useFavor', seat, cardId: favorId };

@@ -19,6 +19,7 @@ import {
   totalCapacityLeft,
   eligibleFavors,
   eligiblePressPasses,
+  expectedUnitsPerCollectionRoll,
   marketCost,
   trainerActive,
   hasFullSet,
@@ -260,31 +261,38 @@ function draftTurn(state, seat) {
     if (usable.length > 0) return { type: 'useFavor', seat, cardId: usable[0] };
   }
 
-  // The Vanishing Valentino's end-of-turn window: end the draft only when
-  // there's nothing left in the row this bot actually wants — at that point
-  // closing it is pure denial of everyone else's remaining picks, with no
-  // cost to us. Otherwise just end the turn and take another pick later.
-  if (state.turn.valentinoWindow) {
-    // Ending the draft now costs a Dramatic performer off our own stage, so
-    // it's only worth it when the row still holds something we'd rather deny
-    // than let an opponent have. Spend the cheapest Dramatic we have.
-    // Stage or reserve — a reserve Dramatic is the cheapest thing to spend.
-    const dramatic = [...p.slots.filter(Boolean), ...p.reserve].filter(
-      (id) => card(id).cardType === 'performer' && card(id).characteristic === 'Dramatic'
-    );
-    if (dramatic.length > 0) {
-      const cheapest = dramatic.reduce((a, b) => (scoreCard(state, seat, b) < scoreCard(state, seat, a) ? b : a));
-      const bestLeft = state.draftRow.reduce(
-        (best, id) => (legalDraftPick(state, id) ? Math.max(best, scoreCard(state, seat, id)) : best),
-        -Infinity
-      );
-      // Deny only if what's left is worth clearly more than the performer we'd
-      // burn to clear it.
-      if (bestLeft > scoreCard(state, seat, cheapest) + 1.5) {
-        return { type: 'valentinoEndDraft', seat, cardId: cheapest };
+  // Free start-of-turn Trainer actions, taken before the main action.
+  if (!state.turn.mainDone) {
+    // Jonas Quickfinger: cash in a Haunting performer only when the resources
+    // clearly beat keeping it on stage — it's a real card off the board.
+    if (!state.turn.jonasUsed && trainerActive(state, seat, TRAINERS.JONAS)) {
+      const haunting = p.slots
+        .slice(0, 5)
+        .filter((id) => id && card(id).characteristic === 'Haunting');
+      const worth = (id) => (card(id).powerDots || 0) * 0.9;
+      const best = haunting.find((id) => worth(id) > scoreCard(state, seat, id) + 1.0);
+      if (best) return { type: 'jonasDiscard', seat, cardId: best };
+    }
+    // The Vanishing Valentino: trim the cards our opponents would most want.
+    // Free, so the only question is whether anything in the row is worth
+    // denying — judged by what the best-placed opponent would score it at.
+    if (!state.turn.valentinoUsed && trainerActive(state, seat, TRAINERS.VALENTINO)) {
+      const allowance = p.slots
+        .slice(0, 5)
+        .filter((id) => id && card(id).characteristic === 'Dramatic').length;
+      if (allowance > 0 && state.draftRow.length > 0) {
+        const rivals = state.players.filter((x) => x.seat !== seat);
+        const threat = (id) =>
+          rivals.length ? Math.max(...rivals.map((r) => scoreCard(state, r.seat, id))) : 0;
+        const mine = (id) => scoreCard(state, seat, id);
+        // Never bin something we'd rather draft ourselves this turn.
+        const targets = state.draftRow
+          .filter((id) => threat(id) > 3.5 && threat(id) > mine(id))
+          .sort((a, b) => threat(b) - threat(a))
+          .slice(0, allowance);
+        if (targets.length > 0) return { type: 'valentinoTrimDraft', seat, cardIds: targets };
       }
     }
-    return { type: 'endTurn', seat };
   }
 
   // Maximillian follow-up buys: buy again only if a market card scores well
@@ -421,7 +429,7 @@ export function scoreCard(state, seat, id) {
     case 'favor':
       return 1.8;
     case 'reroll':
-      return 1.4;
+      return pressPassValue(state, seat, c.count || 1);
     default:
       return 0;
   }
@@ -450,6 +458,34 @@ function drawValue(n) {
   let total = 0;
   for (let k = 0; k < n; k++) total += DRAW_CARD_VALUE * Math.pow(DRAW_DECAY, k);
   return total;
+}
+
+// What a Press Pass is actually worth.
+//
+// It buys `count` private Collection Die rolls (doubled by Delphine
+// Silvertongue), so its value is entirely a function of the printed number
+// AND of how much the holder's board collects per roll — the old flat 1.4
+// was wrong on both axes at once, overpricing a Press Pass 1 and badly
+// underpricing a 5, 6 or 7.
+//
+// Measured across real games: a board collects ~0.68 resource units per roll
+// on average (0 with an empty stage, ~1.01 with five performers). At the
+// bot's own ~0.9 score per resource unit, that puts a Press Pass 7 near 4.3
+// on a typical board and over 6 on a full one — versus the 1.4 it used to
+// score, which is why it kept passing them up.
+//
+// PRESS_PASS_MIN_UNITS is a deliberate floor rather than trusting the current
+// board outright: a Press Pass isn't spent until the pre-roll window at the
+// *end* of this round's draft, by which point the holder has usually drafted
+// more performers. Without the floor a bot with an empty stage would price
+// every Press Pass at exactly 0 and never take one early in a round.
+const PRESS_PASS_UNIT_SCORE = 0.9; // one resource unit, same scale as a Coin resource
+const PRESS_PASS_MIN_UNITS = 0.35; // ~a 2-3 performer board, the floor for a stage that will grow
+
+function pressPassValue(state, seat, count) {
+  const perRoll = Math.max(expectedUnitsPerCollectionRoll(state, seat), PRESS_PASS_MIN_UNITS);
+  const rolls = count * (trainerActive(state, seat, TRAINERS.DELPHINE) ? 2 : 1);
+  return rolls * perRoll * PRESS_PASS_UNIT_SCORE;
 }
 
 // Prefer the resource we are furthest behind the table leader on.

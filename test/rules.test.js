@@ -783,108 +783,9 @@ test('Professor Stainglass: "keep" leaves the card exactly as placed', () => {
   assert.equal(p.slots[0], perf);
 });
 
-test('The Vanishing Valentino: you take your turn first, then may discard a Dramatic performer to end the draft', () => {
-  const s = freshGame(2);
-  const seat = currentSeat(s);
-  const p = s.players[seat];
-  p.slots[7] = TRAINERS.VALENTINO;
-  const dram = db.performers.filter((c) => c.characteristic === 'Dramatic').map((c) => c.id);
-  p.slots[0] = dram[0]; // the performer that will pay the cost
-  const [a, b, c] = db.performers.filter((x) => x.id !== dram[0]).slice(0, 3).map((x) => x.id);
-  s.draftRow = [a, b, c];
 
-  // It is an end-of-turn choice now, not a start-of-turn one.
-  assert.throws(() => applyAction(s, { type: 'valentinoEndDraft', seat }), /take your turn action first/);
 
-  applyAction(s, { type: 'acquireDraft', seat, cardId: a });
-  assert.equal(s.turn.seat, seat, 'the turn is held open rather than passing on');
-  assert.equal(s.turn.valentinoWindow, true, 'the end-of-turn offer is open');
 
-  const rowBefore = [...s.draftRow];
-  applyAction(s, { type: 'valentinoEndDraft', seat, cardId: dram[0] });
-  assert.equal(p.slots[0], null, 'the Dramatic performer was discarded to pay for it');
-  assert.ok(s.discard.includes(dram[0]));
-  for (const id of rowBefore) assert.ok(s.discard.includes(id), 'the rest of the row is discarded');
-  assert.equal(p.slots[7], TRAINERS.VALENTINO, 'the trainer itself is not discarded');
-  driveDicePhase(s);
-  assert.equal(s.round, 2);
-});
-
-test('The Vanishing Valentino: a Dramatic performer in reserve may pay the cost too', () => {
-  const s = freshGame(2);
-  const seat = currentSeat(s);
-  const p = s.players[seat];
-  p.slots[7] = TRAINERS.VALENTINO;
-  const dram = db.performers.find((c) => c.characteristic === 'Dramatic').id;
-  const others = db.performers.filter((c) => c.characteristic !== 'Dramatic').map((c) => c.id);
-  // Dramatic performer sits in reserve, none on stage.
-  p.slots = [others[0], others[1], others[2], others[3], others[4], null, null, TRAINERS.VALENTINO];
-  p.reserve = [dram];
-  // Draft a Favor: it needs no slot, so the full Performer row raises no
-  // placement prompt that would defer the end-of-turn window.
-  s.draftRow = ['Favor-1-1', others[6], others[7]];
-  applyAction(s, { type: 'acquireDraft', seat, cardId: 'Favor-1-1' });
-  assert.equal(s.turn.valentinoWindow, true, 'a reserve Dramatic is enough to open the window');
-  applyAction(s, { type: 'valentinoEndDraft', seat, cardId: dram });
-  assert.ok(!p.reserve.includes(dram), 'the reserve Dramatic paid the cost');
-  assert.ok(s.discard.includes(dram));
-  assert.deepEqual(s.draftRow, [], 'the draft ended');
-});
-
-test('The Vanishing Valentino: only a Dramatic performer can pay, and with none anywhere the offer never opens', () => {
-  const s = freshGame(2);
-  const seat = currentSeat(s);
-  const p = s.players[seat];
-  p.slots[7] = TRAINERS.VALENTINO;
-  const dram = db.performers.find((c) => c.characteristic === 'Dramatic').id;
-  const nonDram = db.performers.find((c) => c.characteristic !== 'Dramatic').id;
-  p.slots[0] = dram;
-  p.slots[1] = nonDram;
-  s.draftRow = db.performers.filter((x) => ![dram, nonDram].includes(x.id)).slice(0, 3).map((x) => x.id);
-  applyAction(s, { type: 'acquireDraft', seat, cardId: s.draftRow[0] });
-  assert.throws(
-    () => applyAction(s, { type: 'valentinoEndDraft', seat, cardId: nonDram }),
-    /not one of your Dramatic performers/
-  );
-
-  // None on stage OR in reserve -> the window is never offered.
-  const s2 = freshGame(2);
-  const seat2 = currentSeat(s2);
-  const p2 = s2.players[seat2];
-  p2.slots[7] = TRAINERS.VALENTINO;
-  const plain = db.performers.filter((c) => c.characteristic !== 'Dramatic').map((c) => c.id);
-  p2.slots[0] = plain[0];
-  p2.reserve = [];
-  s2.draftRow = [plain[1], plain[2], plain[3]];
-  applyAction(s2, { type: 'acquireDraft', seat: seat2, cardId: plain[1] });
-  assert.ok(!s2.turn || !s2.turn.valentinoWindow, 'no Dramatic performer anywhere, no offer');
-});
-
-test('The Vanishing Valentino: the end-of-turn offer can be declined, and is not offered when the row is already empty', () => {
-  const s = freshGame(2);
-  const seat = currentSeat(s);
-  const p = s.players[seat];
-  p.slots[7] = TRAINERS.VALENTINO;
-  const dram = db.performers.find((c) => c.characteristic === 'Dramatic').id;
-  p.slots[0] = dram;
-  const [a, b, c] = db.performers.filter((x) => x.id !== dram).slice(0, 3).map((x) => x.id);
-  s.draftRow = [a, b, c];
-  applyAction(s, { type: 'acquireDraft', seat, cardId: a });
-  assert.equal(s.turn.valentinoWindow, true);
-  applyAction(s, { type: 'endTurn', seat });
-  assert.deepEqual(s.draftRow, [b, c], 'the draft row survives a declined offer');
-  assert.equal(p.slots[0], dram, 'and the Dramatic performer is not spent');
-  assert.notEqual(s.turn.seat, seat, 'play moved on to the next seat');
-
-  // Taking the last card in the row leaves nothing to close, so no offer.
-  const s2 = freshGame(2);
-  const seat2 = currentSeat(s2);
-  s2.players[seat2].slots[7] = TRAINERS.VALENTINO;
-  s2.players[seat2].slots[0] = dram;
-  s2.draftRow = [db.performers.find((x) => x.id !== dram).id];
-  applyAction(s2, { type: 'acquireDraft', seat: seat2, cardId: s2.draftRow[0] });
-  assert.ok(!s2.turn || !s2.turn.valentinoWindow, 'no offer with nothing left to end');
-});
 
 test('freeRearrange no longer exists — Madame Barre only affects acquisition placement now', () => {
   const s = freshGame(2);
@@ -1765,65 +1666,8 @@ test('Delphine Silvertongue doubles a spent Press Pass\'s private roll count', (
   assert.ok(s.discard.includes('PressPass-3-1'));
 });
 
-test('Jonas Quickfinger: any player discarding a Haunting performer pays its holder 1 of its resource', () => {
-  const s = freshGame(2);
-  const seat = currentSeat(s);
-  const p = s.players[seat];
-  p.slots[7] = TRAINERS.JONAS;
-  p.coins = 0;
-  const haunting = performer((c) => c.characteristic === 'Haunting' && c.resource === 'Coin');
-  p.slots[0] = haunting;
-  s.hearts[haunting] = 0; // already at 0, so the next hit discards it
-  p.roundStars = 5; // make sure this seat takes the Trophy, so fatigue lands here
-  assignTrophy(s);
-  assert.equal(p.slots[0], null, 'the performer left play');
-  assert.equal(p.coins, 1, 'collects exactly 1 of its printed resource');
-});
 
-test("Jonas Quickfinger: it also pays out on ANOTHER player's discarded Haunting performer", () => {
-  const s = freshGame(2);
-  const seat = currentSeat(s);
-  const other = s.players.find((x) => x.seat !== seat).seat;
-  s.players[seat].slots[7] = TRAINERS.JONAS;
-  s.players[seat].coins = 0;
-  const haunting = performer((c) => c.characteristic === 'Haunting' && c.resource === 'Coin');
-  s.players[other].slots[0] = haunting;
-  s.hearts[haunting] = 0;
-  s.players[other].roundStars = 5; // the OTHER player wins, so their card takes the fatigue
-  assignTrophy(s);
-  assert.equal(s.players[other].slots[0], null, "the other player's performer left play");
-  assert.equal(s.players[seat].coins, 1, 'the Jonas holder still collects — the trigger is table-wide');
-});
 
-test('Jonas Quickfinger: non-Haunting performers never trigger it, and a bump to reserve is not a discard', () => {
-  const s = freshGame(2);
-  const seat = currentSeat(s);
-  const p = s.players[seat];
-  p.slots[7] = TRAINERS.JONAS;
-  p.coins = 0;
-  const plain = performer((c) => c.characteristic !== 'Haunting' && c.resource === 'Coin');
-  p.slots[0] = plain;
-  s.hearts[plain] = 0;
-  p.roundStars = 5;
-  assignTrophy(s);
-  assert.equal(p.slots[0], null, 'it did leave play');
-  assert.equal(p.coins, 0, 'but it was not Haunting, so nothing is collected');
-
-  // Bumped into your own reserve: still owned, not discarded, so no payout.
-  const s2 = freshGame(2);
-  const seat2 = currentSeat(s2);
-  const q = s2.players[seat2];
-  q.coins = 0;
-  const haunting = db.performers.filter((c) => c.characteristic === 'Haunting').map((c) => c.id);
-  q.slots = [haunting[0], haunting[1], haunting[2], haunting[3], haunting[4], null, null, TRAINERS.JONAS];
-  const extra = db.performers.find((c) => !haunting.slice(0, 5).includes(c.id)).id;
-  s2.draftRow = [extra, ...s2.draftRow.slice(1)];
-  applyAction(s2, { type: 'acquireDraft', seat: seat2, cardId: extra });
-  const place = s2.pending.find((x) => x.kind === 'placement');
-  applyAction(s2, { type: 'resolvePending', seat: seat2, pendingId: place.id, slot: 0 });
-  assert.ok(q.reserve.includes(haunting[0]), 'it was bumped to reserve, still owned');
-  assert.equal(q.coins, 0, 'a bump to your own reserve is not a discard');
-});
 
 test('Stars earned after the round is scored carry into the next round instead of being wiped', () => {
   const s = freshGame(2);
@@ -2668,6 +2512,116 @@ test('scoreCard: a "draw N cards" Resource is valued as N acquisitions, not N co
   assert.ok(s2 > s1 && s3 > s2, 'more cards is strictly better');
   assert.ok(s3 > s1 * 2.8 && s3 <= s1 * 3, 'Draw-3 is close to, but under, 3x a single draw');
   assert.ok(s3 > 10, `Draw-3 should dominate a typical single pick (best draft card ~4), got ${s3}`);
+});
+
+test('Jonas Quickfinger: free start-of-turn discard of a Haunting performer for resource x power dots', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.JONAS;
+  p.coins = 0;
+  const haunt = performer((c) => c.characteristic === 'Haunting' && c.resource === 'Coin' && c.powerDots >= 2);
+  const dots = card(haunt).powerDots;
+  p.slots[0] = haunt;
+  applyAction(s, { type: 'jonasDiscard', seat, cardId: haunt });
+  assert.equal(p.coins, dots, 'collected its resource times its power dots');
+  assert.equal(p.slots[0], null, 'the performer was discarded');
+  assert.ok(s.discard.includes(haunt));
+  // Free: the turn is untouched and the player still takes their main action.
+  assert.equal(s.turn.seat, seat, 'still our turn');
+  assert.equal(s.turn.mainDone, false, 'the main action is still available');
+  assert.throws(() => applyAction(s, { type: 'jonasDiscard', seat, cardId: haunt }), /already used/);
+});
+
+test('Jonas Quickfinger: only active Haunting performers qualify, and only before the main action', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  const haunt = performer((c) => c.characteristic === 'Haunting');
+  const plain = performer((c) => c.characteristic !== 'Haunting');
+  p.slots[0] = haunt;
+  p.slots[1] = plain;
+  assert.throws(
+    () => applyAction(s, { type: 'jonasDiscard', seat, cardId: haunt }),
+    /not your active Trainer/
+  );
+  p.slots[7] = TRAINERS.JONAS;
+  assert.throws(
+    () => applyAction(s, { type: 'jonasDiscard', seat, cardId: plain }),
+    /only takes Haunting performers/
+  );
+  // A Haunting performer in reserve is not on stage, so it does not qualify.
+  const spare = db.performers.find((c) => c.characteristic === 'Haunting' && c.id !== haunt).id;
+  p.reserve = [spare];
+  assert.throws(
+    () => applyAction(s, { type: 'jonasDiscard', seat, cardId: spare }),
+    /not one of your active Performers/
+  );
+  // Once the main action is spent it's too late. Maximillian keeps the turn
+  // alive past the draft (it would otherwise end outright), and a Favor needs
+  // no slot so no placement prompt intercepts the assertion.
+  p.reserve = [];
+  p.slots[6] = TRAINERS.MAXIMILLIAN;
+  s.draftRow = ['Favor-1-1', ...s.draftRow.slice(1)];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: 'Favor-1-1' });
+  assert.equal(s.turn.seat, seat, 'Maximillian held the turn open');
+  assert.throws(
+    () => applyAction(s, { type: 'jonasDiscard', seat, cardId: haunt }),
+    /before your main turn action/
+  );
+});
+
+test('The Vanishing Valentino: free start-of-turn trim of 1 draft card per Dramatic performer', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.VALENTINO;
+  const dram = db.performers.filter((c) => c.characteristic === 'Dramatic').map((c) => c.id);
+  const others = db.performers.filter((c) => c.characteristic !== 'Dramatic').map((c) => c.id);
+  p.slots[0] = dram[0];
+  p.slots[1] = dram[1]; // 2 Dramatic performers -> may vanish 2 cards
+  s.draftRow = [others[0], others[1], others[2], others[3]];
+
+  assert.throws(
+    () => applyAction(s, { type: 'valentinoTrimDraft', seat, cardIds: others.slice(0, 3) }),
+    /at most 2 draft card/
+  );
+  applyAction(s, { type: 'valentinoTrimDraft', seat, cardIds: [others[0], others[2]] });
+  assert.deepEqual(s.draftRow, [others[1], others[3]], 'exactly the chosen cards were removed');
+  assert.ok(s.discard.includes(others[0]) && s.discard.includes(others[2]));
+  // Free: the main action is still available.
+  assert.equal(s.turn.seat, seat);
+  assert.equal(s.turn.mainDone, false);
+  assert.throws(
+    () => applyAction(s, { type: 'valentinoTrimDraft', seat, cardIds: [others[1]] }),
+    /already used/
+  );
+});
+
+test('The Vanishing Valentino: reserve Dramatic performers do not count, and the row must actually hold the card', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.VALENTINO;
+  const dram = db.performers.filter((c) => c.characteristic === 'Dramatic').map((c) => c.id);
+  const others = db.performers.filter((c) => c.characteristic !== 'Dramatic').map((c) => c.id);
+  // Fill the stage with non-Dramatic performers so the reserve Dramatic stays put.
+  p.slots = [others[0], others[1], others[2], others[3], others[4], null, null, TRAINERS.VALENTINO];
+  p.reserve = [dram[0]];
+  s.draftRow = [others[5], others[6]];
+  assert.throws(
+    () => applyAction(s, { type: 'valentinoTrimDraft', seat, cardIds: [others[5]] }),
+    /at least one Dramatic performer on stage/,
+    'reserve Dramatic performers grant no allowance'
+  );
+
+  // With one on stage, the named card still has to be in the row.
+  p.slots[0] = dram[0];
+  p.reserve = [];
+  assert.throws(
+    () => applyAction(s, { type: 'valentinoTrimDraft', seat, cardIds: [others[9]] }),
+    /not in the draft row/
+  );
 });
 
 console.log(`\nrules.test.js: ${passed} passing${process.exitCode ? ' (with failures)' : ''}`);
