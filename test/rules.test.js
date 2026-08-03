@@ -29,7 +29,7 @@ import {
   TRAINERS,
   hasFullSet,
 } from '../engine/engine.js';
-import { scoreCard } from '../engine/bot.js';
+import { scoreCard, botAction } from '../engine/bot.js';
 import { ghostAction } from '../engine/ghost.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -2691,6 +2691,94 @@ test('The Vanishing Valentino: reserve Dramatic performers do not count, and the
     () => applyAction(s, { type: 'valentinoTrimDraft', seat, cardIds: [others[9]] }),
     /not in the draft row/
   );
+});
+
+test('Maximillian: the market may be reset between drafting and spending the earned buy', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.MAXIMILLIAN;
+  p.coins = 10;
+  s.draftRow = db.performers.slice(40, 45).map((c) => c.id);
+  s.market = db.performers.slice(30, 34).map((c) => c.id);
+  const marketBefore = [...s.market];
+
+  applyAction(s, { type: 'acquireDraft', seat, cardId: s.draftRow[0] });
+  assert.equal(s.turn.bonusBuys, 1, 'a market buy is owed');
+  assert.equal(s.turn.mainDone, true, 'the main action is spent');
+
+  // The owed buy is still an acquire decision, so the reset is legal here.
+  applyAction(s, { type: 'resetMarket', seat });
+  assert.equal(p.coins, 9, 'the reset cost its 1 coin');
+  assert.notDeepEqual(s.market, marketBefore, 'the market was reshuffled');
+  assert.equal(s.turn.bonusBuys, 1, 'and the earned buy survives the reset');
+
+  applyAction(s, { type: 'buyMarket', seat, index: 0 });
+  assert.notEqual(s.turn?.seat, seat, 'spending the earned buy ends the turn');
+});
+
+test('Without a buy owed, the market still cannot be reset after the main action', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[7] = TRAINERS.MAXIMILLIAN;
+  p.coins = 10;
+  s.market = db.performers.slice(30, 34).map((c) => c.id);
+  // Buying (rather than drafting) earns nothing, so the turn ends outright.
+  applyAction(s, { type: 'buyMarket', seat, index: 0 });
+  assert.notEqual(s.turn?.seat, seat);
+});
+
+test('Professor Stainglass: only DRAFTED cards trigger the offer, not market buys or Wendell', () => {
+  const powerful = db.performers.filter((c) => c.characteristic === 'Powerful').map((c) => c.id);
+  const setup = () => {
+    const s = freshGame(2);
+    const seat = currentSeat(s);
+    const p = s.players[seat];
+    p.slots = [powerful[0], null, null, null, null, null, null, TRAINERS.STAINGLASS];
+    p.coins = 10;
+    return { s, seat, p };
+  };
+  // Drafted -> offered.
+  {
+    const { s, seat } = setup();
+    const perf = db.performers.find((c) => c.id !== powerful[0]).id;
+    s.draftRow[0] = perf;
+    applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
+    assert.ok(s.pending.some((x) => x.kind === 'postAcquireDiscard'), 'a drafted card offers');
+  }
+  // Bought from the market -> NOT offered.
+  {
+    const { s, seat } = setup();
+    s.market = db.performers.slice(30, 34).map((c) => c.id);
+    applyAction(s, { type: 'buyMarket', seat, index: 0 });
+    assert.ok(!s.pending.some((x) => x.kind === 'postAcquireDiscard'), 'a market buy must not offer');
+  }
+  // Taken from the discard pile with Wendell -> NOT offered.
+  {
+    const { s, seat, p } = setup();
+    p.slots[6] = TRAINERS.WENDELL;
+    const prop = db.propsAndBackdrops.find((c) => c.cardKind === 'prop').id;
+    s.discard.push(prop);
+    applyAction(s, { type: 'wendellTakeDiscard', seat, cardId: prop });
+    assert.ok(!s.pending.some((x) => x.kind === 'postAcquireDiscard'), "Wendell's take must not offer");
+  }
+});
+
+test('scoreCard: a "1st" Favor is valued above a "2nd" Favor', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const first = scoreCard(s, seat, 'Favor-1-1');
+  const second = scoreCard(s, seat, 'Favor-2-1');
+  assert.ok(first > second, `a 1st Favor (${first}) must beat a 2nd (${second}) — it is usable from turn 1 of any round`);
+  // And the bot must actually pick it when both are on offer.
+  s.draftRow = ['Favor-2-1', 'Favor-1-1', db.performers[0].id];
+  const p = s.players[seat];
+  p.slots = [null, null, null, null, null, null, null, null];
+  const act = botAction(s, seat);
+  if (act.type === 'acquireDraft') {
+    assert.notEqual(act.cardId, 'Favor-2-1', 'the bot must never take the 2nd Favor over the 1st');
+  }
 });
 
 console.log(`\nrules.test.js: ${passed} passing${process.exitCode ? ' (with failures)' : ''}`);

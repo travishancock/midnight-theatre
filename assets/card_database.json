@@ -1184,7 +1184,7 @@
     {
       "id": "Professor-Stainglass",
       "name": "Professor Stainglass",
-      "ability": "Acquired cards may be immediately discarded to draw 1 card from the deck per Powerful performer; keep one",
+      "ability": "A drafted card may be immediately discarded to draw cards equal to 1 x your Powerful performers; keep 1",
       "startingHearts": 3,
       "image": "cards/Trainer Professor Stainglass.webp"
     },

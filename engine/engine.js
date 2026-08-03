@@ -647,13 +647,15 @@ function resolveTomatoDie(state, n, excludeSeat = null) {
 // Acquisition & placement
 // ---------------------------------------------------------------------------
 
-// offerStainglass=false is used for cards that arrive as a *consequence* of
-// an acquisition rather than being acquired themselves — the cards a "draw N"
-// Resource produces, Ezra's leftover, and the card Stainglass himself lets
-// you keep. Per the owner's ruling, acquiring a draw-N Resource counts as
-// acquiring one card: the offer is made once, for the Resource, before it
-// resolves, so you can trade the Resource itself away instead of drawing.
-function acquireCard(state, seat, cardId, chosenSlot, { offerStainglass = true } = {}) {
+// offerStainglass is opt-in and set ONLY by acquireDraft: his ability reads
+// "a drafted card", so buying from the market and taking from the discard
+// pile with Wendell never trigger it, and neither do cards that merely arrive
+// as a consequence of an acquisition (the cards a "draw N" Resource
+// produces, Ezra's leftover, and the card Stainglass himself lets you keep).
+// Per the owner's ruling, drafting a draw-N Resource counts as drafting one
+// card: the offer is made once, for the Resource, before it resolves, so you
+// can trade the Resource itself away instead of drawing from it.
+function acquireCard(state, seat, cardId, chosenSlot, { offerStainglass = false } = {}) {
   const p = state.players[seat];
   const c = card(cardId);
 
@@ -1583,7 +1585,7 @@ export function applyAction(state, action) {
       }
       state.draftRow.splice(idx, 1);
       log(state, `${nameOf(state, seat)} drafts ${c.name} for free.`);
-      acquireCard(state, seat, action.cardId, action.slot ?? null);
+      acquireCard(state, seat, action.cardId, action.slot ?? null, { offerStainglass: true });
       state.turn.mainDone = true;
       // Maximillian the Magnate: drafting a card also earns one market buy,
       // so the turn stays open for it (declined via endTurn).
@@ -1624,7 +1626,12 @@ export function applyAction(state, action) {
     }
     case 'resetMarket': {
       requireTurn(state, seat);
-      if (state.turn.mainDone) throw new Error('You can only reset the market before your acquire decision.');
+      // Normally only before your acquire decision — but a Maximillian bonus
+      // buy is still an acquire decision that hasn't been made yet, so the
+      // market may be reset in the window between drafting and spending it.
+      if (state.turn.mainDone && state.turn.bonusBuys < 1) {
+        throw new Error('You can only reset the market before your acquire decision.');
+      }
       const p = state.players[seat];
       if (p.coins < 1) throw new Error('Resetting the market costs 1 coin.');
       p.coins -= 1;

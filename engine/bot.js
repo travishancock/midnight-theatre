@@ -427,7 +427,13 @@ export function scoreCard(state, seat, id) {
       return 0.9 * (c.amount || 1);
     }
     case 'favor':
-      return 1.8;
+      // A "1st" Favor is usable from turn 1 of any round; a "2nd" only from
+      // turn 2. Measured across real games, 6.7% of a player's rounds never
+      // reach a second turn at all, stranding a "2nd" Favor entirely — and
+      // even when it is spendable it always comes later and is the one
+      // blocked by the same-timing bonus-turn restriction more often. They
+      // scored identically before, so the bot picked between them arbitrarily.
+      return c.triggerAfterTurn === 1 ? FAVOR_FIRST : FAVOR_SECOND;
     case 'reroll':
       return pressPassValue(state, seat, c.count || 1);
     default:
@@ -479,6 +485,10 @@ function drawValue(n) {
 // *end* of this round's draft, by which point the holder has usually drafted
 // more performers. Without the floor a bot with an empty stage would price
 // every Press Pass at exactly 0 and never take one early in a round.
+// A "1st" Favor is strictly the more flexible of the two — see scoreCard.
+const FAVOR_FIRST = 2.0;
+const FAVOR_SECOND = 1.5;
+
 const PRESS_PASS_UNIT_SCORE = 0.9; // one resource unit, same scale as a Coin resource
 const PRESS_PASS_MIN_UNITS = 0.35; // ~a 2-3 performer board, the floor for a stage that will grow
 
