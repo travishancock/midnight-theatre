@@ -65,19 +65,6 @@ const MARKET_SIZE = 4;
 // the table shrinks (and drops as it grows) to keep game length comparable.
 const TROPHY_GOAL_BY_PLAYERS = { 2: 6, 3: 5, 4: 4, 5: 3 };
 
-// Solo mode: 1 human + 2 Ghost seats (always 3 total). Kept as its own
-// constant (rather than reusing TROPHY_GOAL_BY_PLAYERS[3]) so solo balance
-// can be tuned independently of the real 3-player multiplayer game later
-// without any risk of the two ever accidentally diverging from each other
-// in a way that's hard to notice.
-const TROPHY_GOAL_SOLO = 5;
-
-// Alt Solo: a different 1-player variant — no Ghosts, no AI, just the human
-// against a d8-driven round target. Kept as its own constants (not reused
-// from TROPHY_GOAL_SOLO/TROPHY_GOAL_BY_PLAYERS) so its balance can be tuned
-// independently. The 5-trophy win goal is an inferred assumption, chosen to
-// mirror the explicit 5-loss cap symmetrically (first to 5 wins takes the
-// game, first to 5 losses loses it) — see DESIGN_BRIEF.md.
 // Physical token supply in the box. Tracked so the app can warn when a real
 // table would run out of a component — see checkTokenSupply. Alert-only by
 // design: a depleted pool never blocks a gain, it just gets flagged loudly,
@@ -96,18 +83,12 @@ export const CELESTINE_STAR_COST = 2;
 // one turn. Mirrored by the client (see AMARA in client/src/main.js).
 export const AMARA_MAX_MOVES = 3;
 
-
-const ALT_SOLO_TROPHY_GOAL = 5;
-const ALT_SOLO_LOSS_LIMIT = 5;
-const ALT_SOLO_DRAFT_ROW_SIZE = 5;
-
 // ---------------------------------------------------------------------------
 // Game creation
 // ---------------------------------------------------------------------------
 
-export function createGame({ players, seed, solo, altSolo }) {
-  const minPlayers = altSolo ? 1 : 2;
-  if (!players || players.length < minPlayers || players.length > 5) {
+export function createGame({ players, seed }) {
+  if (!players || players.length < 2 || players.length > 5) {
     throw new Error('The Midnight Theatre supports 2-5 players.');
   }
   const state = {
@@ -115,23 +96,16 @@ export function createGame({ players, seed, solo, altSolo }) {
     rng: (seed ?? makeSeed()) >>> 0,
     phase: 'draft', // 'draft' | 'dice' | 'gameOver'
     round: 1,
-    solo: !!solo, // 1-player variant: always the human + 2 Ghost seats
-    altSolo: !!altSolo, // 1-player variant: no Ghosts/AI at all — a d8-driven round target instead
-    trophyGoal: altSolo ? ALT_SOLO_TROPHY_GOAL : solo ? TROPHY_GOAL_SOLO : TROPHY_GOAL_BY_PLAYERS[players.length],
-    altSoloTarget: 0, // this round's star target — reset to 0 every round, raised by ALT_SOLO_DIE_FACES rolls
-    altSoloLosses: 0, // whole-game counter — reaching ALT_SOLO_LOSS_LIMIT ends the game in a loss
-    altSoloRollEvent: null, // { roll, label } — the most recent d8 result, for the client to display
+    trophyGoal: TROPHY_GOAL_BY_PLAYERS[players.length],
     deck: [],
     discard: [],
     market: [],
     draftRow: [],
     hearts: {}, // cardId -> current (printed) hearts on that card
-    ghostRollEvent: null, // { seat, roll, label } — the most recent d12 result, for the client to display
     players: players.map((p, i) => ({
       seat: i,
       name: p.name || `Player ${i + 1}`,
       isBot: !!p.isBot,
-      isGhost: !!p.isGhost, // solo mode: acts via the d12 roll table, never AI heuristics — see resolveGhostRoll
       coins: 0,
       stars: 0,
       trophies: 0,
@@ -170,7 +144,7 @@ export function createGame({ players, seed, solo, altSolo }) {
   }
 
   state.market = draw(state, MARKET_SIZE);
-  state.draftRow = draw(state, altSolo ? ALT_SOLO_DRAFT_ROW_SIZE : players.length * 2 + 1);
+  state.draftRow = draw(state, players.length * 2 + 1);
   state.turn = newTurn(seatWithStand(state, 1));
   log(state, `Curtain up! ${state.players.length} players, first trophy-holder to ${state.trophyGoal} trophies wins.`);
   log(state, `${nameOf(state, state.turn.seat)} holds Draft Stand 1 and goes first.`);
@@ -1010,18 +984,10 @@ function finishTurn(state) {
   // happen the next time finishTurn resolves without a queued bonus turn.
   if (bonusQueue.length === 0) compactMarket(state);
 
-  // Alt Solo: after every finished turn (including a Favor bonus turn — it's
-  // a turn in its own right), roll the d8 — see ALT_SOLO_DIE_FACES. It may
-  // discard from either end of the draft row (in place of the normal "leave
-  // 1, discard it" ending below) and/or raise this round's star target.
-  if (state.altSolo) rollAltSoloDie(state);
-
-  // Draft ends the moment the row runs out. In Alt Solo that's strictly 0 —
-  // its fixed 5-card row is drained entirely by picks and the d8's discard
-  // faces, with no "leave 1 card, auto-discard it" step (see rollAltSoloDie).
-  const drained = state.altSolo ? state.draftRow.length === 0 : state.draftRow.length <= 1;
+  // Draft ends the moment the row runs down to its last card.
+  const drained = state.draftRow.length <= 1;
   if (drained) {
-    if (!state.altSolo && state.draftRow.length === 1) {
+    if (state.draftRow.length === 1) {
       const last = state.draftRow.pop();
       // Ezra the Sleight-of-Hand: if its (unique) owner has at least one
       // Illusionist on their board, the leftover card goes to them instead
@@ -1098,8 +1064,7 @@ function stepDice(state) {
       return;
     }
     case 'trophy': {
-      if (state.altSolo) assignAltSoloResult(state);
-      else assignTrophy(state);
+      assignTrophy(state);
       d.trophyAssigned = true; // stars earned from here on carry to next round
       if (state.phase === 'gameOver') return;
       d.stage = 'order';
@@ -1247,8 +1212,7 @@ function startNextRound(state) {
     p.roundHearts = 0;
     p.turns = 0;
   }
-  if (state.altSolo) state.altSoloTarget = 0; // fresh 1-round challenge, resets to the default of 0 each round
-  state.draftRow = draw(state, state.altSolo ? ALT_SOLO_DRAFT_ROW_SIZE : state.players.length * 2 + 1);
+  state.draftRow = draw(state, state.players.length * 2 + 1);
   state.phase = 'draft';
   state.turn = newTurn(seatWithStand(state, 1));
   log(state, `— Round ${state.round} — ${Math.min(state.round, MAX_TOMATO_DICE)} tomato dice loom this round. ${nameOf(state, state.turn.seat)} drafts first.`);
@@ -1365,193 +1329,6 @@ function advance(state) {
     return;
   }
   throw new Error('Engine advance loop did not settle (bug).');
-}
-
-// ---------------------------------------------------------------------------
-// Alt Solo mode — no Ghosts, no AI: just the human against a d8-driven round
-// target instead of other players' scores.
-// ---------------------------------------------------------------------------
-
-// The 8 faces of the Alt Solo d8, in printed order (index 0 = face "1").
-// Discard faces shrink the fixed 5-card draft row from either end (in place
-// of the normal 2-5p "leave 1 card, discard it" ending — see finishTurn);
-// target faces raise this round's star target, the bar the player's own
-// roundStars must clear (not tie) to win the round's Trophy.
-export const ALT_SOLO_DIE_FACES = [
-  { kind: 'discard', side: 'right', count: 1, label: 'Discard the right-most draft card' },
-  { kind: 'discard', side: 'left', count: 1, label: 'Discard the left-most draft card' },
-  { kind: 'discard', side: 'right', count: 2, label: 'Discard the 2 right-most draft cards' },
-  { kind: 'discard', side: 'left', count: 2, label: 'Discard the 2 left-most draft cards' },
-  { kind: 'target', amount: 1, resetMarket: true, label: 'Add 1 star to the round target and reset the market' },
-  { kind: 'target', amount: 2, resetMarket: true, label: 'Add 2 stars to the round target and reset the market' },
-  { kind: 'target', amount: 1, resetMarket: false, label: 'Add 1 star to the round target' },
-  { kind: 'target', amount: 2, resetMarket: false, label: 'Add 2 stars to the round target' },
-];
-
-function rollAltSoloDie(state) {
-  const rollIdx = randInt(state, ALT_SOLO_DIE_FACES.length);
-  const face = ALT_SOLO_DIE_FACES[rollIdx];
-  const rollNumber = rollIdx + 1;
-  state.altSoloRollEvent = { roll: rollNumber, label: face.label };
-  log(state, `Alt Solo d8 rolls a ${rollNumber} — ${face.label}.`);
-
-  if (face.kind === 'discard') {
-    const removed = [];
-    for (let i = 0; i < face.count && state.draftRow.length > 0; i++) {
-      removed.push(face.side === 'right' ? state.draftRow.pop() : state.draftRow.shift());
-    }
-    if (removed.length > 0) {
-      state.discard.push(...removed);
-      log(state, `${removed.map((id) => card(id).name).join(', ')} discarded from the draft row.`);
-    }
-    return;
-  }
-
-  // face.kind === 'target'
-  state.altSoloTarget += face.amount;
-  log(state, `The round target rises to ${state.altSoloTarget} star${state.altSoloTarget === 1 ? '' : 's'}.`);
-  if (face.resetMarket) {
-    state.discard.push(...state.market.filter(Boolean));
-    state.market = draw(state, MARKET_SIZE);
-    log(state, 'The market is reset.');
-  }
-}
-
-// Alt Solo's replacement for assignTrophy: there's no one else to compare
-// against, so the round's outcome is the player's own roundStars against
-// this round's altSoloTarget (raised over the round by rollAltSoloDie).
-// Strictly more than the target wins the round's Trophy (and, same as the
-// normal game's trophy-winner heart removal, costs 1 heart from each of the
-// 8 starters); a tie or a shortfall loses the round — no heart penalty, per
-// the owner's ruling, just a mark against ALT_SOLO_LOSS_LIMIT.
-export function assignAltSoloResult(state) {
-  const p = state.players[0];
-  if (p.roundStars > state.altSoloTarget) {
-    p.trophies++;
-    log(state, `${p.name} earned ${p.roundStars} star${p.roundStars === 1 ? '' : 's'}, clearing the round target of ${state.altSoloTarget} — takes a Trophy! (${p.trophies}/${state.trophyGoal})`);
-    for (let i = 0; i < 8; i++) heartHit(state, p.seat, i, 'trophy fatigue');
-    if (p.trophies >= state.trophyGoal) {
-      state.phase = 'gameOver';
-      state.winners = [p.seat];
-      log(state, `The crowd roars — ${p.name} wins the game!`);
-    }
-  } else {
-    state.altSoloLosses++;
-    log(state, `${p.name} earned ${p.roundStars} star${p.roundStars === 1 ? '' : 's'}, failing to clear the round target of ${state.altSoloTarget} — the round is lost. (${state.altSoloLosses}/${ALT_SOLO_LOSS_LIMIT} losses)`);
-    if (state.altSoloLosses >= ALT_SOLO_LOSS_LIMIT) {
-      state.phase = 'gameOver';
-      state.winners = [];
-      log(state, `${p.name} has lost ${ALT_SOLO_LOSS_LIMIT} rounds — the show is cancelled. Game over.`);
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Ghost seats (solo mode)
-// ---------------------------------------------------------------------------
-
-// The 12 faces of the Ghost d12, in printed order (index 0 = face "1"). Two
-// of the draft faces additionally grant an extra roll — a bonus action
-// chained onto the same Ghost turn, resolved by rolling again rather than
-// ending the turn.
-export const GHOST_DIE_FACES = [
-  { kind: 'resetMarket', resource: 'coins', label: 'Reset market and collect 3 coins' },
-  { kind: 'resetMarket', resource: 'hearts', label: 'Reset market and collect 3 hearts' },
-  { kind: 'buyMarket', index: 0, label: 'Buy market slot 1' },
-  { kind: 'buyMarket', index: 1, label: 'Buy market slot 2' },
-  { kind: 'buyMarket', index: 2, label: 'Buy market slot 3' },
-  { kind: 'buyMarket', index: 3, label: 'Buy market slot 4' },
-  { kind: 'draft', side: 'left', again: false, label: 'Draft the left-most card' },
-  { kind: 'draft', side: 'left', again: false, label: 'Draft the left-most card' },
-  { kind: 'draft', side: 'right', again: false, label: 'Draft the right-most card' },
-  { kind: 'draft', side: 'right', again: false, label: 'Draft the right-most card' },
-  { kind: 'draft', side: 'left', again: true, label: 'Draft the left-most card, then roll again' },
-  { kind: 'draft', side: 'right', again: true, label: 'Draft the right-most card, then roll again' },
-];
-
-// Roll the Ghost d12 and resolve exactly one face. A face that can't
-// actually be completed right now (an unaffordable buy, an empty slot) or
-// that explicitly grants another roll leaves the turn open (mainDone/done
-// unset, or open:true for a Maximillian chain-buy) so the driver rolls
-// again; every other face ends the Ghost's turn, same as any normal main
-// action. Reuses the exact same acquireCard/marketCost machinery a human's
-// buyMarket/acquireDraft would, so every passive rule (Barnaby's discount,
-// Maximillian's chain buys, the market price freeze, Stainglass's
-// post-acquire offer, a full mat slot's placement choice, etc.) applies to
-// a Ghost identically — only the *choice* of which slot/card comes from the
-// die instead of a human clicking.
-function resolveGhostRoll(state, seat) {
-  const p = state.players[seat];
-  const rollIdx = randInt(state, GHOST_DIE_FACES.length);
-  const face = GHOST_DIE_FACES[rollIdx];
-  const rollNumber = rollIdx + 1;
-  state.ghostRollEvent = { seat, roll: rollNumber, label: face.label };
-  log(state, `${p.name} (Ghost) rolls a ${rollNumber} on the d12 — ${face.label}.`);
-
-  if (face.kind === 'resetMarket') {
-    state.discard.push(...state.market.filter(Boolean));
-    state.market = draw(state, MARKET_SIZE);
-    if (face.resource === 'coins') grantCoinsAndHearts(state, seat, 3, 0, 'Ghost roll: reset market');
-    else grantCoinsAndHearts(state, seat, 0, 3, 'Ghost roll: reset market');
-    state.turn.mainDone = true;
-    state.turn.done = true;
-    return;
-  }
-
-  if (face.kind === 'buyMarket') {
-    const i = face.index;
-    if (!state.market[i]) {
-      log(state, `${p.name} (Ghost) finds that market slot already sold — rolls again.`);
-      return;
-    }
-    const cost = marketCost(state, seat, i);
-    if (p.coins < cost) {
-      log(state, `${p.name} (Ghost) can't afford that slot (needs ${cost}, has ${p.coins}) — rolls again.`);
-      return;
-    }
-    p.coins -= cost;
-    const cardId = state.market[i];
-    state.market[i] = null;
-    log(state, `${p.name} (Ghost) buys ${card(cardId).name} from the market for ${cost} coins.`);
-    acquireCard(state, seat, cardId, null);
-    state.turn.mainDone = true;
-    state.turn.buys = (state.turn.buys || 0) + 1;
-    // Same as a human's buyMarket: consumes a Maximillian bonus buy if one is
-    // owed, and never grants another.
-    if (state.turn.bonusBuys > 0) state.turn.bonusBuys -= 1;
-    state.turn.open = state.turn.bonusBuys > 0;
-    state.turn.done = !state.turn.open;
-    return;
-  }
-
-  // face.kind === 'draft'
-  if (state.draftRow.length === 0) {
-    log(state, `${p.name} (Ghost) finds the draft row empty — rolls again.`);
-    return;
-  }
-  const idx = face.side === 'left' ? 0 : state.draftRow.length - 1;
-  const cardId = state.draftRow[idx];
-  const c = card(cardId);
-  if (state.turn.isBonus && c.cardType === 'favor' && c.triggerAfterTurn === state.turn.bonusTiming) {
-    log(state, `${p.name} (Ghost) can't draft a same-timing Favor on a bonus turn — rolls again.`);
-    return;
-  }
-  state.draftRow.splice(idx, 1);
-  log(state, `${p.name} (Ghost) drafts ${c.name} for free.`);
-  acquireCard(state, seat, cardId, null);
-  state.turn.mainDone = true;
-  // Maximillian: a Ghost's draft earns a market buy too, taken by rolling
-  // again (a buyMarket face consumes it; anything else simply forfeits it).
-  if (trainerActive(state, seat, TRAINERS.MAXIMILLIAN)) {
-    state.turn.bonusBuys += 1;
-    state.turn.open = true;
-  }
-  if (face.again) {
-    // Extra roll granted — the turn continues, offering a fresh main action.
-    state.turn.mainDone = false;
-  } else if (!state.turn.open) {
-    state.turn.done = true;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1810,28 +1587,6 @@ export function applyAction(state, action) {
       state.hearts[toCardId] = (state.hearts[toCardId] || 0) + 1;
       state.turn.amaraMoves += 1;
       log(state, `${p.name} moves a heart from ${card(fromCardId).name} to ${card(toCardId).name} (Amara the Reliquary, ${state.turn.amaraMoves}/${AMARA_MAX_MOVES}).`);
-      break;
-    }
-    // ----- Ghost seats (solo mode) ---------------------------------------
-    // A Ghost's whole main turn action is decided by a d12 roll instead of
-    // AI heuristics — see resolveGhostRoll and GHOST_DIE_FACES. The solo
-    // human player is the one who submits this action (there is no socket
-    // "controlling" a Ghost seat), so `seat` here is the human's own seat,
-    // not the Ghost's — same pattern as the pre-roll Press Pass window and
-    // Mesmera's reaction, which are also submitted by whichever seat the
-    // rule lets act, not necessarily state.turn.seat.
-    case 'rollGhostDie': {
-      if (state.phase !== 'draft' || !state.turn) throw new Error('No Ghost turn is active right now.');
-      if (state.pending.length > 0) throw new Error('Resolve the current prompt first.');
-      const ghostSeat = state.turn.seat;
-      const ghost = state.players[ghostSeat];
-      if (!ghost || !ghost.isGhost) throw new Error("It isn't a Ghost's turn.");
-      if (!state.players[seat] || state.players[seat].isGhost) throw new Error('Only the solo player may roll for a Ghost.');
-      // Mirrors buyMarket's own tolerance for Maximillian chain-buys: once
-      // the Ghost's main action is spent, only an explicitly still-open turn
-      // (another buy still allowed) may roll again.
-      if (state.turn.mainDone && !state.turn.open) throw new Error('This Ghost has already acted this turn.');
-      resolveGhostRoll(state, ghostSeat);
       break;
     }
     // ----- pre-roll Press Pass window ------------------------------------
