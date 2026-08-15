@@ -449,9 +449,9 @@ function earnedTableHtml(s) {
 }
 
 function tomatoForecast(s) {
-  // Stays in sync with engine.js's MAX_TOMATO_DICE (currently 8) — the
-  // rolled batch caps there from round 8 onward.
-  const n = Math.min(s.round, 8);
+  // Stays in sync with engine.js's MAX_TOMATO_DICE (currently 7) — the
+  // rolled batch caps there from round 7 onward.
+  const n = Math.min(s.round, 7);
   return `${n} tomato ${n === 1 ? 'die' : 'dice'} loom this round.`;
 }
 

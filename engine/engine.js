@@ -57,7 +57,7 @@ export const TRAINERS = {
   EZRA: 'Ezra-the-Sleight-of-Hand',
 };
 
-const MAX_TOMATO_DICE = 8; // rolled dice cap at 8 from round 8 onward (physical set has 9 tomato dice)
+const MAX_TOMATO_DICE = 7; // rolled dice cap at 7 from round 7 onward (physical set has 9 tomato dice)
 const MARKET_SIZE = 4;
 
 // First trophy-holder to this many Trophies wins. Fewer players means fewer
