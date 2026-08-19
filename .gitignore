@@ -4,3 +4,4 @@ client/dist/
 .DS_Store
 .env
 client/vite.config.js.timestamp-*.mjs
+_to_delete/
