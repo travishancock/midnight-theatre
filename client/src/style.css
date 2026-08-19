@@ -233,6 +233,13 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
 .opponent { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; flex: 1; min-width: 280px; }
 .opponent.active { border-color: var(--gold); }
 .opponent .tokens { font-size: 13px; color: var(--muted); }
+.opp-reserve { margin-top: 6px; }
+.opp-reserve .reserve-toggle {
+  padding: 2px 8px; font-size: 12px; background: transparent;
+  border-color: transparent; color: var(--muted);
+}
+.opp-reserve .reserve-toggle:hover:not(:disabled) { color: var(--gold); border-color: var(--gold); }
+.opp-reserve .mini-reserve { gap: 4px; margin-top: 5px; }
 
 /* ---- log ---- */
 .log { width: 300px; flex: none; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }

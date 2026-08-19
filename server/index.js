@@ -83,7 +83,22 @@ const BOT_NAMES = ['Zoltar', 'Colombina', 'Ferrucio', 'Odette', 'Gaspard'];
 const BOT_STEP_MS = 200; // small stagger between a bot's own sub-decisions (e.g. resolving a prompt before its main action)
 const BOT_TURN_PAUSE_MS = 2000; // longer pause after a bot fully completes a turn, so players can follow along
 const DICE_REVEAL_MS = 1100; // how long a rolled die/tomato batch stays on screen (and reactable) before it locks
-const DISCONNECT_BOT_MS = 60_000; // absent players become bots so games don't stall
+
+// A dropped player's seat gets played by the AI so the table never stalls, but
+// not instantly: a browser refresh or a brief network blip round-trips in a
+// couple of seconds, and letting the AI take a turn on someone's board in that
+// window is worse for everyone than a short pause.
+//
+// Both of these are env-overridable purely so test/rejoin.test.js can drive
+// the takeover-and-return cycle in a second instead of half an hour; nothing
+// in production sets them.
+const DISCONNECT_BOT_MS = Number(process.env.MT_DISCONNECT_BOT_MS) || 15_000;
+
+// How long a room with nobody connected is kept alive. A seat is only ever
+// borrowed by the AI, never lost, so the room has to outlive the last human's
+// connection for "re-enter the room code to come back" to mean anything —
+// including the case where the only human at a table of AI players drops.
+const EMPTY_ROOM_MS = Number(process.env.MT_EMPTY_ROOM_MS) || 30 * 60_000;
 
 function makeCode() {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -92,14 +107,42 @@ function makeCode() {
   return rooms.has(code) ? makeCode() : code;
 }
 
+// humanName is the name a human seat was created with, kept separate from
+// `name` because an AI takeover renames the seat to "Foo (AI)". Reclaiming a
+// seat matches on humanName and restores it, so a player who drops, gets
+// covered by the AI, and comes back is the same player under the same name.
+// A seat added with "Add AI player" has humanName null and is never
+// reclaimable.
+function newSeat(name, socketId) {
+  return { name, humanName: name, socketId, isBot: false, disconnectTimer: null };
+}
+
+function newBotSeat(name) {
+  return { name, humanName: null, socketId: null, isBot: true, disconnectTimer: null };
+}
+
+// A seat someone can walk back into: it belonged to a human, and nobody is
+// currently sitting in it. Being played by the AI doesn't disqualify it —
+// that's the whole point of the takeover being temporary.
+function isReclaimable(seat) {
+  return !!seat && seat.humanName != null && seat.socketId == null;
+}
+
+function reclaimableSeats(room) {
+  return room.seats
+    .map((s, i) => ({ seat: i, name: s.humanName, playedByAi: s.isBot }))
+    .filter((_, i) => isReclaimable(room.seats[i]));
+}
+
 function newRoom(hostSocket, hostName) {
   const room = {
     code: makeCode(),
     hostId: hostSocket.id,
-    seats: [{ name: hostName, socketId: hostSocket.id, isBot: false, disconnectTimer: null }],
+    seats: [newSeat(hostName, hostSocket.id)],
     game: null,
     botTimer: null,
     diceTimer: null,
+    emptyTimer: null, // set while no human is connected; deletes the room on expiry
   };
   rooms.set(room.code, room);
   return room;
@@ -113,6 +156,31 @@ function seatOfSocket(room, socket) {
   return room.seats.findIndex((s) => s.socketId === socket.id);
 }
 
+function anyoneConnected(room) {
+  return room.seats.some((s) => s.socketId != null);
+}
+
+// Called whenever the last human might have left or come back. An empty room
+// isn't dropped on the spot — a player who refreshes their browser or loses
+// wifi has EMPTY_ROOM_MS to re-enter the code, and any AI seats keep playing
+// the game forward in the meantime.
+function updateEmptyRoomTimer(room) {
+  if (anyoneConnected(room)) {
+    if (room.emptyTimer) clearTimeout(room.emptyTimer);
+    room.emptyTimer = null;
+    return;
+  }
+  if (room.emptyTimer) return;
+  room.emptyTimer = setTimeout(() => {
+    room.emptyTimer = null;
+    if (anyoneConnected(room)) return;
+    if (room.botTimer) clearTimeout(room.botTimer);
+    if (room.diceTimer) clearTimeout(room.diceTimer);
+    for (const s of room.seats) if (s.disconnectTimer) clearTimeout(s.disconnectTimer);
+    rooms.delete(room.code);
+  }, EMPTY_ROOM_MS);
+}
+
 function lobbyView(room) {
   return {
     code: room.code,
@@ -120,8 +188,12 @@ function lobbyView(room) {
     seats: room.seats.map((s, i) => ({
       seat: i,
       name: s.name,
+      humanName: s.humanName,
       isBot: s.isBot,
-      connected: s.isBot || s.socketId != null,
+      // A seat the AI is only covering for is shown as an absent human, not as
+      // an AI player, so the rest of the table knows someone may be back.
+      playedByAi: s.isBot && s.humanName != null,
+      connected: (s.isBot && s.humanName == null) || s.socketId != null,
       isHost: s.socketId === room.hostId,
     })),
   };
@@ -229,6 +301,43 @@ function autoResolveBotDiceReactions(room) {
   }
 }
 
+// ---- seat reclaim -------------------------------------------------------------
+
+// Put a socket back into an existing seat, taking it back off the AI if the AI
+// had been covering it. The engine keeps `isBot` on the player too (the bot
+// driver reads the room's copy, but bot.js and the client both read the
+// state's), so both have to be handed back together.
+function claimSeat(room, seat, socket, cb) {
+  const seatObj = room.seats[seat];
+  if (seatObj.disconnectTimer) clearTimeout(seatObj.disconnectTimer);
+  seatObj.disconnectTimer = null;
+  seatObj.socketId = socket.id;
+
+  const wasAi = seatObj.isBot;
+  seatObj.isBot = false;
+  seatObj.name = seatObj.humanName;
+  const player = room.game?.players?.[seat];
+  if (player) {
+    player.isBot = false;
+    player.name = seatObj.humanName;
+    if (wasAi) room.game.log.push(`${seatObj.humanName} is back and takes their seat over from the AI.`);
+  }
+
+  socket.data.roomCode = room.code;
+  socket.join(room.code);
+  // The host may have left while this player was away; an empty chair can't
+  // start a game or add AI seats, so hand the room to whoever is actually here.
+  if (!room.seats.some((s) => s.socketId === room.hostId)) room.hostId = socket.id;
+  updateEmptyRoomTimer(room);
+
+  cb?.({ ok: true, code: room.code, seat });
+  broadcast(room);
+  // This seat may have been the one the drivers were waiting on (or the AI was
+  // mid-flight for it) — re-evaluate both now that a human holds it.
+  scheduleBots(room);
+  scheduleDicePhase(room);
+}
+
 // ---- socket handlers ---------------------------------------------------------
 
 io.on('connection', (socket) => {
@@ -240,31 +349,53 @@ io.on('connection', (socket) => {
     broadcast(room);
   });
 
-  socket.on('joinRoom', ({ code, name }, cb) => {
+  // Joining and rejoining are the same door: you type a room code. If the game
+  // hasn't started you get a new seat; if it has, you get your old seat back —
+  // matched by name when we can, or picked from a list when we can't.
+  //
+  // `seat` is only ever sent by that picker, and is honoured strictly: if the
+  // seat was taken in the meantime the client gets a fresh list rather than
+  // being silently dropped into some other player's chair.
+  socket.on('joinRoom', ({ code, name, seat }, cb) => {
     const room = rooms.get(String(code || '').trim().toUpperCase());
     if (!room) return cb?.({ error: 'No room with that code.' });
     const wantName = cleanName(name);
 
-    // Rejoin: reclaim a disconnected human seat with the same name.
-    const back = room.seats.findIndex((s) => !s.isBot && s.socketId == null && s.name === wantName);
-    if (back !== -1) {
-      const seatObj = room.seats[back];
-      seatObj.socketId = socket.id;
-      if (seatObj.disconnectTimer) clearTimeout(seatObj.disconnectTimer);
-      seatObj.disconnectTimer = null;
-      socket.data.roomCode = room.code;
-      socket.join(room.code);
-      cb?.({ ok: true, code: room.code, seat: back });
-      broadcast(room);
-      return;
+    if (seat != null) {
+      if (!isReclaimable(room.seats[seat])) {
+        const open = reclaimableSeats(room);
+        return open.length
+          ? cb?.({ needSeat: true, code: room.code, seats: open, error: 'Someone just took that seat.' })
+          : cb?.({ error: 'That seat is no longer available.' });
+      }
+      return claimSeat(room, seat, socket, cb);
     }
-    if (room.game) return cb?.({ error: 'That game has already started.' });
+
+    // Rejoin: reclaim an absent seat with the same name, whether it is sitting
+    // empty or currently being played by the AI.
+    const back = room.seats.findIndex((s) => isReclaimable(s) && s.humanName === wantName);
+    if (back !== -1) return claimSeat(room, back, socket, cb);
+
+    if (room.game) {
+      const open = reclaimableSeats(room);
+      if (open.length) return cb?.({ needSeat: true, code: room.code, seats: open });
+      return cb?.({ error: 'That game has already started and every seat is filled.' });
+    }
     if (room.seats.length >= 5) return cb?.({ error: 'That room is full (5 seats max).' });
-    room.seats.push({ name: uniqueName(room, wantName), socketId: socket.id, isBot: false, disconnectTimer: null });
+    room.seats.push(newSeat(uniqueName(room, wantName), socket.id));
     socket.data.roomCode = room.code;
     socket.join(room.code);
+    updateEmptyRoomTimer(room);
     cb?.({ ok: true, code: room.code, seat: room.seats.length - 1 });
     broadcast(room);
+  });
+
+  // Read-only peek used by the client's "rejoin a game in progress" screen, so
+  // it can offer the seat list without first attempting a join.
+  socket.on('roomInfo', ({ code }, cb) => {
+    const room = rooms.get(String(code || '').trim().toUpperCase());
+    if (!room) return cb?.({ error: 'No room with that code.' });
+    cb?.({ ok: true, code: room.code, started: !!room.game, seats: reclaimableSeats(room) });
   });
 
   socket.on('addBot', (_payload, cb) => {
@@ -273,7 +404,7 @@ io.on('connection', (socket) => {
     if (room.game) return cb?.({ error: 'The game has already started.' });
     if (room.seats.length >= 5) return cb?.({ error: 'The room is full.' });
     const name = BOT_NAMES.find((n) => !room.seats.some((s) => s.name === `${n} (AI)`)) || `Bot ${room.seats.length + 1}`;
-    room.seats.push({ name: `${name} (AI)`, socketId: null, isBot: true, disconnectTimer: null });
+    room.seats.push(newBotSeat(`${name} (AI)`));
     cb?.({ ok: true });
     broadcast(room);
   });
@@ -336,11 +467,12 @@ io.on('connection', (socket) => {
     seatObj.socketId = null;
 
     if (!room.game) {
-      // Lobby: drop the seat entirely (host leaving hands the room to seat 0,
-      // or deletes the room if empty).
+      // Lobby: nothing to come back to yet, so drop the seat entirely (host
+      // leaving hands the room to whoever is left, or deletes it if empty).
       room.seats.splice(seat, 1);
       const humans = room.seats.filter((s) => !s.isBot && s.socketId);
       if (humans.length === 0) {
+        if (room.emptyTimer) clearTimeout(room.emptyTimer);
         rooms.delete(room.code);
         return;
       }
@@ -349,27 +481,29 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Mid-game: give them a minute to rejoin, then let a bot take over.
+    // Mid-game the seat is never given up — it is held for them, briefly as an
+    // empty chair and then played by the AI, until they re-enter the room code.
     seatObj.disconnectTimer = setTimeout(() => {
       seatObj.disconnectTimer = null;
-      if (seatObj.socketId == null && !seatObj.isBot) {
-        seatObj.isBot = true;
-        seatObj.name = `${seatObj.name} (AI)`;
-        if (room.game && seat < room.game.players.length) {
-          room.game.players[seat].isBot = true;
-          room.game.players[seat].name = seatObj.name;
-        }
-        broadcast(room);
-        scheduleBots(room);
-        scheduleDicePhase(room);
+      if (seatObj.socketId != null || seatObj.isBot) return;
+      seatObj.isBot = true;
+      seatObj.name = `${seatObj.humanName} (AI)`;
+      const player = room.game?.players?.[seat];
+      if (player) {
+        player.isBot = true;
+        player.name = seatObj.name;
+        room.game.log.push(`${seatObj.humanName} disconnected — the AI is playing their seat until they return.`);
       }
-      // Clean up rooms where every human has gone.
-      if (room.seats.every((s) => s.isBot || s.socketId == null)) rooms.delete(room.code);
+      broadcast(room);
+      scheduleBots(room);
+      scheduleDicePhase(room);
     }, DISCONNECT_BOT_MS);
+
     if (socket.id === room.hostId) {
       const other = room.seats.find((s) => !s.isBot && s.socketId);
       if (other) room.hostId = other.socketId;
     }
+    updateEmptyRoomTimer(room);
     broadcast(room);
   });
 });

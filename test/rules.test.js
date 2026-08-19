@@ -1684,7 +1684,7 @@ test('acquiring a Trainer with slot 8 full can be sent to reserve instead of bum
 
 // ---- new trainers -----------------------------------------------------------
 
-test('Orsino the Headliner: G and H performers collect +3 when rolled', () => {
+test('Orsino the Headliner: G and H performers collect +2 when rolled', () => {
   const s = freshGame(2, 1234);
   const seat = currentSeat(s);
   const other = s.players.find((x) => x.seat !== seat).seat;
@@ -1705,7 +1705,7 @@ test('Orsino the Headliner: G and H performers collect +3 when rolled', () => {
   const before = p.stars;
   applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
   driveDicePhase(s);
-  assert.equal(p.stars - before, aCount * 4, `expected 1 (base) + 3 (Orsino) = 4 stars per G roll (${aCount}x)`);
+  assert.equal(p.stars - before, aCount * 3, `expected 1 (base) + 2 (Orsino) = 3 stars per G roll (${aCount}x)`);
 });
 
 test('Delphine Silvertongue doubles a spent Press Pass\'s private roll count', () => {

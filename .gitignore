@@ -3,3 +3,4 @@ client/dist/
 *.log
 .DS_Store
 .env
+client/vite.config.js.timestamp-*.mjs

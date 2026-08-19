@@ -94,7 +94,7 @@ A later ruling changed slots 6 and 7 from single-purpose (Backdrop-only / Prop-o
 
 | Trainer | Ability |
 |---|---|
-| Orsino the Headliner | Your G and H Performers collect +3 (on top of the normal 1 + any Backdrop/Prop boost) whenever their letter is rolled on a Collection Die. |
+| Orsino the Headliner | Your G and H Performers collect +2 (on top of the normal 1 + any Backdrop/Prop boost) whenever their letter is rolled on a Collection Die. |
 | Delphine Silvertongue | Every Press Pass you spend rolls double its printed number of private Collection Dice (e.g. Press Pass 3 rolls 6 instead of 3). |
 | Amara the Reliquary | **Widened.** "To start your turn you may rearrange up to 3 hearts on any of your cards." Up to `AMARA_MAX_MOVES` (3) individual relocations per turn instead of one, each moving a single heart from one of your cards to another, capped by the destination's printed capacity. Hearts are only relocated, never created or destroyed. Reserve cards are eligible on both ends — one of the two documented exceptions to the active-performer rule. |
 | Jonas Quickfinger | **Back to an action, now Haunting-only.** "To start your turn you may discard a Haunting performer to take their resource times their power dot amount." Free (the main action is untouched) and once per turn, matching Celestine and Amara's "to start your turn" wording — the earlier passive/table-wide version is gone. Only *active* Haunting performers qualify (mat slots 1-5); one in reserve is not on stage. |

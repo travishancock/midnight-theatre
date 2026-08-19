@@ -11,7 +11,7 @@
     "dev": "concurrently -n server,client -c blue,magenta \"node server/index.js\" \"npm --prefix client run dev\"",
     "build": "npm --prefix client install && npm --prefix client run build",
     "postinstall": "npm --prefix client install",
-    "test": "node test/fullgame.test.js && node test/rules.test.js"
+    "test": "node test/fullgame.test.js && node test/rules.test.js && node test/rejoin.test.js"
   },
   "dependencies": {
     "express": "^4.19.2",

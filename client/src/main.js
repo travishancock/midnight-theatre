@@ -13,6 +13,10 @@ let socket = null;
 let cards = new Map(); // id -> card data (from /api/cards)
 let my = { code: null, seat: null, name: '' };
 let view = { lobby: null, state: null };
+// Set when a join lands on a game already in progress and the server needs us
+// to say which absent seat we're taking back: { code, seats: [{seat, name,
+// playedByAi}] }. Rendering this replaces the welcome screen until it clears.
+let rejoin = null;
 let assetVersion = ''; // from /api/cards — appended to card image URLs so a browser always fetches fresh art after a deploy that changes it, even under an unchanged filename
 
 // Transient UI state
@@ -24,6 +28,7 @@ let ui = {
   heartPlan: {}, // cardId -> amount, for heartAssign prompt
   refillPlan: null, // [{slot, cardId}]
   logOpen: true,
+  openReserves: {}, // seat -> true while that opponent's reserve row is expanded
 };
 
 const SLOT_NAMES = ['Performer 1', 'Performer 2', 'Performer 3', 'Performer 4', 'Performer 5', 'Backdrop / Trainer', 'Prop / Trainer', 'Trainer'];
@@ -75,12 +80,14 @@ async function boot() {
   });
   socket.on('disconnect', () => toast('Connection lost — trying to reconnect…'));
   socket.on('connect', () => {
-    // Auto-rejoin after a dropped connection.
-    if (my.code && my.name) {
-      socket.emit('joinRoom', { code: my.code, name: my.name }, (res) => {
-        if (res?.ok) my.seat = res.seat;
-      });
-    }
+    // Auto-rejoin after a dropped connection that the socket itself recovered
+    // from. The page never reloaded, so we still know our name and code and
+    // the server matches us straight back into our seat — taking it off the AI
+    // if the outage ran long enough for the takeover to kick in. A rejoin that
+    // needs a decision (seat gone, seat ambiguous) falls back to the same
+    // screens a manually typed code would reach.
+    if (!my.code || !my.name) return;
+    joinWithCode(my.code);
   });
   render();
 }
@@ -204,6 +211,7 @@ function send(action, silent = false) {
 // ---------------------------------------------------------------------------
 
 function render() {
+  if (!view.lobby && rejoin) return renderRejoin();
   if (!view.lobby) return renderWelcome();
   if (!view.state) return renderLobby();
   renderGame();
@@ -235,19 +243,21 @@ function cardTitle(c) {
 // ---- welcome / lobby --------------------------------------------------------
 
 function renderWelcome() {
+  const last = recall();
   app.innerHTML = `
     <div class="welcome">
       <h1>The Midnight Theatre</h1>
       <p class="tag">Build the most legendary troupe under the big top.</p>
       <div class="panel">
-        <label>Your name <input id="nameInput" maxlength="24" value="${esc(my.name)}" placeholder="e.g. Travis"/></label>
+        <label>Your name <input id="nameInput" maxlength="24" value="${esc(my.name || last.name)}" placeholder="e.g. Travis"/></label>
         <div class="row">
           <button id="createBtn" class="primary">Create a room</button>
         </div>
         <div class="row join-row">
-          <input id="codeInput" maxlength="4" placeholder="ROOM CODE" style="text-transform:uppercase"/>
+          <input id="codeInput" maxlength="4" placeholder="ROOM CODE" style="text-transform:uppercase" value="${esc(last.code)}"/>
           <button id="joinBtn">Join</button>
         </div>
+        <p class="hint">Same box either way — if you were dropped from a game that's still running, put the code back in to take your seat again. The AI covers for you while you're away.</p>
       </div>
     </div>`;
   const name = () => document.getElementById('nameInput').value.trim() || 'Player';
@@ -255,19 +265,97 @@ function renderWelcome() {
     my.name = name();
     socket.emit('createRoom', { name: my.name }, (res) => {
       if (res?.error) return toast(res.error);
-      my.code = res.code;
-      my.seat = res.seat;
+      enterRoom(res);
     });
   };
-  document.getElementById('joinBtn').onclick = () => {
+  const doJoin = () => {
     my.name = name();
     const code = document.getElementById('codeInput').value.trim().toUpperCase();
-    socket.emit('joinRoom', { code, name: my.name }, (res) => {
-      if (res?.error) return toast(res.error);
-      my.code = res.code;
-      my.seat = res.seat;
-    });
+    if (!code) return toast('Enter a room code first.');
+    joinWithCode(code);
   };
+  document.getElementById('joinBtn').onclick = doJoin;
+  document.getElementById('codeInput').onkeydown = (e) => e.key === 'Enter' && doJoin();
+}
+
+function joinWithCode(code, seat) {
+  socket.emit('joinRoom', { code, name: my.name, seat }, (res) => {
+    if (res?.needSeat) {
+      // The game is already running and our name didn't match an absent seat —
+      // let the player point at the one that's theirs.
+      rejoin = { code: res.code, seats: res.seats };
+      if (res.error) toast(res.error);
+      return render();
+    }
+    if (res?.error) {
+      // Includes the auto-rejoin case where the room is simply gone — drop
+      // back to the welcome screen rather than leaving a dead board on screen.
+      rejoin = null;
+      my.code = null;
+      my.seat = null;
+      view = { lobby: null, state: null };
+      render();
+      return toast(res.error);
+    }
+    rejoin = null;
+    enterRoom(res);
+  });
+}
+
+function enterRoom(res) {
+  my.code = res.code;
+  my.seat = res.seat;
+  remember(my.name, my.code);
+}
+
+// The seat picker: shown when someone re-enters the code of a game in
+// progress under a name the server can't match to an absent seat (a typo, a
+// different device, or they simply don't remember what they typed).
+function renderRejoin() {
+  app.innerHTML = `
+    <div class="welcome">
+      <h1>The Midnight Theatre</h1>
+      <p class="tag">That game is still going — which seat is yours?</p>
+      <div class="panel">
+        <h2>Room <span class="code">${esc(rejoin.code)}</span></h2>
+        <ul class="seatlist">
+          ${rejoin.seats.map((s) => `
+            <li>
+              <span>${esc(s.name)} ${s.playedByAi ? '<span class="hint">· the AI is playing this seat</span>' : '<span class="hint">· empty</span>'}</span>
+              <button class="small" data-claim="${s.seat}">Take this seat</button>
+            </li>`).join('')}
+        </ul>
+        <div class="row">
+          <button id="rejoinBack">Back</button>
+        </div>
+      </div>
+    </div>`;
+  app.querySelectorAll('[data-claim]').forEach((b) =>
+    b.addEventListener('click', () => joinWithCode(rejoin.code, +b.dataset.claim))
+  );
+  document.getElementById('rejoinBack').onclick = () => {
+    rejoin = null;
+    render();
+  };
+}
+
+// A refresh wipes everything in memory, so the room code and name are kept in
+// localStorage purely to pre-fill the welcome form — the actual reclaim still
+// goes through the server, this just saves retyping a code you can no longer
+// see. Wrapped because Safari's private mode throws on access.
+const REMEMBER_KEY = 'midnight-theatre:last';
+function remember(name, code) {
+  try {
+    localStorage.setItem(REMEMBER_KEY, JSON.stringify({ name, code }));
+  } catch {}
+}
+function recall() {
+  try {
+    const v = JSON.parse(localStorage.getItem(REMEMBER_KEY) || '{}');
+    return { name: v.name || '', code: v.code || '' };
+  } catch {
+    return { name: '', code: '' };
+  }
 }
 
 function renderLobby() {
@@ -820,18 +908,41 @@ function myMatHtml(s, p, pending) {
   </section>`;
 }
 
+// An opponent's reserve is open information at a physical table — the cards
+// sit face-up beside their mat — so it's shown here too, but behind a
+// per-opponent toggle: with four opponents on screen, four always-expanded
+// reserves push the mats off the bottom of the page. ui.openReserves survives
+// re-renders (see resetTransientUi, which deliberately leaves it alone) so a
+// reserve you opened stays open as the game state ticks over.
 function opponentHtml(s, p) {
   const isTurn = s.phase === 'draft' && s.turn && s.turn.seat === p.seat && !s.turn.done;
+  const open = !!ui.openReserves[p.seat];
+  const empty = p.reserve.length === 0;
+  // A seat the AI is only covering reads differently from an AI player who was
+  // dealt in at the start — that person may well be back mid-round.
+  const lobbySeat = view.lobby?.seats?.[p.seat];
+  const who = lobbySeat?.playedByAi
+    ? `${esc(lobbySeat.humanName)} <span title="Away — the AI is playing their seat until they return">⏳🤖</span>`
+    : `${esc(p.name)} ${p.isBot ? '🤖' : ''}`;
   return `<div class="opponent ${isTurn ? 'active' : ''}">
     <div class="mat-head">
-      <h4>${esc(p.name)} ${p.isBot ? '🤖' : ''} <span class="hint">stand ${p.stand}</span></h4>
-      <div class="tokens">🪙 ${p.coins} · ⭐ ${p.roundStars} this round · 🏆 ${p.trophies} · reserve ${p.reserve.length}</div>
+      <h4>${who} <span class="hint">stand ${p.stand}</span></h4>
+      <div class="tokens">🪙 ${p.coins} · ⭐ ${p.roundStars} this round · 🏆 ${p.trophies}</div>
     </div>
     <div class="slots mini">
       ${p.slots.map((id, i) => `
         <div class="slot mini" title="${SLOT_NAMES[i]}">
           ${id ? cardHtml(id, { size: 'xs', hearts: s.hearts[id] || 0 }) : '<div class="empty">·</div>'}
         </div>`).join('')}
+    </div>
+    <div class="opp-reserve">
+      <button class="reserve-toggle" data-oppreserve="${p.seat}" ${empty ? 'disabled' : ''}
+        title="${empty ? 'Nothing in reserve' : 'Show this player’s reserve (favors, press passes and bumped cards)'}">
+        ${empty ? '·' : open ? '▾' : '▸'} Reserve (${p.reserve.length})
+      </button>
+      ${open && !empty ? `<div class="cardrow mini-reserve">
+        ${p.reserve.map((id) => cardHtml(id, { size: 'xs', hearts: cardMaxHeartsFor(id) != null ? (s.hearts[id] || 0) : null })).join('')}
+      </div>` : ''}
     </div>
   </div>`;
 }
@@ -845,6 +956,15 @@ function wireGameEvents(s, p, pending) {
     ui.logOpen = !ui.logOpen;
     render();
   });
+
+  // Expand/collapse an opponent's reserve row.
+  app.querySelectorAll('[data-oppreserve]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const seat = +b.dataset.oppreserve;
+      ui.openReserves[seat] = !ui.openReserves[seat];
+      render();
+    })
+  );
 
   // Draft-row clicks: acquire.
   document.getElementById('draftRow')?.addEventListener('click', (e) => {

@@ -57,6 +57,11 @@ export const TRAINERS = {
   EZRA: 'Ezra-the-Sleight-of-Hand',
 };
 
+// Orsino the Headliner: extra resource units a G or H performer collects, on
+// top of the normal 1 + any Backdrop/Prop boost. Printed on the card, so this
+// constant and assets/card_database.json's ability text must agree.
+const ORSINO_BONUS = 2;
+
 const MAX_TOMATO_DICE = 7; // rolled dice cap at 7 from round 7 onward (physical set has 9 tomato dice)
 const MARKET_SIZE = 4;
 
@@ -512,7 +517,7 @@ export function expectedUnitsPerCollectionRoll(state, seat) {
     const c = card(id);
     if (c.cardType !== 'performer') continue;
     let units = 1 + boostCount(state, seat, c);
-    if ((c.letter === 'G' || c.letter === 'H') && trainerActive(state, seat, TRAINERS.ORSINO)) units += 3;
+    if ((c.letter === 'G' || c.letter === 'H') && trainerActive(state, seat, TRAINERS.ORSINO)) units += ORSINO_BONUS;
     ev += ((LETTER_FREQ[c.letter] || 0) / 20) * units;
   }
   return ev;
@@ -541,7 +546,7 @@ function resolveCollectionDie(state, letter, onlySeat = null, typeFilterFn = nul
       if (c.cardType !== 'performer' || c.letter !== letter) continue;
       if (typeFilterFn && !typeFilterFn(c)) continue;
       let units = 1 + boostCount(state, p.seat, c);
-      if ((letter === 'G' || letter === 'H') && trainerActive(state, p.seat, TRAINERS.ORSINO)) units += 3;
+      if ((letter === 'G' || letter === 'H') && trainerActive(state, p.seat, TRAINERS.ORSINO)) units += ORSINO_BONUS;
       if (c.resource === 'Star') {
         addStars(state, p.seat, units);
         gains.push(`${units} star${units > 1 ? 's' : ''}`);
