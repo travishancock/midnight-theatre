@@ -79,7 +79,11 @@ function resolvePrompt(state, seat, item) {
     case 'pressPassWindow': {
       const passes = eligiblePressPasses(state, seat);
       if (passes.length > 0 && boardLetterCount(state, seat) >= 1) {
-        return { type: 'usePressPass', seat, cardId: passes[0] };
+        // Biggest first: the loop normally spends them all, but if the window
+        // is ever cut short (a takeover, a disconnect) the most rolls have
+        // already been banked.
+        const best = passes.reduce((a, b) => ((card(b).count || 1) > (card(a).count || 1) ? b : a), passes[0]);
+        return { type: 'usePressPass', seat, cardId: best };
       }
       return { ...base };
     }
@@ -246,14 +250,55 @@ function chooseRefill(state, seat) {
 // Draft-turn choice
 // ---------------------------------------------------------------------------
 
+// Is this the moment to spend a Favor?
+//
+// A Favor spent before the main action grants a bonus turn taken immediately
+// afterwards, so the payoff is specifically the chance to take the two best
+// cards in the row back to back, before any opponent gets at the second one.
+// That makes spending a timing decision, not a reflex — and the bot used to
+// treat it as a reflex, burning a Favor on the first turn it was eligible
+// whatever was on the table. Measured over 240 AI-only games, that policy
+// spent 1,534 Favors of which **27% bought a bonus turn that never happened**
+// (see the row-length guard below) and 54% bought a second pick scoring under
+// 3.0, i.e. a card the bot would not otherwise have wanted. Mean value of the
+// card the bonus turn actually took: 2.78.
+//
+// Two conditions now have to hold.
+function wantsFavorNow(state, seat, favorId) {
+  // 1) The bonus turn has to actually happen. finishTurn ends the draft the
+  //    instant the row runs down to its last card, and that check runs BEFORE
+  //    the queued bonus turn is granted — so a Favor spent when this turn's
+  //    pick would leave 1 card standing is silently thrown away. Each bonus
+  //    turn already queued claims a card too, hence the subtraction.
+  const queued = (state.turn.bonusQueue || []).length;
+  if (state.draftRow.length - queued < 3) return false;
+
+  // 2) The card the bonus turn would take has to be worth having. A bonus
+  //    turn from a Favor may not draft another Favor of the same timing, so
+  //    those are excluded from what it could pick up.
+  const timing = card(favorId).triggerAfterTurn;
+  const scores = state.draftRow
+    .filter((id) => {
+      const c = card(id);
+      return !(c.cardType === 'favor' && c.triggerAfterTurn === timing);
+    })
+    .map((id) => scoreCard(state, seat, id))
+    .sort((a, b) => b - a);
+  // scores[0] is this turn's own pick; each queued bonus turn takes the next
+  // one down; this Favor's bonus turn takes the one after that.
+  const wouldTake = scores[queued + 1];
+  return wouldTake != null && wouldTake >= FAVOR_SPEND_MIN;
+}
+
 function draftTurn(state, seat) {
   const p = state.players[seat];
 
-  // Spend any eligible Favor(s) for an extra turn before acting — never
-  // hoard them (brief guidance). Must happen before the main action, same
-  // as a human clicking the Favor card in their reserve.
+  // Spend an eligible Favor for an extra turn before acting — but only when
+  // the row is actually worth doubling up on (see wantsFavorNow). Must happen
+  // before the main action, same as a human clicking the Favor card in their
+  // reserve.
   if (!state.turn.mainDone) {
-    const usable = eligibleFavors(state, seat);
+    const usable = eligibleFavors(state, seat).filter((id) => wantsFavorNow(state, seat, id));
     if (usable.length > 0) return { type: 'useFavor', seat, cardId: usable[0] };
   }
 
@@ -465,31 +510,87 @@ function drawValue(n) {
 // What a Press Pass is actually worth.
 //
 // It buys `count` private Collection Die rolls (doubled by Delphine
-// Silvertongue), so its value is entirely a function of the printed number
-// AND of how much the holder's board collects per roll — the old flat 1.4
-// was wrong on both axes at once, overpricing a Press Pass 1 and badly
-// underpricing a 5, 6 or 7.
+// Silvertongue), so its value is the printed number times how much the
+// holder's stage collects per roll, times what a collected resource unit is
+// worth. Because it is `count` rolls of the same stage, the value is strictly
+// proportional to the printed number — a Press Pass 7 is always worth exactly
+// seven times a Press Pass 1 to the same seat, so a higher card can never be
+// ranked below a lower one. (rules.test.js asserts that ordering.)
 //
-// Measured across real games: a board collects ~0.68 resource units per roll
-// on average (0 with an empty stage, ~1.01 with five performers). At the
-// bot's own ~0.9 score per resource unit, that puts a Press Pass 7 near 4.3
-// on a typical board and over 6 on a full one — versus the 1.4 it used to
-// score, which is why it kept passing them up.
+// The two board-dependent terms were both measured, and both were wrong.
 //
-// PRESS_PASS_MIN_UNITS is a deliberate floor rather than trusting the current
-// board outright: a Press Pass isn't spent until the pre-roll window at the
-// *end* of this round's draft, by which point the holder has usually drafted
-// more performers. Without the floor a bot with an empty stage would price
-// every Press Pass at exactly 0 and never take one early in a round.
-// A "1st" Favor is strictly the more flexible of the two — see scoreCard.
-const FAVOR_FIRST = 2.0;
-const FAVOR_SECOND = 1.5;
+// 1. TIMING. A Press Pass is never spent at the moment it is drafted — it is
+//    spent in the pre-roll window at the *end* of that round's draft, by which
+//    point the holder has taken more turns and filled more of their stage.
+//    Measured over 240 AI-only games (5,107 decision points, comparing each
+//    draft-time stage against that same seat's stage when the draft actually
+//    ended): units/roll rises from a mean 0.523 at draft time to 0.675 at
+//    spend time. PRESS_PASS_EMPTY_SLOT_UNITS credits each empty Performer slot
+//    with the share of that gap it accounts for; 0.08 is the value that makes
+//    the projection unbiased (mean 0.674 vs the actual 0.675). The old code
+//    approximated this with a flat 0.35 floor, which was biased ~11% low and
+//    left a half-full stage underpriced. The floor stays, lowered to 0.25,
+//    purely as a guard for a stage with nothing on it at all.
+//
+// 2. WHAT A UNIT IS WORTH. This was the real problem. A unit was priced at
+//    0.9, the same as a Coin resource card, but a unit collected from a
+//    private roll is worth far more than a coin: ~41% of collected units are
+//    Stars (the trophy currency, which the bot already prices above Coins
+//    everywhere else — see resourceNeedBonus), they arrive at the end of the
+//    round precisely when round stars are compared for the Trophy, and the
+//    card costs no mat slot to cash in. Sweeping this constant head-to-head
+//    against the previous bot, win share climbs monotonically from 50.0% at
+//    0.9 to ~53% around 1.5-1.7 and falls off again by 2.4 — a real optimum.
+//    1.5 sits at the top of that range.
+//
+// THE FAVOR CONSTANTS.
+//
+// A Favor spent before the main action grants a bonus turn taken immediately
+// afterwards, so what it really buys is the two best cards in the row back to
+// back, before any opponent gets at the second one. Measured over 240 AI-only
+// games (16,821 draft decisions): the card a bot takes averages 4.31, and the
+// next-best card still sitting in the row averages 3.34 — so a Favor taken at
+// a random moment is worth about the mean of the two, ~3.8.
+//
+// But the bot does not have to spend it at a random moment, and a bonus turn
+// is not a *replacement* pick, it is an *extra* one: a round deals exactly
+// 2 x players + 1 cards and ends with 1 left, so the pool is fixed and every
+// bonus turn takes a card that would otherwise have gone to an opponent.
+// Held until wantsFavorNow's window opens, the card the bonus turn takes
+// averages 5.85 rather than 3.34. FAVOR_FIRST is that number discounted for
+// the delay and for the risk of never getting a good window. Swept head to
+// head, win share rises through 4.4-5.0, then falls off a cliff by 6.4 (49.8%)
+// and 7.4 (45.3%) where the bot starts drafting Favors over the very cards
+// they are meant to help it take. 4.7 sits at the top of the safe range.
+//
+// This only works because spending is now selective: under the old reflex
+// policy the same sweep punished anything above 4.0. A "1st" Favor stays
+// strictly above a "2nd+" for the reason given in scoreCard, at roughly the
+// same ratio as before.
+//
+const FAVOR_FIRST = 4.7;
+const FAVOR_SECOND = 3.6;
 
-const PRESS_PASS_UNIT_SCORE = 0.9; // one resource unit, same scale as a Coin resource
-const PRESS_PASS_MIN_UNITS = 0.35; // ~a 2-3 performer board, the floor for a stage that will grow
+// The bonus turn must be able to take a card worth at least this. Swept head
+// to head: 4.5 beats 3.5, 4.0 and 5.0 on every seed set tried. Below it the
+// bot spends Favors on cards it does not want; above it, it hoards them.
+const FAVOR_SPEND_MIN = 4.5;
+
+const PRESS_PASS_UNIT_SCORE = 1.5;        // one collected resource unit, Star premium included
+const PRESS_PASS_EMPTY_SLOT_UNITS = 0.08; // units/roll an empty Performer slot is worth by spend time
+const PRESS_PASS_MIN_UNITS = 0.25;        // floor, so a bare stage still rates a big Press Pass
+
+// The stage this Press Pass will actually be rolled on, not the one it is
+// being drafted onto.
+function projectedUnitsPerRoll(state, seat) {
+  const p = state.players[seat];
+  const now = expectedUnitsPerCollectionRoll(state, seat);
+  const emptyPerformerSlots = p.slots.slice(0, 5).filter((x) => x == null).length;
+  return Math.max(now + emptyPerformerSlots * PRESS_PASS_EMPTY_SLOT_UNITS, PRESS_PASS_MIN_UNITS);
+}
 
 function pressPassValue(state, seat, count) {
-  const perRoll = Math.max(expectedUnitsPerCollectionRoll(state, seat), PRESS_PASS_MIN_UNITS);
+  const perRoll = projectedUnitsPerRoll(state, seat);
   const rolls = count * (trainerActive(state, seat, TRAINERS.DELPHINE) ? 2 : 1);
   return rolls * perRoll * PRESS_PASS_UNIT_SCORE;
 }

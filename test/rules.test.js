@@ -2364,5 +2364,159 @@ test('scoreCard: a "1st" Favor is valued above a "2nd" Favor', () => {
   }
 });
 
+test('scoreCard: a Press Pass is valued strictly in proportion to its printed number', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  const pass = (n) => `PressPass-${n}-1`;
+
+  // On any board — bare stage, half stage, full stage — 1..7 must be strictly
+  // increasing, and a 7 must be worth exactly 7x a 1. This is the whole point
+  // of a Press Pass: a higher number is simply more private Collection Dice.
+  const stages = [
+    [null, null, null, null, null],
+    [performer((c) => c.letter === 'A'), performer((c) => c.letter === 'H'), null, null, null],
+    ['A', 'B', 'C', 'D', 'E'].map((l) => performer((c) => c.letter === l)),
+  ];
+  for (const stage of stages) {
+    for (let i = 0; i < 5; i++) p.slots[i] = stage[i];
+    const vals = [1, 2, 3, 4, 5, 6, 7].map((n) => scoreCard(s, seat, pass(n)));
+    for (let n = 1; n < 7; n++) {
+      assert.ok(vals[n] > vals[n - 1], `Press Pass ${n + 1} (${vals[n]}) must beat ${n} (${vals[n - 1]})`);
+    }
+    assert.ok(Math.abs(vals[6] - vals[0] * 7) < 1e-9, 'a 7 is worth exactly seven 1s on the same board');
+  }
+
+  // A fuller stage collects more per roll, so the same card is worth more.
+  for (let i = 0; i < 5; i++) p.slots[i] = stages[2][i];
+  const full = scoreCard(s, seat, pass(7));
+  for (let i = 0; i < 5; i++) p.slots[i] = null;
+  const bare = scoreCard(s, seat, pass(7));
+  assert.ok(full > bare, `a full stage (${full}) values a Press Pass 7 above a bare one (${bare})`);
+  assert.ok(bare > 2, `even a bare stage must rate a Press Pass 7 as worth taking, got ${bare}`);
+});
+
+test('scoreCard: a large Press Pass outranks the small resource cards, and the bot actually drafts it', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots = [performer((c) => c.letter === 'A'), performer((c) => c.letter === 'B'), null, null, null, null, null, null];
+
+  const coin1 = firstOfName(db.resources, 'Resource 1 Coin');
+  const heart1 = firstOfName(db.resources, 'Resource 1 Heart');
+  const big = 'PressPass-7-1';
+  assert.ok(scoreCard(s, seat, big) > scoreCard(s, seat, coin1) * 4, 'a Press Pass 7 dwarfs a single coin');
+  assert.ok(scoreCard(s, seat, big) > scoreCard(s, seat, heart1) * 4, 'a Press Pass 7 dwarfs a single heart');
+
+  // Offered against a row of junk, the bot must take the Press Pass.
+  s.draftRow = [coin1, heart1, 'PressPass-7-1', 'PressPass-1-1'];
+  p.coins = 0; // no reset / market detour available
+  const act = botAction(s, seat);
+  assert.equal(act.type, 'acquireDraft');
+  assert.equal(act.cardId, 'PressPass-7-1', 'the bot must take the biggest Press Pass over junk resources');
+});
+
+test('pressPassWindow: the bot spends its biggest Press Pass first', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots[0] = performer((c) => c.letter === 'A');
+  p.reserve = ['PressPass-2-1', 'PressPass-6-1', 'PressPass-1-1'];
+  s.phase = 'dice';
+  s.pressPassWindowActive = true;
+  s.pending = [{ id: 1, kind: 'pressPassWindow', seat, data: {} }];
+  const act = botAction(s, seat);
+  assert.equal(act.type, 'usePressPass');
+  assert.equal(act.cardId, 'PressPass-6-1', 'biggest first, so a cut-short window still banks the most rolls');
+});
+
+test('scoreCard: a Favor beats a row with nothing better in it', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots = [null, null, null, null, null, null, null, null];
+  p.coins = 0; // no market reset detour
+
+  const coin1 = firstOfName(db.resources, 'Resource 1 Coin');
+  const heart1 = firstOfName(db.resources, 'Resource 1 Heart');
+  assert.ok(scoreCard(s, seat, 'Favor-1-1') > scoreCard(s, seat, coin1), 'an extra turn beats a single coin');
+  assert.ok(scoreCard(s, seat, 'Favor-2-1') > scoreCard(s, seat, heart1), 'even a 2nd Favor beats a single heart');
+
+  s.draftRow = [coin1, heart1, 'Favor-1-1'];
+  const act = botAction(s, seat);
+  assert.equal(act.type, 'acquireDraft');
+  assert.equal(act.cardId, 'Favor-1-1', 'with nothing better on offer, take the free extra turn');
+
+  // But a Favor must never outrank a real Performer the bot has room for.
+  const perf = performer((c) => c.letter === 'A');
+  assert.ok(
+    scoreCard(s, seat, perf) > scoreCard(s, seat, 'Favor-1-1'),
+    'a Performer for an empty stage still beats a Favor'
+  );
+});
+
+test('useFavor: the bot never spends a Favor into a draft that is about to end', () => {
+  // finishTurn ends the draft the moment the row runs down to its last card,
+  // and that check runs before the queued bonus turn is granted — so a Favor
+  // spent with only 2 cards in the row buys literally nothing.
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots = [null, null, null, null, null, null, null, null];
+  p.reserve = ['Favor-1-1'];
+  p.coins = 0;
+  const strong = performer((c) => c.letter === 'A');
+  const strong2 = performer((c) => c.letter === 'B');
+
+  s.draftRow = [strong, strong2]; // taking one leaves one -> draft ends
+  assert.notEqual(botAction(s, seat).type, 'useFavor', 'a 2-card row cannot pay off a Favor');
+
+  s.draftRow = [strong, strong2, performer((c) => c.letter === 'C')];
+  assert.equal(botAction(s, seat).type, 'useFavor', 'with 3 cards the bonus turn actually happens');
+});
+
+test('useFavor: the bot holds its Favor until two cards are worth taking back to back', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots = [null, null, null, null, null, null, null, null];
+  p.reserve = ['Favor-1-1'];
+  p.coins = 0;
+  const strong = performer((c) => c.letter === 'A');
+  const coin1 = firstOfName(db.resources, 'Resource 1 Coin');
+  const heart1 = firstOfName(db.resources, 'Resource 1 Heart');
+
+  // One good card and a pile of junk: take the good card, keep the Favor.
+  s.draftRow = [strong, coin1, heart1, firstOfName(db.resources, 'Resource 2 Coins')];
+  const held = botAction(s, seat);
+  assert.notEqual(held.type, 'useFavor', 'no reason to double up on junk');
+  assert.equal(held.type, 'acquireDraft');
+  assert.equal(held.cardId, strong);
+  assert.ok(p.reserve.includes('Favor-1-1'), 'the Favor is still in reserve');
+
+  // Two good cards: spend it, so both come back to back before an opponent
+  // can take the second.
+  s.draftRow = [strong, performer((c) => c.letter === 'B'), coin1, heart1];
+  assert.equal(botAction(s, seat).type, 'useFavor', 'two strong cards is exactly the window to spend it');
+});
+
+test('useFavor: a queued bonus turn is counted, so the bot cannot over-spend Favors on one row', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  p.slots = [null, null, null, null, null, null, null, null];
+  p.reserve = ['Favor-1-1', 'Favor-1-2'];
+  p.coins = 0;
+  s.draftRow = ['A', 'B', 'C'].map((l) => performer((c) => c.letter === l));
+
+  const first = botAction(s, seat);
+  assert.equal(first.type, 'useFavor');
+  applyAction(s, first);
+  // One bonus turn is queued and the row holds 3: this turn takes one, the
+  // bonus turn takes another, leaving 1 and ending the draft. A second Favor
+  // would buy a turn that never comes.
+  assert.notEqual(botAction(s, seat).type, 'useFavor', 'the queued bonus turn already claims the third card');
+});
+
 console.log(`\nrules.test.js: ${passed} passing${process.exitCode ? ' (with failures)' : ''}`);
 if (!process.exitCode) console.log('ALL RULES TESTS PASSED');
