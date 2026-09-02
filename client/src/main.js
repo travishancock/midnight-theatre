@@ -72,8 +72,12 @@ async function boot() {
         announceSupplyShortage(view.state.log.slice(prevLogLen));
         // engine.js increments turnsCompleted exactly once per finished turn,
         // so this is the one signal that means "play has moved on" regardless
-        // of who acted or which phase we are in.
-        if (view.state.turnsCompleted > prevTurns) chime();
+        // of who acted or which phase we are in. Everyone gets the quiet
+        // click; only the seat that is now up gets the beep on top of it.
+        if (view.state.turnsCompleted > prevTurns) {
+          tick();
+          if (isMyTurn() || myPending()) alertMyTurn();
+        }
       }
     }
     render();
@@ -209,28 +213,45 @@ function primeAudio() {
   }
 }
 
-// Two stacked partials, fast attack, long exponential tail — a small bell
-// rather than a beep, so it carries across a room without being harsh on a
-// laptop speaker.
-function chime() {
+// Two sounds, because a turn ending and YOUR turn starting are different
+// events and only one of them needs you to look up.
+//
+// tick()  — every completed turn, for everyone. A short, quiet, dry click:
+//           the table equivalent of hearing a card go down. Deliberately
+//           unmusical and ~40ms so it never competes with conversation.
+// alert() — only for the seat that is now up. A two-note rising beep, louder
+//           and pitched to carry.
+function blip(partials, { attack = 0.006, decay, peak, type = 'sine', delay = 0 } = {}) {
   const ctx = primeAudio();
   if (!ctx) return;
-  const t = ctx.currentTime;
+  const t = ctx.currentTime + delay;
   const out = ctx.createGain();
   out.gain.setValueAtTime(0.0001, t);
-  out.gain.exponentialRampToValueAtTime(0.3, t + 0.012);
-  out.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+  out.gain.exponentialRampToValueAtTime(peak, t + attack);
+  out.gain.exponentialRampToValueAtTime(0.0001, t + decay);
   out.connect(ctx.destination);
-  for (const [freq, level] of [[988, 1], [1483, 0.4]]) {
+  for (const [freq, level] of partials) {
     const osc = ctx.createOscillator();
     const g = ctx.createGain();
-    osc.type = 'sine';
+    osc.type = type;
     osc.frequency.setValueAtTime(freq, t);
     g.gain.setValueAtTime(level, t);
     osc.connect(g).connect(out);
     osc.start(t);
-    osc.stop(t + 1.15);
+    osc.stop(t + decay + 0.05);
   }
+}
+
+// A turn went by — someone else's, or yours ending.
+function tick() {
+  blip([[420, 1], [900, 0.25]], { attack: 0.003, decay: 0.05, peak: 0.1, type: 'triangle' });
+}
+
+// You are up. Two rising notes, so it reads as a summons rather than an echo
+// of the click that just played for everyone.
+function alertMyTurn() {
+  blip([[784, 1]], { decay: 0.16, peak: 0.34 });
+  blip([[1175, 1]], { decay: 0.34, peak: 0.34, delay: 0.15 });
 }
 
 // ---------------------------------------------------------------------------
@@ -336,15 +357,25 @@ const imgUrl = (c) => '/' + encodeURI(c.image) + (assetVersion ? `?v=${assetVers
 // hearts pill sits. Since the letter is the single thing an opponent needs to
 // read off a reserve card, it gets its own high-contrast chip in a corner
 // nothing else uses.
-function cardHtml(id, { size = 'md', extra = '', badge = null, hearts = null, dim = false, letter = false } = {}) {
+// `letter: true` stamps the performer's Collection letter over the top-left
+// corner. `heartTokens: n` instead lays n heart tokens across the middle of
+// the card, the way loose heart tokens sit on a card at a physical table —
+// used for opponents' reserves, where the point is to read the card's own
+// printed face plus how many hearts it is holding, with nothing boxed over it.
+// The card's type is emitted as a class because hover-to-enlarge is
+// Trainer-only (see style.css).
+function cardHtml(id, { size = 'md', extra = '', badge = null, hearts = null, dim = false, letter = false, heartTokens = null } = {}) {
   const c = card(id);
   const h = hearts != null ? hearts : null;
   const max = cardMaxHeartsFor(id);
   const showLetter = letter && c.cardType === 'performer' && c.letter;
   return `
-    <div class="card ${size} ${dim ? 'dim' : ''} ${extra}" data-cardid="${esc(id)}" title="${esc(cardTitle(c))}">
+    <div class="card ${size} ${c.cardType} ${dim ? 'dim' : ''} ${extra}" data-cardid="${esc(id)}" title="${esc(cardTitle(c))}">
       <img src="${imgUrl(c)}" alt="${esc(c.name)}" loading="lazy" draggable="false"/>
       ${showLetter ? `<span class="letter" aria-label="Collection letter ${esc(c.letter)}">${esc(c.letter)}</span>` : ''}
+      ${heartTokens ? `<span class="heart-tokens" aria-label="${heartTokens} heart${heartTokens > 1 ? 's' : ''} remaining">${
+        '<i>\u2665</i>'.repeat(heartTokens)
+      }</span>` : ''}
       ${h != null ? `<span class="hearts">❤ ${h}${max != null ? `/${max}` : ''}</span>` : ''}
       ${badge ? `<span class="badge">${badge}</span>` : ''}
     </div>`;
@@ -831,7 +862,7 @@ function promptHtml(s, p, item) {
         <div class="assignrow">
           ${targets.map((id) => `
             <div class="assign">
-              ${cardHtml(id, { size: 'sm', letter: true, hearts: (s.hearts[id] || 0) + (ui.heartPlan[id] || 0) })}
+              ${cardHtml(id, { size: 'sm', hearts: (s.hearts[id] || 0) + (ui.heartPlan[id] || 0) })}
               <div class="stepper">
                 <button data-hminus="${esc(id)}" ${ui.heartPlan[id] ? '' : 'disabled'}>−</button>
                 <span>${ui.heartPlan[id] || 0}</span>
@@ -1081,7 +1112,7 @@ function opponentHtml(s, p) {
       </button>
       ${reserveLetters(p)}
       ${open && !empty ? `<div class="cardrow mini-reserve">
-        ${p.reserve.map((id) => cardHtml(id, { size: 'xs', letter: true, hearts: cardMaxHeartsFor(id) != null ? (s.hearts[id] || 0) : null })).join('')}
+        ${p.reserve.map((id) => cardHtml(id, { size: 'sm', heartTokens: s.hearts[id] || 0 })).join('')}
       </div>` : ''}
     </div>
   </div>`;
@@ -1102,7 +1133,7 @@ function wireGameEvents(s, p, pending) {
     setSoundOn(next);
     if (next) {
       primeAudio();
-      chime(); // confirm it is audible at the volume they will actually hear
+      alertMyTurn(); // preview the loudest of the two, at the real volume
     }
     render();
   });

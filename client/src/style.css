@@ -159,21 +159,24 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
 .card.dim { opacity: 0.5; }
 .card.danger:hover { outline: 2px solid var(--red); cursor: pointer; }
 
-/* Hover to read a card. The art is 1006x1563, so scaling the element up
-   re-rasterises the image rather than blurring it. transform doesn't affect
-   layout, so nothing reflows and neighbours stay put; the short delay stops
-   every card the cursor crosses on its way somewhere else from popping. */
-.card:hover {
+/* Hover to read a card — TRAINERS ONLY. Trainers are the cards carrying a
+   paragraph of ability text that genuinely cannot be read at mat size;
+   everything else is legible already, and zooming all of them turned the
+   board into a minefield of things leaping about under the cursor. The full
+   1s dwell means crossing a Trainer on the way somewhere else never triggers
+   it. The art is 1006x1563, so scaling up re-rasterises rather than blurring,
+   and transform doesn't affect layout, so nothing reflows. */
+.card.trainer:hover {
   transform: scale(var(--zoom, 1.6));
-  transition-delay: 0.16s;
+  transition-delay: 1s;
   z-index: 60;
   box-shadow: 0 6px 26px rgba(0,0,0,0.72);
 }
 /* While dragging cards around in a rearrange, the zoom is in the way. */
-.rearranging .card:hover { transform: none; box-shadow: none; }
+.rearranging .card.trainer:hover { transform: none; box-shadow: none; }
 @media (hover: none) {
   /* Touch devices fire :hover on tap and keep it — never zoom there. */
-  .card:hover { transform: none; box-shadow: none; z-index: auto; }
+  .card.trainer:hover { transform: none; box-shadow: none; z-index: auto; }
 }
 @media (prefers-reduced-motion: reduce) {
   .card { transition: none; }
@@ -199,6 +202,25 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
 .card.sm .letter { font-size: 14px; }
 .card.md .letter,
 .card.lg .letter { font-size: 15px; }
+/* Heart tokens laid across the middle of a card — how loose hearts actually
+   sit on a card at the table. Used for opponents' reserves: no panel, no
+   pill, nothing boxed over the art, so the card's own printed face still
+   reads. The gold ring and dark shadow keep them legible over any artwork. */
+.card .heart-tokens {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  gap: 6%; pointer-events: none;
+}
+.card .heart-tokens i {
+  font-style: normal; line-height: 1;
+  color: #d8232f;
+  font-size: 30%;
+  text-shadow:
+    0 0 2px rgba(0,0,0,0.9), 0 1px 3px rgba(0,0,0,0.8),
+    0 0 0 1px rgba(214,178,106,0.9);
+  -webkit-text-stroke: 1.5px #d9a441;
+  paint-order: stroke fill;
+}
 .card .badge {
   position: absolute; top: 3px; right: 3px;
   background: rgba(0,0,0,0.72); color: var(--gold);
@@ -280,7 +302,7 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
   border-color: transparent; color: var(--muted);
 }
 .opp-reserve .reserve-toggle:hover:not(:disabled) { color: var(--gold); border-color: var(--gold); }
-.opp-reserve .mini-reserve { gap: 4px; margin-top: 5px; }
+.opp-reserve .mini-reserve { gap: 6px; margin-top: 5px; }
 /* Reserve letters stay on show even while the row itself is collapsed — an
    opponent should never have to expand anything to see what letters you are
    holding back. */

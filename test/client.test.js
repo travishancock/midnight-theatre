@@ -43,15 +43,22 @@ globalThis.document = dom.window.document;
 globalThis.localStorage = dom.window.localStorage;
 globalThis.fetch = async () => ({ json: async () => ({ ...db, assetVersion: 'test' }) });
 
-// chime() builds exactly two oscillators per ring, so counting them counts rings.
-let oscillators = 0;
+// Sounds are identified by the frequencies they schedule: the turn-passed
+// click is a low triangle pair, the your-turn alert is two rising sine notes.
+let tones = [];
 dom.window.AudioContext = class {
   constructor() { this.state = 'running'; this.currentTime = 0; this.destination = {}; }
   createGain() { return { gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect: (x) => x }; }
-  createOscillator() { oscillators++; return { type: '', frequency: { setValueAtTime() {} }, connect: (x) => x, start() {}, stop() {} }; }
+  createOscillator() {
+    const o = { type: '', frequency: { setValueAtTime: (f) => tones.push(f) }, connect: (x) => x, start() {}, stop() {} };
+    return o;
+  }
   resume() { this.state = 'running'; }
 };
-const rings = () => oscillators / 2;
+const TICK = 420;      // the click's fundamental
+const ALERT = 784;     // the alert's first note
+const heard = () => ({ tick: tones.includes(TICK), alert: tones.includes(ALERT) });
+const listen = () => { tones = []; };
 
 // --- socket.io-client stub -------------------------------------------------
 // main.js does `import { io } from 'socket.io-client'`, so the stub has to be
@@ -98,6 +105,13 @@ document.getElementById('createBtn').click(); // real join path -> my.seat = 0
 const lobby = { code: 'TEST', seats: [{ seat: 0, name: 'Travis' }, { seat: 1, name: 'Bot' }], started: true };
 let version = 0;
 const push = (state) => socket.__fire('room', { lobby, state: { ...state, version: ++version } });
+
+function ui_open(seat) {
+  push(s);
+  const btn = app.querySelector(`[data-oppreserve="${seat}"]`);
+  assert.ok(btn, 'no reserve toggle for that opponent');
+  if (!/▾/.test(btn.textContent)) btn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+}
 
 let failures = 0;
 function test(name, fn) {
@@ -167,6 +181,49 @@ test('reserve cards show their Collection letter', () => {
   assert.deepEqual(letters, me.reserve.map((id) => card(id).letter));
 });
 
+test('the heart prompt does NOT stamp letters over the cards', () => {
+  s.pending = [{ id: 101, kind: 'heartAssign', seat: 0, data: { amount: 1, reason: 'Collection Die A' } }];
+  s.hearts[me.reserve[0]] = 0;
+  push(s);
+  assert.ok(/left to place/.test(html()), 'heart prompt not shown');
+  assert.equal(app.querySelectorAll('.prompt .card .letter').length, 0,
+    'a letter chip is covering the card art in the heart prompt');
+  s.pending = [];
+  push(s);
+});
+
+test("an opponent's reserve shows heart tokens on the card, not a pill or a chip", () => {
+  const held = perfs[7];
+  them.reserve = [held];
+  s.hearts[held] = 2;
+  ui_open(them.seat);
+  const row = app.querySelector('.opponent .mini-reserve');
+  assert.ok(row, 'opponent reserve did not expand');
+  const cardEl = row.querySelector('.card');
+  assert.ok(cardEl, 'no card rendered in the opponent reserve');
+  assert.equal(cardEl.querySelectorAll('.hearts').length, 0, 'the hearts pill is still boxed over the art');
+  assert.equal(cardEl.querySelectorAll('.letter').length, 0, 'the letter chip is still boxed over the art');
+  const tokens = cardEl.querySelectorAll('.heart-tokens i');
+  assert.equal(tokens.length, 2, `expected 2 heart tokens, got ${tokens.length}`);
+
+  s.hearts[held] = 0;
+  push(s);
+  assert.equal(app.querySelectorAll('.opponent .mini-reserve .heart-tokens i').length, 0,
+    'a card with no hearts left should show no tokens');
+});
+
+test('hover-to-enlarge is offered on Trainers and nothing else', () => {
+  s.hearts[perfs[7]] = 1;
+  push(s);
+  const trainerId = db.trainers[0].id;
+  me.reserve = [perfs[5], trainerId];
+  push(s);
+  const classes = [...app.querySelectorAll('#myReserve .card')].map((e) => e.className);
+  assert.ok(classes.some((c) => /\btrainer\b/.test(c)), 'the Trainer card carries no .trainer class to hover on');
+  assert.ok(classes.some((c) => /\bperformer\b/.test(c) && !/\btrainer\b/.test(c)),
+    'a performer must not be marked as hoverable');
+});
+
 test("an opponent's held letters are readable without expanding their reserve", () => {
   them.reserve = [perfs[7]];
   push(s);
@@ -174,25 +231,45 @@ test("an opponent's held letters are readable without expanding their reserve", 
   assert.deepEqual(chips, [card(perfs[7]).letter], 'letters are not shown beside the collapsed toggle');
 });
 
-test('a completed turn chimes for everyone at the table', () => {
+test('a completed turn clicks for everyone, without the your-turn alert', () => {
   click('#soundToggle'); // off
   click('#soundToggle'); // on again — also primes the audio context
-  const before = rings();
+  s.pending = [];
+  s.phase = 'dice';     // definitively not my turn, and no prompt of mine
+  s.turn = null;
+  listen();
   s.turnsCompleted = (s.turnsCompleted || 0) + 1;
   push(s);
-  assert.ok(rings() > before, 'no chime when turnsCompleted advanced');
-  const mid = rings();
-  push(s);
-  assert.equal(rings(), mid, 'chimed on a push that did not complete a turn');
+  const h = heard();
+  assert.ok(h.tick, 'no click when turnsCompleted advanced');
+  assert.ok(!h.alert, 'played the your-turn alert on someone else\'s turn');
+
+  listen();
+  push(s); // a push that did not complete a turn
+  assert.ok(!heard().tick, 'clicked on a push that did not complete a turn');
 });
 
-test('the chime can be muted', () => {
-  click('#soundToggle');
-  assert.ok(/Sound off/.test(html()), 'the toggle did not flip');
-  const before = rings();
+test('the alert plays on top of the click when it becomes your turn', () => {
+  s.phase = 'draft';
+  s.turn = { seat: 0, done: false, mainDone: false, open: false, buys: 0, turns: 0 };
+  s.pending = [];
+  listen();
   s.turnsCompleted += 1;
   push(s);
-  assert.equal(rings(), before, 'chimed while muted');
+  const h = heard();
+  assert.ok(h.alert, 'no alert when the turn passed to me');
+  assert.ok(h.tick, 'the click should still play for everyone, including me');
+});
+
+test('both sounds can be muted', () => {
+  click('#soundToggle');
+  assert.ok(/Sound off/.test(html()), 'the toggle did not flip');
+  listen();
+  s.turnsCompleted += 1;
+  push(s);
+  const h = heard();
+  assert.ok(!h.tick && !h.alert, 'made noise while muted');
+  click('#soundToggle');
 });
 
 if (failures) {
