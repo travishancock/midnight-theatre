@@ -1,6 +1,6 @@
 // Full simulated games: AI bots in every seat, for 2-5 players across several
 // seeds. Asserts each game completes without throwing, reaches a valid win
-// state, and that every one of the 145 cards stays accounted for throughout.
+// state, and that every one of the deck's cards stays accounted for throughout.
 // Run with: node test/fullgame.test.js
 
 import assert from 'assert';
@@ -16,7 +16,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'assets', 'card_database.json'), 'utf8'));
 initCards(db);
 
-const TOTAL_CARDS = 145;
+// Derived from the database so a deck-composition change is a data edit only.
+const TOTAL_CARDS = Object.values(db).reduce((n, list) => n + list.length, 0);
 
 function cardCount(s) {
   // A sold-but-not-yet-refilled market slot is `null` (prices stay frozen

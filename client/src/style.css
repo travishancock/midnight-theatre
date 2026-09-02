@@ -143,22 +143,62 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
 .zone h3 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 
 .cardrow { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
-.cardrow.clickable .card:hover { outline: 2px solid var(--gold); cursor: pointer; transform: translateY(-3px); }
-.card { position: relative; border-radius: 8px; overflow: hidden; background: #000; transition: transform 0.12s; flex: none; }
+.cardrow.clickable .card { cursor: pointer; }
+.cardrow.clickable .card:hover { outline: 2px solid var(--gold); }
+.card { position: relative; border-radius: 8px; overflow: hidden; background: #000; transition: transform 0.14s ease; flex: none; }
 .card img { display: block; width: 100%; height: 100%; object-fit: cover; }
 /* Card art is 56x87mm (w/h ratio 0.6437) — heights below are width/0.6437
-   so object-fit: cover doesn't crop the top/bottom of the printed card. */
-.card.xs { width: 44px; height: 68px; }
-.card.sm { width: 74px; height: 115px; }
-.card.md { width: 100px; height: 155px; }
-.card.lg { width: 118px; height: 183px; }
+   so object-fit: cover doesn't crop the top/bottom of the printed card.
+   --zoom brings every size class to roughly the same ~200px readable width
+   on hover, so a card in an opponent's mini reserve enlarges as much as one
+   in your own hand. */
+.card.xs { width: 44px;  height: 68px;  --zoom: 4.4; }
+.card.sm { width: 74px;  height: 115px; --zoom: 2.7; }
+.card.md { width: 100px; height: 155px; --zoom: 2.0; }
+.card.lg { width: 118px; height: 183px; --zoom: 1.7; }
 .card.dim { opacity: 0.5; }
 .card.danger:hover { outline: 2px solid var(--red); cursor: pointer; }
+
+/* Hover to read a card. The art is 1006x1563, so scaling the element up
+   re-rasterises the image rather than blurring it. transform doesn't affect
+   layout, so nothing reflows and neighbours stay put; the short delay stops
+   every card the cursor crosses on its way somewhere else from popping. */
+.card:hover {
+  transform: scale(var(--zoom, 1.6));
+  transition-delay: 0.16s;
+  z-index: 60;
+  box-shadow: 0 6px 26px rgba(0,0,0,0.72);
+}
+/* While dragging cards around in a rearrange, the zoom is in the way. */
+.rearranging .card:hover { transform: none; box-shadow: none; }
+@media (hover: none) {
+  /* Touch devices fire :hover on tap and keep it — never zoom there. */
+  .card:hover { transform: none; box-shadow: none; z-index: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card { transition: none; }
+}
 .card .hearts {
   position: absolute; bottom: 3px; left: 3px;
   background: rgba(0,0,0,0.72); color: #ff8f9a;
   border-radius: 5px; font-size: 12px; padding: 1px 5px;
 }
+/* The Collection letter, stamped top-left: the printed medallion is in the
+   bottom-right corner and too small to read at reserve sizes, and the bottom
+   strip already carries the hearts pill. Scales with the card so it stays
+   proportionate when the card is hover-zoomed. */
+.card .letter {
+  position: absolute; top: 2px; left: 2px;
+  min-width: 1.15em; padding: 0 3px;
+  background: var(--gold); color: #17111d;
+  border: 1px solid rgba(0,0,0,0.55); border-radius: 5px;
+  font-family: Georgia, serif; font-weight: 700; line-height: 1.25;
+  text-align: center; letter-spacing: 0;
+}
+.card.xs .letter { font-size: 12px; }
+.card.sm .letter { font-size: 14px; }
+.card.md .letter,
+.card.lg .letter { font-size: 15px; }
 .card .badge {
   position: absolute; top: 3px; right: 3px;
   background: rgba(0,0,0,0.72); color: var(--gold);
@@ -233,6 +273,7 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
 .opponent { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; flex: 1; min-width: 280px; }
 .opponent.active { border-color: var(--gold); }
 .opponent .tokens { font-size: 13px; color: var(--muted); }
+.sound-toggle { margin-left: 10px; vertical-align: middle; }
 .opp-reserve { margin-top: 6px; }
 .opp-reserve .reserve-toggle {
   padding: 2px 8px; font-size: 12px; background: transparent;
@@ -240,6 +281,16 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
 }
 .opp-reserve .reserve-toggle:hover:not(:disabled) { color: var(--gold); border-color: var(--gold); }
 .opp-reserve .mini-reserve { gap: 4px; margin-top: 5px; }
+/* Reserve letters stay on show even while the row itself is collapsed — an
+   opponent should never have to expand anything to see what letters you are
+   holding back. */
+.reserve-letters { display: inline-flex; gap: 4px; margin-left: 6px; vertical-align: middle; }
+.reserve-letters .letter-chip {
+  display: inline-block; min-width: 17px; padding: 0 4px;
+  background: var(--gold); color: #17111d;
+  border-radius: 4px; font-family: Georgia, serif; font-weight: 700;
+  font-size: 12px; line-height: 17px; text-align: center;
+}
 
 /* ---- log ---- */
 .log { width: 300px; flex: none; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }

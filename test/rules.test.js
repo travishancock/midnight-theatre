@@ -15,6 +15,7 @@ import {
   marketCost,
   maxHearts,
   capacityLeft,
+  totalCapacityLeft,
   eligibleFavors,
   allowedSlots,
   seatWithStand,
@@ -32,6 +33,10 @@ import { scoreCard, botAction } from '../engine/bot.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'assets', 'card_database.json'), 'utf8'));
 initCards(db);
+
+// Derived from the database rather than hard-coded, so a deck-composition
+// change (Sept 2026: 145 -> 144) is a one-line data edit, not a test hunt.
+const TOTAL_CARDS = Object.values(db).reduce((n, list) => n + list.length, 0);
 
 let passed = 0;
 function test(name, fn) {
@@ -117,7 +122,7 @@ test('setup: coins by draft stand, row sizes, trophy goal', () => {
   const s5 = freshGame(5);
   assert.equal(s5.trophyGoal, 3); // 5 players -> 3 trophies
   assert.equal(s5.draftRow.length, 11);
-  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, 145);
+  assert.equal(s5.deck.length + s5.draftRow.length + s5.market.length, TOTAL_CARDS);
   assert.equal(freshGame(2).trophyGoal, 6); // 2 players -> 6 trophies
   assert.equal(freshGame(4).trophyGoal, 4); // 4 players -> 4 trophies
 });
@@ -1608,13 +1613,13 @@ test('state.turnsCompleted increments once per finished turn (drives the server\
   assert.equal(s.turnsCompleted, 1);
 });
 
-test('a full 2-player round keeps every one of the 145 cards accounted for', () => {
+test('a full 2-player round keeps every one of the deck\'s cards accounted for', () => {
   const s = freshGame(2, 31337);
   // count every card location
   const total = (st) =>
     st.deck.length + st.discard.length + st.market.filter(Boolean).length + st.draftRow.length +
     st.players.reduce((a, p) => a + p.slots.filter(Boolean).length + p.reserve.length, 0);
-  assert.equal(total(s), 145);
+  assert.equal(total(s), TOTAL_CARDS);
 });
 
 // ---- multi-trainer slots (5/6/7 all accept Trainer) ------------------------
@@ -2370,8 +2375,8 @@ test('scoreCard: a Press Pass is valued strictly in proportion to its printed nu
   const p = s.players[seat];
   const pass = (n) => `PressPass-${n}-1`;
 
-  // On any board — bare stage, half stage, full stage — 1..7 must be strictly
-  // increasing, and a 7 must be worth exactly 7x a 1. This is the whole point
+  // On any board — bare stage, half stage, full stage — 1..4 must be strictly
+  // increasing, and a 4 must be worth exactly 4x a 1. This is the whole point
   // of a Press Pass: a higher number is simply more private Collection Dice.
   const stages = [
     [null, null, null, null, null],
@@ -2380,20 +2385,20 @@ test('scoreCard: a Press Pass is valued strictly in proportion to its printed nu
   ];
   for (const stage of stages) {
     for (let i = 0; i < 5; i++) p.slots[i] = stage[i];
-    const vals = [1, 2, 3, 4, 5, 6, 7].map((n) => scoreCard(s, seat, pass(n)));
-    for (let n = 1; n < 7; n++) {
+    const vals = [1, 2, 3, 4].map((n) => scoreCard(s, seat, pass(n)));
+    for (let n = 1; n < 4; n++) {
       assert.ok(vals[n] > vals[n - 1], `Press Pass ${n + 1} (${vals[n]}) must beat ${n} (${vals[n - 1]})`);
     }
-    assert.ok(Math.abs(vals[6] - vals[0] * 7) < 1e-9, 'a 7 is worth exactly seven 1s on the same board');
+    assert.ok(Math.abs(vals[3] - vals[0] * 4) < 1e-9, 'a 4 is worth exactly four 1s on the same board');
   }
 
   // A fuller stage collects more per roll, so the same card is worth more.
   for (let i = 0; i < 5; i++) p.slots[i] = stages[2][i];
-  const full = scoreCard(s, seat, pass(7));
+  const full = scoreCard(s, seat, pass(4));
   for (let i = 0; i < 5; i++) p.slots[i] = null;
-  const bare = scoreCard(s, seat, pass(7));
-  assert.ok(full > bare, `a full stage (${full}) values a Press Pass 7 above a bare one (${bare})`);
-  assert.ok(bare > 2, `even a bare stage must rate a Press Pass 7 as worth taking, got ${bare}`);
+  const bare = scoreCard(s, seat, pass(4));
+  assert.ok(full > bare, `a full stage (${full}) values a Press Pass 4 above a bare one (${bare})`);
+  assert.ok(bare > 1, `even a bare stage must rate a Press Pass 4 as worth taking, got ${bare}`);
 });
 
 test('scoreCard: a large Press Pass outranks the small resource cards, and the bot actually drafts it', () => {
@@ -2404,16 +2409,16 @@ test('scoreCard: a large Press Pass outranks the small resource cards, and the b
 
   const coin1 = firstOfName(db.resources, 'Resource 1 Coin');
   const heart1 = firstOfName(db.resources, 'Resource 1 Heart');
-  const big = 'PressPass-7-1';
-  assert.ok(scoreCard(s, seat, big) > scoreCard(s, seat, coin1) * 4, 'a Press Pass 7 dwarfs a single coin');
-  assert.ok(scoreCard(s, seat, big) > scoreCard(s, seat, heart1) * 4, 'a Press Pass 7 dwarfs a single heart');
+  const big = 'PressPass-4-1';
+  assert.ok(scoreCard(s, seat, big) > scoreCard(s, seat, coin1) * 4, 'a Press Pass 4 dwarfs a single coin');
+  assert.ok(scoreCard(s, seat, big) > scoreCard(s, seat, heart1) * 4, 'a Press Pass 4 dwarfs a single heart');
 
   // Offered against a row of junk, the bot must take the Press Pass.
-  s.draftRow = [coin1, heart1, 'PressPass-7-1', 'PressPass-1-1'];
+  s.draftRow = [coin1, heart1, 'PressPass-4-1', 'PressPass-1-1'];
   p.coins = 0; // no reset / market detour available
   const act = botAction(s, seat);
   assert.equal(act.type, 'acquireDraft');
-  assert.equal(act.cardId, 'PressPass-7-1', 'the bot must take the biggest Press Pass over junk resources');
+  assert.equal(act.cardId, 'PressPass-4-1', 'the bot must take the biggest Press Pass over junk resources');
 });
 
 test('pressPassWindow: the bot spends its biggest Press Pass first', () => {
@@ -2421,13 +2426,83 @@ test('pressPassWindow: the bot spends its biggest Press Pass first', () => {
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[0] = performer((c) => c.letter === 'A');
-  p.reserve = ['PressPass-2-1', 'PressPass-6-1', 'PressPass-1-1'];
+  p.reserve = ['PressPass-2-1', 'PressPass-4-1', 'PressPass-1-1'];
   s.phase = 'dice';
   s.pressPassWindowActive = true;
   s.pending = [{ id: 1, kind: 'pressPassWindow', seat, data: {} }];
   const act = botAction(s, seat);
   assert.equal(act.type, 'usePressPass');
-  assert.equal(act.cardId, 'PressPass-6-1', 'biggest first, so a cut-short window still banks the most rolls');
+  assert.equal(act.cardId, 'PressPass-4-1', 'biggest first, so a cut-short window still banks the most rolls');
+});
+
+test('scoreCard: a Heart resource is worth what FITS, not what is printed', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  const heart5 = firstOfName(db.resources, 'Resource 5 Hearts');
+  const heart1 = firstOfName(db.resources, 'Resource 1 Heart');
+
+  // A board with room for exactly one more heart: the 5 and the 1 deliver the
+  // same thing, so they must be worth the same. Flat amount-based pricing used
+  // to rate the 5 at five times the 1 — harmless when the deck stopped at 3,
+  // actively wrong now that it runs to 5.
+  const perf = performer((c) => c.maxHearts >= 1);
+  p.slots = [perf, null, null, null, null, null, null, null];
+  s.hearts[perf] = card(perf).maxHearts - 1;
+  assert.equal(totalCapacityLeft(s, seat), 1, 'test setup: exactly one heart of room');
+  assert.equal(
+    scoreCard(s, seat, heart5), scoreCard(s, seat, heart1),
+    'with room for one heart, a 5-heart card is worth exactly a 1-heart card'
+  );
+
+  // With plenty of room the bigger card is worth strictly more again.
+  s.hearts[perf] = 0;
+  const p2 = performer((c) => c.maxHearts >= 2 && c.id !== perf);
+  if (p2) { p.slots[1] = p2; s.hearts[p2] = 0; }
+  if (totalCapacityLeft(s, seat) >= 5) {
+    assert.ok(scoreCard(s, seat, heart5) > scoreCard(s, seat, heart1),
+      'with room to spare, 5 hearts must beat 1');
+  }
+
+  // No room at all is still near-worthless.
+  p.slots = [null, null, null, null, null, null, null, null];
+  assert.equal(totalCapacityLeft(s, seat), 0);
+  assert.ok(scoreCard(s, seat, heart5) < 1, 'a Heart card with no room anywhere is junk');
+});
+
+test('an idle bank makes the bot readier to buy, and never less ready', () => {
+  // Identical weak draft row, identical market slot, identical board — the only
+  // difference is how many coins are sitting unspent. The guarantee is a
+  // one-way one: every card a coin-poor bot is willing to buy, a coin-rich bot
+  // is too, and there are cards only the rich bot takes. (Asserting a specific
+  // card would just be asserting today's scoreCard weights.)
+  const weakRow = [
+    firstOfName(db.resources, 'Resource 1 Coin'),
+    firstOfName(db.resources, 'Resource 1 Heart'),
+  ];
+
+  const buys = (coins, marketCard) => {
+    const s = freshGame(2);
+    const seat = currentSeat(s);
+    const p = s.players[seat];
+    p.slots = [null, null, null, null, null, null, null, null];
+    p.coins = coins;
+    s.draftRow = [...weakRow];
+    s.market = [null, null, null, marketCard]; // priciest slot, so cost bites
+    s.turn.resets = 99; // take the market-reset path off the table
+    return botAction(s, seat).type === 'buyMarket';
+  };
+
+  const candidates = db.performers.slice(0, 40).map((c) => c.id);
+  const poorBuys = candidates.filter((id) => buys(4, id));   // 4 coins: can afford it, barely
+  const richBuys = candidates.filter((id) => buys(24, id));  // 24 coins: nothing else to do with them
+
+  for (const id of poorBuys) {
+    assert.ok(richBuys.includes(id),
+      `a rich bot refused ${card(id).name} that a poor bot bought — the premium must only ever relax`);
+  }
+  assert.ok(richBuys.length > poorBuys.length,
+    `an idle bank must unlock buys it would otherwise pass on (rich ${richBuys.length}, poor ${poorBuys.length})`);
 });
 
 test('scoreCard: a Favor beats a row with nothing better in it', () => {

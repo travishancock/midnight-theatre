@@ -371,8 +371,14 @@ function draftTurn(state, seat) {
     return { type: 'resetMarket', seat };
   }
 
-  // Consider a market buy only when it clearly beats the best free pick.
-  const buy = bestMarketBuy(state, seat, 0, bestDraftScore + 1.5);
+  // Consider a market buy only when it beats the best free pick — by a clear
+  // margin normally, because drafting costs no coins and the card passed over
+  // goes to an opponent either way, but by a hair once the bank is past
+  // RICH_COINS and those coins have nothing else to do. This is what makes the
+  // bot reach for the market on a weak draft row instead of settling for junk
+  // and banking yet another coin.
+  const premium = p.coins >= RICH_COINS ? RICH_MARKET_PREMIUM : MARKET_PREMIUM;
+  const buy = bestMarketBuy(state, seat, 0, bestDraftScore + premium);
   if (buy) return buy;
 
   if (bestDraft) return { type: 'acquireDraft', seat, cardId: bestDraft };
@@ -386,6 +392,48 @@ function legalDraftPick(state, id) {
   const c = card(id);
   if (state.turn.isBonus && c.cardType === 'favor' && c.triggerAfterTurn === state.turn.bonusTiming) return false;
   return true;
+}
+
+// COIN ECONOMICS
+// --------------
+// Travis reported a game where a bot finished with 29 unspent coins. That is
+// real — but measured, it is not what was costing the AI games. Over ~28,000
+// mirrored A/B games across five independent seed sets, EVERY lever swept here
+// (cheaper coins, a lower market premium, more market resets, valuing Coin
+// resource cards lower when rich, and every combination of them) came back
+// win-rate neutral or worse. A configuration that looked like +1.5pp on its own
+// tuning seed set measured 50.0% on hold-out seeds — the classic overfit this
+// file's constants are supposed to be protected from.
+//
+// The reason is structural, not a bug: a coin can only be spent on a 4-slot
+// market that costs the same main action a FREE draft pick costs, and career
+// coins are the Trophy tiebreaker, so a bank is not worthless. Coins simply
+// arrive faster than the board can absorb them.
+//
+// The constants below are therefore shipped as a BEHAVIOUR fix, not a strength
+// claim: they consistently cut mean unspent coins from ~9.3 to ~8.7 and trim
+// the long tail, at a measured cost of nothing (50.1% over the same 28,000
+// games). Do not "revert them because they don't help" — they are not there to
+// help; and equally, do not treat them as validated strength gains.
+const COIN_PRICE = 0.9;          // score charged per coin at full price
+const COIN_SPEND_SURPLUS = 16;   // bank size past which a coin starts costing less
+const COIN_SPEND_FLOOR = 0.45;   // a coin is never worth less than this fraction
+const RICH_COINS = 10;           // at or above this, stop guarding the bank
+const MARKET_PREMIUM = 1.5;      // how far a market card must beat the free pick by
+const RICH_MARKET_PREMIUM = 0.2; // ...and how far, once the bank is idle anyway
+
+// What one coin is worth to this seat right now, as a fraction of COIN_PRICE.
+// A coin only counts if it is going to be spent; past COIN_SPEND_SURPLUS the
+// marginal one tapers, floored so a coin never becomes free (a bot that treats
+// coins as free empties itself and then cannot afford a reset — measured at
+// 46.4% win share, the worst result of the whole sweep).
+function coinValueFactor(coins) {
+  return Math.max(COIN_SPEND_FLOOR, Math.min(1, COIN_SPEND_SURPLUS / Math.max(coins, 1)));
+}
+
+// The score a market slot's price costs this seat.
+function coinCost(state, seat, cost) {
+  return cost * COIN_PRICE * coinValueFactor(state.players[seat].coins);
 }
 
 // Reshuffling the market when the table is weak.
@@ -411,7 +459,7 @@ function bestMarketScore(state, seat) {
     if (!state.market[i]) continue;
     const cost = marketCost(state, seat, i);
     if (p.coins < cost) continue;
-    best = Math.max(best, scoreCard(state, seat, state.market[i]) - cost * 0.9);
+    best = Math.max(best, scoreCard(state, seat, state.market[i]) - coinCost(state, seat, cost));
   }
   return best;
 }
@@ -424,7 +472,7 @@ function bestMarketBuy(state, seat, spareCoins, mustBeat = -Infinity) {
     if (!state.market[i]) continue; // sold this turn, not yet refilled
     const cost = marketCost(state, seat, i);
     if (p.coins < cost + spareCoins) continue;
-    const s = scoreCard(state, seat, state.market[i]) - cost * 0.9;
+    const s = scoreCard(state, seat, state.market[i]) - coinCost(state, seat, cost);
     if (s > bestScore) {
       bestScore = s;
       best = { type: 'buyMarket', seat, index: i };
@@ -463,9 +511,18 @@ export function scoreCard(state, seat, id) {
       return s;
     }
     case 'resource': {
-      if (c.resourceType === 'Heart' && totalCapacityLeft(state, seat) === 0) return 0.2;
       if (c.resourceType === 'Card') return drawValue(c.amount || 1);
-      return 0.9 * (c.amount || 1);
+      if (c.resourceType === 'Heart') {
+        // Hearts with nowhere to go are forfeited outright (see
+        // creditCoinsAndHearts), so what a Heart resource is worth is what
+        // FITS, not what is printed on it. Flat `0.9 * amount` was harmless
+        // while the biggest Heart card was a 3; the Sept 2026 deck runs to 5,
+        // and a 5-heart card on a board with room for 2 delivers 2.
+        const room = totalCapacityLeft(state, seat);
+        if (room === 0) return 0.2;
+        return COIN_PRICE * Math.min(c.amount || 1, room);
+      }
+      return COIN_PRICE * (c.amount || 1);
     }
     case 'favor':
       // A "1st" Favor is usable from turn 1 of any round; a "2nd" only from

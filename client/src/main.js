@@ -63,12 +63,17 @@ async function boot() {
     const prevVersion = view.state?.version;
     const isFirstState = prevVersion === undefined;
     const prevLogLen = view.state?.log?.length ?? 0;
+    const prevTurns = view.state?.turnsCompleted ?? 0;
     view = payload;
     if (view.state && view.state.version !== prevVersion) {
       resetTransientUi();
       if (!isFirstState) {
         announceTrophies(view.state.log.slice(prevLogLen));
         announceSupplyShortage(view.state.log.slice(prevLogLen));
+        // engine.js increments turnsCompleted exactly once per finished turn,
+        // so this is the one signal that means "play has moved on" regardless
+        // of who acted or which phase we are in.
+        if (view.state.turnsCompleted > prevTurns) chime();
       }
     }
     render();
@@ -120,8 +125,112 @@ function resetTransientUi() {
   ui.rearrange = null;
   ui.amaraMove = null;
   ui.valentinoPick = null;
-  ui.heartPlan = {};
-  ui.refillPlan = null;
+  // heartPlan and refillPlan are deliberately NOT wiped here. A state push
+  // arrives every time any seat acts — during the dice phase that is every
+  // second or two — and wiping would erase a half-finished plan out from
+  // under the player's cursor. For hearts that is not just annoying: Confirm
+  // only enables at total === must, so a plan that keeps resetting can never
+  // be completed, which reads at the table as "it won't let me put these
+  // hearts on my reserve cards" — reserve cards being exactly the targets
+  // that need the extra clicks once the mat is full. They are reconciled
+  // against live state instead.
+  pruneHeartPlan();
+  if (!st()?.pending?.some((x) => x.seat === my.seat && x.kind === 'refill')) ui.refillPlan = null;
+}
+
+// Reconcile a half-built heart plan with the state that just arrived: drop
+// cards the player no longer owns, clamp each card to the room it still has,
+// and never carry more than the prompt is actually asking for. Clears the
+// plan outright once the prompt is gone.
+function pruneHeartPlan() {
+  const s = st();
+  const p = me();
+  const item = s && p ? s.pending.find((x) => x.seat === my.seat && x.kind === 'heartAssign') : null;
+  if (!item) {
+    ui.heartPlan = {};
+    return;
+  }
+  const owned = [...p.slots.filter(Boolean), ...p.reserve];
+  const ownedSet = new Set(owned);
+  let budget = Math.min(item.data.amount, owned.reduce((a, id) => a + capLeft(p, id), 0));
+  const next = {};
+  for (const [id, amount] of Object.entries(ui.heartPlan)) {
+    if (!ownedSet.has(id)) continue;
+    const take = Math.min(amount, capLeft(p, id), budget);
+    if (take > 0) {
+      next[id] = take;
+      budget -= take;
+    }
+  }
+  ui.heartPlan = next;
+}
+
+// ---------------------------------------------------------------------------
+// Turn chime
+// ---------------------------------------------------------------------------
+// At a physical table there is an obvious cue that play has moved on: someone
+// puts a card down. On screen there is none, so a turn can sit unnoticed. One
+// short chime for every connected player each time a turn completes — the
+// person who is now up hears it, and so does everyone else, the same way they
+// would hear the cards.
+//
+// Synthesised with Web Audio rather than shipped as an audio file: nothing to
+// load, nothing to 404, and it works with the tab offline. Browsers refuse to
+// start audio before the user has interacted with the page, so the context is
+// created lazily on the first click (see primeAudio's callers) and resumed if
+// the browser suspended it.
+const SOUND_KEY = 'midnight-theatre:sound';
+let audioCtx = null;
+
+function soundOn() {
+  try {
+    return localStorage.getItem(SOUND_KEY) !== 'off';
+  } catch {
+    return true; // Safari private mode throws on access — default to audible
+  }
+}
+
+function setSoundOn(on) {
+  try {
+    localStorage.setItem(SOUND_KEY, on ? 'on' : 'off');
+  } catch {}
+}
+
+function primeAudio() {
+  if (!soundOn()) return null;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    if (!audioCtx) audioCtx = new Ctx();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx.state === 'running' ? audioCtx : null;
+  } catch {
+    return null;
+  }
+}
+
+// Two stacked partials, fast attack, long exponential tail — a small bell
+// rather than a beep, so it carries across a room without being harsh on a
+// laptop speaker.
+function chime() {
+  const ctx = primeAudio();
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const out = ctx.createGain();
+  out.gain.setValueAtTime(0.0001, t);
+  out.gain.exponentialRampToValueAtTime(0.3, t + 0.012);
+  out.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+  out.connect(ctx.destination);
+  for (const [freq, level] of [[988, 1], [1483, 0.4]]) {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(level, t);
+    osc.connect(g).connect(out);
+    osc.start(t);
+    osc.stop(t + 1.15);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -220,13 +329,22 @@ function render() {
 const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 const imgUrl = (c) => '/' + encodeURI(c.image) + (assetVersion ? `?v=${assetVersion}` : '');
 
-function cardHtml(id, { size = 'md', extra = '', badge = null, hearts = null, dim = false } = {}) {
+// `letter: true` stamps the performer's Collection letter over the top-left
+// corner of the art. The printed letter lives in the card's bottom-right
+// medallion, which is legible in the hand and at mat size but not at the
+// small sizes the reserve rows use — and the bottom strip is also where the
+// hearts pill sits. Since the letter is the single thing an opponent needs to
+// read off a reserve card, it gets its own high-contrast chip in a corner
+// nothing else uses.
+function cardHtml(id, { size = 'md', extra = '', badge = null, hearts = null, dim = false, letter = false } = {}) {
   const c = card(id);
   const h = hearts != null ? hearts : null;
   const max = cardMaxHeartsFor(id);
+  const showLetter = letter && c.cardType === 'performer' && c.letter;
   return `
     <div class="card ${size} ${dim ? 'dim' : ''} ${extra}" data-cardid="${esc(id)}" title="${esc(cardTitle(c))}">
       <img src="${imgUrl(c)}" alt="${esc(c.name)}" loading="lazy" draggable="false"/>
+      ${showLetter ? `<span class="letter" aria-label="Collection letter ${esc(c.letter)}">${esc(c.letter)}</span>` : ''}
       ${h != null ? `<span class="hearts">❤ ${h}${max != null ? `/${max}` : ''}</span>` : ''}
       ${badge ? `<span class="badge">${badge}</span>` : ''}
     </div>`;
@@ -401,12 +519,16 @@ function renderGame() {
   const pending = myPending();
 
   app.innerHTML = `
-    <div class="game">
+    <div class="game ${ui.mode === 'rearrange' ? 'rearranging' : ''}">
       <header>
         <div class="brand">🎪 The Midnight Theatre <span class="code">room ${esc(view.lobby.code)}</span></div>
         <div class="status">
           Round ${s.round} · ${s.phase === 'draft' ? 'Draft phase' : s.phase === 'dice' ? 'Dice phase' : 'Game over'}
           · First to ${s.trophyGoal} 🏆 wins
+          <button id="soundToggle" class="small sound-toggle"
+            title="${soundOn() ? 'Turn the end-of-turn chime off' : 'Turn the end-of-turn chime on'}">
+            ${soundOn() ? '🔔 Sound on' : '🔕 Sound off'}
+          </button>
         </div>
       </header>
       ${s.phase === 'gameOver' ? winnersBanner(s) : ''}
@@ -709,7 +831,7 @@ function promptHtml(s, p, item) {
         <div class="assignrow">
           ${targets.map((id) => `
             <div class="assign">
-              ${cardHtml(id, { size: 'sm', hearts: (s.hearts[id] || 0) + (ui.heartPlan[id] || 0) })}
+              ${cardHtml(id, { size: 'sm', letter: true, hearts: (s.hearts[id] || 0) + (ui.heartPlan[id] || 0) })}
               <div class="stepper">
                 <button data-hminus="${esc(id)}" ${ui.heartPlan[id] ? '' : 'disabled'}>−</button>
                 <span>${ui.heartPlan[id] || 0}</span>
@@ -900,12 +1022,29 @@ function myMatHtml(s, p, pending) {
             : pressPassReady
             ? 'Click to spend this Press Pass for private Collection Die roll(s)'
             : '';
-          return `<div class="pickable ${sel || amaraSel ? 'selected' : ''} ${ready ? 'favor-ready' : ''} ${amaraEligible(id) ? 'highlight' : ''}" data-reserve="${i}" ${title ? `title="${title}"` : ''}>${cardHtml(id, { size: 'sm', hearts: cardMaxHeartsFor(id) != null ? (s.hearts[id] || 0) : null })}</div>`;
+          return `<div class="pickable ${sel || amaraSel ? 'selected' : ''} ${ready ? 'favor-ready' : ''} ${amaraEligible(id) ? 'highlight' : ''}" data-reserve="${i}" ${title ? `title="${title}"` : ''}>${cardHtml(id, { size: 'sm', letter: true, hearts: cardMaxHeartsFor(id) != null ? (s.hearts[id] || 0) : null })}</div>`;
         }).join('') || (r ? '' : '<span class="hint">empty</span>')}
         ${r ? '<div class="pickable droptarget" data-reserve="-1">⤓ move here</div>' : ''}
       </div>
     </div>
   </section>`;
+}
+
+// The Collection letters of the performers a player is holding in reserve,
+// rendered as chips beside the reserve toggle. Reserve is open information,
+// but it sits collapsed by default (four expanded reserves push the mats off
+// screen), and the letter is the one thing opponents actually need off those
+// cards — so the letters are always on show even while the row itself is
+// folded away, and nothing overlaps them.
+function reserveLetters(p) {
+  const letters = p.reserve
+    .map((id) => card(id))
+    .filter((c) => c.cardType === 'performer' && c.letter)
+    .map((c) => c.letter);
+  if (letters.length === 0) return '';
+  return `<span class="reserve-letters" title="Collection letters held in reserve">${
+    letters.map((l) => `<span class="letter-chip">${esc(l)}</span>`).join('')
+  }</span>`;
 }
 
 // An opponent's reserve is open information at a physical table — the cards
@@ -940,8 +1079,9 @@ function opponentHtml(s, p) {
         title="${empty ? 'Nothing in reserve' : 'Show this player’s reserve (favors, press passes and bumped cards)'}">
         ${empty ? '·' : open ? '▾' : '▸'} Reserve (${p.reserve.length})
       </button>
+      ${reserveLetters(p)}
       ${open && !empty ? `<div class="cardrow mini-reserve">
-        ${p.reserve.map((id) => cardHtml(id, { size: 'xs', hearts: cardMaxHeartsFor(id) != null ? (s.hearts[id] || 0) : null })).join('')}
+        ${p.reserve.map((id) => cardHtml(id, { size: 'xs', letter: true, hearts: cardMaxHeartsFor(id) != null ? (s.hearts[id] || 0) : null })).join('')}
       </div>` : ''}
     </div>
   </div>`;
@@ -952,6 +1092,21 @@ function opponentHtml(s, p) {
 // ---------------------------------------------------------------------------
 
 function wireGameEvents(s, p, pending) {
+  // Any click anywhere in the app counts as the user gesture browsers require
+  // before audio may start, so by the time the first turn ends the context is
+  // already running and the chime is not swallowed.
+  app.addEventListener('click', () => primeAudio(), { once: true });
+
+  document.getElementById('soundToggle')?.addEventListener('click', () => {
+    const next = !soundOn();
+    setSoundOn(next);
+    if (next) {
+      primeAudio();
+      chime(); // confirm it is audible at the volume they will actually hear
+    }
+    render();
+  });
+
   document.getElementById('logToggle')?.addEventListener('click', () => {
     ui.logOpen = !ui.logOpen;
     render();
