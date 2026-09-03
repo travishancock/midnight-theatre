@@ -133,7 +133,8 @@ export function createGame({ players, seed }) {
     tokenSupply: null, // { hearts|stars|coins: {out,total,left} } — refreshed by checkTokenSupply for the client
     supplyAlerts: {}, // kind -> { deficit, round, out, total } for every pool that has run dry this game
     turnsCompleted: 0, // incremented once per finished turn — lets a driver (e.g. the server's bot loop) detect "a turn just ended" without re-deriving it from seat/phase changes
-    pressPassWindowActive: false, // true while waiting on one or more seats' 'pressPassWindow' pending items to close — see openPressPassWindow
+    pressPassWindowActive: false, // true while the pre-roll Press Pass window is running — see openPressPassWindow
+    pressPassQueue: [], // seats still owed that window, in reverse draft order — see openPressPassWindow
   };
 
   state.deck = shuffle(state, allCardIds().slice());
@@ -171,7 +172,7 @@ function newTurn(seat, isBonus = false, bonusTiming = null) {
     // per turn, counted rather than a single-use flag.
     amaraMoves: 0,
     // Free once-per-turn Trainer actions taken before the main action.
-    jonasUsed: false, valentinoUsed: false,
+    jonasUsed: false,
     // Maximillian the Magnate: each draft-row draft grants one bonus market
     // buy. Counted rather than boolean so a Favor chain of several drafts in
     // one turn window accrues one bonus buy each, and so a market buy can
@@ -300,6 +301,33 @@ export function eligibleFavors(state, seat) {
   });
 }
 
+// Is a Mesmera the Veiled decision still outstanding on the open Tomato
+// batch? She re-rolls the WHOLE batch, so nothing that picks individual dice
+// can sensibly happen before she has acted — The Vanishing Valentino waits on
+// this, and so does the server's dice-reveal pacing.
+export function mesmeraWindowOpen(state) {
+  const d = state.dice;
+  if (!d || d.stage !== 'tomato' || !d.tomatoRolled || d.tomatoLocked || d.mesmeraRerollUsed) return false;
+  return state.players.some((p) => trainerActive(state, p.seat, TRAINERS.MESMERA));
+}
+
+// How many Tomato dice this seat may re-roll with The Vanishing Valentino
+// right now: 1 per Powerful performer on stage, but only while the batch is
+// live, Mesmera has finished, and he hasn't been used this round. 0 means he
+// has no open window at all — nothing should wait on him.
+export function valentinoRerollAllowance(state, seat) {
+  const d = state.dice;
+  if (!d || d.stage !== 'tomato' || !d.tomatoRolled || d.tomatoLocked || d.valentinoRerollUsed) return 0;
+  if (!trainerActive(state, seat, TRAINERS.VALENTINO)) return 0;
+  if (mesmeraWindowOpen(state)) return 0;
+  return countActivePerformers(state, seat, (c) => c.characteristic === 'Powerful');
+}
+
+// Does any seat have an open Valentino window on the current batch?
+export function valentinoWindowOpen(state) {
+  return state.players.some((p) => valentinoRerollAllowance(state, p.seat) > 0);
+}
+
 // Is there an open pre-roll Press Pass window pending for this seat right
 // now? Opened once the draft phase ends, before the round's 5 shared
 // Collection Dice roll — see openPressPassWindow — and closed when the seat
@@ -323,21 +351,53 @@ export function eligiblePressPasses(state, seat) {
 }
 
 // Opens the instant the draft phase ends, before the round's 5 shared
-// Collection Dice roll: every seat holding at least one Press Pass card gets
-// a pending 'pressPassWindow' item, offering the option (never forced) to
-// spend any number of their Press Pass cards for private rolls first. The
-// round's shared dice don't actually start rolling until every such seat has
-// closed their window (see advance()'s pressPassWindowActive branch). If no
-// one holds a Press Pass, the dice phase starts immediately, same as before.
-function openPressPassWindow(state) {
-  const eligible = state.players.filter((p) => hasPressPassCards(state, p.seat));
-  if (eligible.length === 0) {
+// Collection Dice roll: seats holding at least one Press Pass card are
+// offered the option (never forced) to spend any number of them for private
+// rolls first.
+//
+// ONE SEAT AT A TIME, IN REVERSE DRAFT ORDER (owner's ruling, Sept 3 2026).
+// Whoever took the round's LAST draft turn decides first, then the seat
+// before them in draft order, and so on around. The sequencing is the point —
+// each seat decides already knowing what everyone who drafted after them
+// spent — so these windows must never be opened simultaneously.
+//
+// The round's shared dice don't start rolling until the queue is spent (see
+// advance()'s pressPassWindowActive branch). If no one holds a Press Pass,
+// the dice phase starts immediately, same as before.
+function openPressPassWindow(state, lastDraftSeat) {
+  const queue = reverseDraftOrder(state, lastDraftSeat).filter((seat) => hasPressPassCards(state, seat));
+  if (queue.length === 0) {
     startDicePhase(state);
     return;
   }
-  log(state, "Before this round's Collection Dice roll, players holding a Press Pass may spend it for private rolls.");
+  log(state, "Before this round's Collection Dice roll, players holding a Press Pass may spend it for private rolls — deciding in reverse draft order, last drafter first.");
   state.pressPassWindowActive = true;
-  for (const p of eligible) pushPending(state, 'pressPassWindow', p.seat, {});
+  state.pressPassQueue = queue;
+  openNextPressPassWindow(state);
+}
+
+// Draft order runs by stand (see seatOrderByStand). This walks it backwards
+// from whoever took the round's final draft turn, wrapping around, and
+// returns every seat exactly once.
+function reverseDraftOrder(state, lastDraftSeat) {
+  const order = seatOrderByStand(state);
+  const start = Math.max(0, order.indexOf(lastDraftSeat));
+  const n = order.length;
+  return order.map((_, i) => order[(start - i + n) % n]);
+}
+
+// Hand the pre-roll window to the next queued seat that still holds a Press
+// Pass. Returns false once the queue is spent, which is what lets advance()
+// start the dice.
+function openNextPressPassWindow(state) {
+  const q = state.pressPassQueue;
+  while (q.length > 0) {
+    const seat = q.shift();
+    if (!hasPressPassCards(state, seat)) continue; // nothing left to spend — skipped silently
+    pushPending(state, 'pressPassWindow', seat, { waiting: q.length });
+    return true;
+  }
+  return false;
 }
 
 function pushPending(state, kind, seat, data = {}) {
@@ -435,7 +495,7 @@ export function lockCollectionDie(state) {
 }
 
 // Let a paused Tomato-dice batch (see stepDice's 'tomato' case) actually
-// apply its hits, once any Mesmera reroll window has closed.
+// apply its hits, once the Mesmera and Valentino re-roll windows have closed.
 export function lockTomatoRoll(state) {
   const d = state.dice;
   if (d && d.stage === 'tomato' && d.tomatoRolled && !d.tomatoLocked) {
@@ -731,12 +791,12 @@ function placeAcquiredCard(state, seat, cardId, slot) {
   placeInSlot(state, seat, cardId, slot);
 }
 
-// Stainglass draws 1 card per Powerful performer on stage, so with none on
+// Stainglass draws 1 card per Dramatic performer on stage, so with none on
 // stage the trade could produce nothing — don't offer it at all.
 function stainglassCanTrade(state, seat) {
   return (
     trainerActive(state, seat, TRAINERS.STAINGLASS) &&
-    countActivePerformers(state, seat, (x) => x.characteristic === 'Powerful') > 0
+    countActivePerformers(state, seat, (x) => x.characteristic === 'Dramatic') > 0
   );
 }
 
@@ -863,8 +923,8 @@ function collectResourceUnits(state, seat, c, amount, reason) {
 // also completing the 4-of-a-kind set that switches on a wildcard "Any
 // Characteristic"/"Any Type" Prop or Backdrop, and feeding every Trainer that
 // counts performers: Barnaby's Graceful discount, Tomasso's Dancer dice,
-// Ezra's Illusionist check, Jonas's Haunting cash-in, Valentino's Dramatic
-// allowance, Stainglass's Powerful draw.
+// Ezra's Illusionist check, Jonas's Haunting cash-in, Valentino's Powerful
+// re-roll allowance, Stainglass's Dramatic draw.
 //
 // The single thing a reserve Singer still cannot do is LOSE hearts at the end
 // of a round. That needs no code here: heartHit() addresses cards by mat slot
@@ -894,18 +954,6 @@ export function activePerformers(state, seat) {
 // (c) => c.type === 'Dancer', or (c) => c.characteristic === 'Graceful'.
 export function countActivePerformers(state, seat, pred) {
   return activePerformers(state, seat).filter((id) => pred(card(id))).length;
-}
-
-// The Vanishing Valentino's payable cost: Dramatic performers this seat owns,
-// on stage OR in reserve. His printed text says "on stage or in reserve", so
-// he's a third, narrower carve-out from the active-performer rule above —
-// scoped to what he can spend, not to any ongoing effect.
-export function dramaticPerformersOwned(state, seat) {
-  const p = state.players[seat];
-  return [...p.slots.filter(Boolean), ...p.reserve].filter((id) => {
-    const c = card(id);
-    return c.cardType === 'performer' && c.characteristic === 'Dramatic';
-  });
 }
 
 // Tomasso the Terrible: how many Dancer performers this seat has on stage —
@@ -1032,7 +1080,7 @@ function finishTurn(state) {
     } else {
       log(state, 'The draft row is empty — the draft ends.');
     }
-    openPressPassWindow(state);
+    openPressPassWindow(state, seat);
     return;
   }
 
@@ -1068,6 +1116,7 @@ function startDicePhase(state) {
     tomatoRolled: false, // the round's whole Tomato batch has been rolled (values in tomatoResults)
     tomatoLocked: false, // the batch is finalized — hits may now be applied
     mesmeraRerollUsed: false,
+    valentinoRerollUsed: false, // The Vanishing Valentino's once-per-round selective re-roll — see valentinoRerollTomato
     tomatoTotal: Math.min(state.round, MAX_TOMATO_DICE),
     trophyAssigned: false, // true once this round's Trophy is decided — see addStars
     barreRearrangeOpened: false, // true once this round's end-of-round Madame Barre rearrange prompts have been pushed — see stepDice's 'barreRearrange' stage
@@ -1320,6 +1369,7 @@ function advance(state) {
         // shared Collection Dice.
         if (state.pressPassWindowActive) {
           state.pressPassWindowActive = false;
+          state.pressPassQueue = [];
           startDicePhase(state);
           continue;
         }
@@ -1519,36 +1569,6 @@ export function applyAction(state, action) {
       state.turn.done = true;
       break;
     }
-    // The Vanishing Valentino: to start your turn, you may discard 1 card from
-    // the draft row per Dramatic performer on stage. Free (the turn's main
-    // action is untouched) and once per turn, like every other "to start your
-    // turn" Trainer. The player chooses exactly which cards go, so it's
-    // targeted denial rather than a blind trim; taking fewer than the maximum
-    // is allowed. Reserve Dramatic performers do not count — the standard
-    // active-performer rule applies.
-    case 'valentinoTrimDraft': {
-      requireTurn(state, seat);
-      if (state.turn.mainDone) throw new Error('This must be used before your main turn action.');
-      if (!trainerActive(state, seat, TRAINERS.VALENTINO)) throw new Error('The Vanishing Valentino is not your active Trainer.');
-      if (state.turn.valentinoUsed) throw new Error('You have already used that this turn.');
-      const p = state.players[seat];
-      const allowance = countActivePerformers(state, seat, (c) => c.characteristic === 'Dramatic');
-      if (allowance < 1) throw new Error('You need at least one Dramatic performer on stage.');
-      const ids = action.cardIds || [];
-      if (ids.length < 1) throw new Error('Choose at least one draft card to discard.');
-      if (ids.length > allowance) throw new Error(`You may discard at most ${allowance} draft card(s).`);
-      if (new Set(ids).size !== ids.length) throw new Error('Card listed twice.');
-      for (const id of ids) {
-        if (!state.draftRow.includes(id)) throw new Error('That card is not in the draft row.');
-      }
-      for (const id of ids) {
-        state.draftRow.splice(state.draftRow.indexOf(id), 1);
-        state.discard.push(id);
-      }
-      state.turn.valentinoUsed = true;
-      log(state, `${p.name} vanishes ${ids.map((id) => card(id).name).join(', ')} from the draft (The Vanishing Valentino).`);
-      break;
-    }
     // Jonas Quickfinger: to start your turn, you may discard one Haunting
     // performer from your stage and take its printed resource times its power
     // dots. Free (the main action is untouched) and once per turn. Only
@@ -1659,20 +1679,66 @@ export function applyAction(state, action) {
       log(state, `${nameOf(state, seat)} invokes Mesmera the Veiled — all Tomato dice are re-rolled: ${d.tomatoResults.join(', ')}.`);
       break;
     }
-    // Explicit "I'm done deciding" from Mesmera's holder: keep the Tomato
-    // batch's current results and let it lock immediately, instead of
-    // waiting out the server's reveal timer. Marks the same mesmeraRerollUsed
-    // flag as actually re-rolling — either way, the round's one decision is
-    // spent — so nothing else needs to change to make the pause stop.
+    // The Vanishing Valentino: once the round's whole Tomato batch is rolled
+    // but not yet locked in, his owner may pick up to 1 die per Powerful
+    // performer on stage and re-roll that whole selection at once — one
+    // choice, one throw, once per round. Per his printed text this happens
+    // AFTER Mesmera the Veiled, if she is active at all: she replaces the
+    // entire batch, so picking individual dice ahead of her would mean
+    // picking on a roll that no longer exists.
+    case 'valentinoRerollTomato': {
+      const d = state.dice;
+      if (state.phase !== 'dice' || !d || d.stage !== 'tomato' || !d.tomatoRolled || d.tomatoLocked) {
+        throw new Error('There is no Tomato roll open to re-roll right now.');
+      }
+      if (!trainerActive(state, seat, TRAINERS.VALENTINO)) throw new Error('The Vanishing Valentino is not your active Trainer.');
+      if (d.valentinoRerollUsed) throw new Error('The Vanishing Valentino has already been used this round.');
+      if (mesmeraWindowOpen(state)) throw new Error('Mesmera the Veiled decides on this batch first.');
+      const allowance = countActivePerformers(state, seat, (c) => c.characteristic === 'Powerful');
+      if (allowance < 1) throw new Error('You need at least one Powerful performer on stage.');
+      const picks = action.indices || [];
+      if (picks.length < 1) throw new Error('Choose at least one Tomato die to re-roll.');
+      if (picks.length > allowance) throw new Error(`You may re-roll at most ${allowance} Tomato ${allowance === 1 ? 'die' : 'dice'}.`);
+      if (new Set(picks).size !== picks.length) throw new Error('Die listed twice.');
+      for (const i of picks) {
+        if (!Number.isInteger(i) || i < 0 || i >= d.tomatoResults.length) throw new Error("That is not one of this round's Tomato dice.");
+      }
+      const before = picks.map((i) => d.tomatoResults[i]);
+      for (const i of picks) d.tomatoResults[i] = rollDie(state, 'tomato');
+      d.valentinoRerollUsed = true;
+      log(
+        state,
+        `${nameOf(state, seat)} vanishes ${picks.length} Tomato ${picks.length === 1 ? 'die' : 'dice'} and re-rolls (The Vanishing Valentino): ${before.join(', ')} → ${picks.map((i) => d.tomatoResults[i]).join(', ')}. The batch is now ${d.tomatoResults.join(', ')}.`
+      );
+      break;
+    }
+    // Explicit "I'm done deciding" from a holder of Mesmera the Veiled or The
+    // Vanishing Valentino: keep the Tomato batch as it stands and let it lock
+    // immediately, instead of waiting out the server's reveal timer. Marks
+    // the same once-per-round flag actually re-rolling would — either way
+    // that Trainer's decision is spent — so nothing else needs to change to
+    // make the pause stop. A seat holding BOTH closes Mesmera's window on the
+    // first call and Valentino's on the second, in the order they act.
     case 'keepTomatoRoll': {
       const d = state.dice;
       if (state.phase !== 'dice' || !d || d.stage !== 'tomato' || !d.tomatoRolled || d.tomatoLocked) {
         throw new Error('There is no Tomato roll open right now.');
       }
-      if (!trainerActive(state, seat, TRAINERS.MESMERA)) throw new Error('Mesmera the Veiled is not your active Trainer.');
-      if (d.mesmeraRerollUsed) throw new Error('Mesmera has already been used this round.');
-      d.mesmeraRerollUsed = true;
-      break;
+      const hasMesmera = trainerActive(state, seat, TRAINERS.MESMERA);
+      const hasValentino = trainerActive(state, seat, TRAINERS.VALENTINO);
+      if (!hasMesmera && !hasValentino) {
+        throw new Error('Neither Mesmera the Veiled nor The Vanishing Valentino is your active Trainer.');
+      }
+      if (hasMesmera && !d.mesmeraRerollUsed) {
+        d.mesmeraRerollUsed = true;
+        break;
+      }
+      if (hasValentino && !d.valentinoRerollUsed) {
+        if (mesmeraWindowOpen(state)) throw new Error('Mesmera the Veiled decides on this batch first.');
+        d.valentinoRerollUsed = true;
+        break;
+      }
+      throw new Error('You have already decided on this Tomato batch.');
     }
     // ----- pending-prompt resolutions ------------------------------------
     case 'resolvePending': {
@@ -1748,7 +1814,7 @@ function resolvePendingItem(state, item, action) {
       if (choice === 'stainglass') {
         // The acquired card is traded away before it ever entered play, so it
         // goes straight to the discard pile (nothing to remove from the mat).
-        const n = countActivePerformers(state, seat, (c) => c.characteristic === 'Powerful');
+        const n = countActivePerformers(state, seat, (c) => c.characteristic === 'Dramatic');
         state.discard.push(cardId);
         const drawn = draw(state, n);
         if (drawn.length === 0) {
@@ -1836,12 +1902,13 @@ function resolvePendingItem(state, item, action) {
       break;
     }
     // Pre-roll Press Pass window: this seat is done deciding (whether or not
-    // they spent anything) — see openPressPassWindow/usePressPass. Once
-    // every eligible seat's window is closed, the round's 5 shared
-    // Collection Dice start rolling (advance()'s pressPassWindowActive
-    // branch).
+    // they spent anything) — see openPressPassWindow/usePressPass. The window
+    // then passes to the next seat in reverse draft order; once the queue is
+    // spent, the round's 5 shared Collection Dice start rolling (advance()'s
+    // pressPassWindowActive branch).
     case 'pressPassWindow': {
       removePending(state, item.id);
+      openNextPressPassWindow(state);
       break;
     }
     // Post-dice-roll review: this seat has looked over the round's results

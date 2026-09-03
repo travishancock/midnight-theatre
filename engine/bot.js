@@ -22,6 +22,7 @@ import {
   expectedUnitsPerCollectionRoll,
   marketCost,
   activePerformers,
+  valentinoRerollAllowance,
   trainerActive,
   hasFullSet,
   TRAINERS,
@@ -161,6 +162,27 @@ export function botWantsMesmeraReroll(state, seat) {
   if (!d || d.stage !== 'tomato' || !d.tomatoRolled || d.tomatoLocked || d.mesmeraRerollUsed) return false;
   if (!trainerActive(state, seat, TRAINERS.MESMERA)) return false;
   return d.tomatoResults.some((n) => tomatoThreatens(state, seat, n));
+}
+
+// The Vanishing Valentino, in the same window but strictly after Mesmera
+// (valentinoRerollAllowance returns 0 while she still owes a decision): which
+// of the rolled dice do we want to throw again?
+//
+// Strictly better than Mesmera's all-or-nothing when it applies, because only
+// the dice that actually threaten us are touched — a die pointed at an empty
+// slot or a healthy card is left alone rather than gambled into one that
+// isn't. So: re-roll exactly the threatening dice, most dangerous first, up
+// to the allowance. Returns [] when nothing on the table hurts us, which is
+// the bot declining the window.
+export function botValentinoRerollPicks(state, seat) {
+  const allowance = valentinoRerollAllowance(state, seat);
+  if (allowance < 1) return [];
+  const d = state.dice;
+  return d.tomatoResults
+    .map((n, i) => ({ i, n }))
+    .filter(({ n }) => tomatoThreatens(state, seat, n))
+    .slice(0, allowance)
+    .map(({ i }) => i);
 }
 
 // Prefer an empty allowed slot; otherwise bump the least valuable occupant.
@@ -320,26 +342,6 @@ function draftTurn(state, seat) {
       const worth = (id) => (card(id).powerDots || 0) * 0.9;
       const best = haunting.find((id) => worth(id) > scoreCard(state, seat, id) + 1.0);
       if (best) return { type: 'jonasDiscard', seat, cardId: best };
-    }
-    // The Vanishing Valentino: trim the cards our opponents would most want.
-    // Free, so the only question is whether anything in the row is worth
-    // denying — judged by what the best-placed opponent would score it at.
-    if (!state.turn.valentinoUsed && trainerActive(state, seat, TRAINERS.VALENTINO)) {
-      const allowance = p.slots
-        .slice(0, 5)
-        .filter((id) => id && card(id).characteristic === 'Dramatic').length;
-      if (allowance > 0 && state.draftRow.length > 0) {
-        const rivals = state.players.filter((x) => x.seat !== seat);
-        const threat = (id) =>
-          rivals.length ? Math.max(...rivals.map((r) => scoreCard(state, r.seat, id))) : 0;
-        const mine = (id) => scoreCard(state, seat, id);
-        // Never bin something we'd rather draft ourselves this turn.
-        const targets = state.draftRow
-          .filter((id) => threat(id) > 3.5 && threat(id) > mine(id))
-          .sort((a, b) => threat(b) - threat(a))
-          .slice(0, allowance);
-        if (targets.length > 0) return { type: 'valentinoTrimDraft', seat, cardIds: targets };
-      }
     }
   }
 

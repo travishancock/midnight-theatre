@@ -119,6 +119,11 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
 .die.collection { background: #1e2c3f; color: #9ec7ff; border-color: #3d5a80; }
 .die.tomato { background: #3f1e22; color: #ff9e9e; border-color: #80403d; }
 .die.live { outline: 2px solid var(--gold); animation: pulse 1s infinite alternate; }
+/* The Vanishing Valentino picks individual Tomato dice to re-roll — the dice
+   themselves are the picker while his window is open. */
+#tomatoDice.pickable .die { cursor: pointer; }
+#tomatoDice.pickable .die:hover { outline: 2px solid var(--gold); }
+#tomatoDice .die.selected { outline: 2px dashed var(--gold); }
 @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.12); } }
 
 .dice-reaction {

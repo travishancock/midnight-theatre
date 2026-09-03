@@ -17,8 +17,17 @@ import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
 
 import { initCards } from '../engine/cards.js';
-import { createGame, applyAction, lockCollectionDie, lockTomatoRoll, trainerActive, TRAINERS } from '../engine/engine.js';
-import { botAction, seatsNeedingInput, botWantsMesmeraReroll } from '../engine/bot.js';
+import {
+  createGame,
+  applyAction,
+  lockCollectionDie,
+  lockTomatoRoll,
+  trainerActive,
+  mesmeraWindowOpen,
+  valentinoRerollAllowance,
+  TRAINERS,
+} from '../engine/engine.js';
+import { botAction, seatsNeedingInput, botWantsMesmeraReroll, botValentinoRerollPicks } from '../engine/bot.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -244,8 +253,8 @@ function runOneBotStep(room) {
 // in real time: a Collection Die sits rolled-but-unlocked
 // (state.dieEvent.awaitingLock) purely for reveal pacing, and the Tomato
 // batch sits rolled-but-unlocked (state.dice.tomatoRolled &&
-// !state.dice.tomatoLocked) so Mesmera's holder can react. Neither pause is a
-// `pending` prompt. This driver auto-resolves any bot's reaction immediately,
+// !state.dice.tomatoLocked) so Mesmera's holder — and then Valentino's — can
+// react. Neither pause is a `pending` prompt. This driver auto-resolves any bot's reaction immediately,
 // then waits DICE_REVEAL_MS (so everyone can see the die/dice on screen)
 // before locking and letting the engine continue.
 
@@ -269,13 +278,9 @@ function scheduleDicePhase(room) {
   const d = state.dice;
   if (d && d.stage === 'tomato' && d.tomatoRolled && !d.tomatoLocked) {
     autoResolveBotDiceReactions(room);
-    // Same idea as the Press Pass pause above: if a connected human holds
-    // Mesmera the Veiled and hasn't decided yet this round, wait for their
-    // mesmeraRerollTomato or keepTomatoRoll action instead of auto-locking.
-    const mesmeraSeat = state.players.findIndex((p) => trainerActive(state, p.seat, TRAINERS.MESMERA));
-    const mSeatObj = mesmeraSeat !== -1 ? room.seats[mesmeraSeat] : null;
-    const humanIsDeciding = !d.mesmeraRerollUsed && mSeatObj && !mSeatObj.isBot && mSeatObj.socketId;
-    if (humanIsDeciding) return;
+    // Same idea as the Press Pass pause above: if a connected human still owes
+    // a decision on this batch, wait for their action instead of auto-locking.
+    if (humanTomatoDeciderPending(room)) return;
     room.diceTimer = setTimeout(() => {
       room.diceTimer = null;
       lockTomatoRoll(state);
@@ -287,17 +292,57 @@ function scheduleDicePhase(room) {
   }
 }
 
+// A connected human still owes a decision on the open Tomato batch. Bot seats
+// have already been resolved by autoResolveBotDiceReactions, so whatever is
+// still open belongs to a person and the reveal timer waits for them rather
+// than locking the batch out from under them. Mesmera comes first — while her
+// window is open Valentino's allowance is 0 by construction, so the two can
+// never both be waited on at once.
+function humanTomatoDeciderPending(room) {
+  const state = room.game;
+  const d = state.dice;
+  if (!d || d.stage !== 'tomato' || !d.tomatoRolled || d.tomatoLocked) return false;
+  const isConnectedHuman = (seat) => {
+    const s = room.seats[seat];
+    return !!(s && !s.isBot && s.socketId);
+  };
+  if (mesmeraWindowOpen(state)) {
+    return state.players.some((p) => trainerActive(state, p.seat, TRAINERS.MESMERA) && isConnectedHuman(p.seat));
+  }
+  return state.players.some((p) => valentinoRerollAllowance(state, p.seat) > 0 && isConnectedHuman(p.seat));
+}
+
 function autoResolveBotDiceReactions(room) {
   const state = room.game;
-  for (let seat = 0; seat < room.seats.length; seat++) {
-    if (!room.seats[seat] || !room.seats[seat].isBot) continue;
-    if (botWantsMesmeraReroll(state, seat)) {
-      try {
-        applyAction(state, { type: 'mesmeraRerollTomato', seat });
-      } catch (err) {
-        console.error(`[room ${room.code}] bot seat ${seat} illegal mesmeraRerollTomato`, err.message);
-      }
+  const isBotSeat = (seat) => !!(room.seats[seat] && room.seats[seat].isBot);
+  const act = (seat, action) => {
+    try {
+      applyAction(state, action);
+    } catch (err) {
+      console.error(`[room ${room.code}] bot seat ${seat} illegal ${action.type}`, err.message);
     }
+  };
+
+  // Mesmera the Veiled first, and CLOSE her window explicitly even when the
+  // bot declines. Leaving it open used to be harmless (the timer just locked
+  // the batch), but The Vanishing Valentino now waits on her: an undecided
+  // bot Mesmera would otherwise hold his window shut forever.
+  for (let seat = 0; seat < room.seats.length; seat++) {
+    if (!isBotSeat(seat)) continue;
+    if (!trainerActive(state, seat, TRAINERS.MESMERA)) continue;
+    if (state.dice?.mesmeraRerollUsed) continue;
+    act(seat, { type: botWantsMesmeraReroll(state, seat) ? 'mesmeraRerollTomato' : 'keepTomatoRoll', seat });
+  }
+
+  // Then Valentino's selective re-roll — valentinoRerollAllowance stays 0
+  // until Mesmera's window is closed, so this cannot run out of order.
+  for (let seat = 0; seat < room.seats.length; seat++) {
+    if (!isBotSeat(seat)) continue;
+    if (valentinoRerollAllowance(state, seat) < 1) continue;
+    const picks = botValentinoRerollPicks(state, seat);
+    act(seat, picks.length > 0
+      ? { type: 'valentinoRerollTomato', seat, indices: picks }
+      : { type: 'keepTomatoRoll', seat });
   }
 }
 

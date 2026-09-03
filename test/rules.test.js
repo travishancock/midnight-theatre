@@ -25,6 +25,9 @@ import {
   tokenSupply,
   lockCollectionDie,
   lockTomatoRoll,
+  seatOrderByStand,
+  mesmeraWindowOpen,
+  valentinoRerollAllowance,
   TRAINERS,
   hasFullSet,
 } from '../engine/engine.js';
@@ -710,10 +713,10 @@ test('Professor Stainglass: the offer comes at acquisition, before the card is p
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.STAINGLASS;
-  const powerful = db.performers.filter((c) => c.characteristic === 'Powerful').map((c) => c.id);
-  p.slots[1] = powerful[0];
-  p.slots[2] = powerful[1]; // 2 Powerful -> draws 2, keeps 1
-  const perf = db.performers.find((c) => !powerful.slice(0, 2).includes(c.id)).id;
+  const dramatic = db.performers.filter((c) => c.characteristic === 'Dramatic').map((c) => c.id);
+  p.slots[1] = dramatic[0];
+  p.slots[2] = dramatic[1]; // 2 Dramatic -> draws 2, keeps 1
+  const perf = db.performers.find((c) => !dramatic.slice(0, 2).includes(c.id)).id;
   s.draftRow[0] = perf;
   const deckTop = [s.deck[s.deck.length - 1], s.deck[s.deck.length - 2]];
 
@@ -740,8 +743,8 @@ test('Professor Stainglass: "keep" completes the acquisition that was interrupte
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.STAINGLASS;
-  p.slots[1] = db.performers.find((c) => c.characteristic === 'Powerful').id;
-  const perf = performer((c) => c.characteristic !== 'Powerful');
+  p.slots[1] = db.performers.find((c) => c.characteristic === 'Dramatic').id;
+  const perf = performer((c) => c.characteristic !== 'Dramatic');
   s.draftRow[0] = perf;
   applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
   const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
@@ -753,19 +756,19 @@ test('Professor Stainglass: the offer also fires for cards that never take a slo
   // The offer used to be raised at *placement* time, so it silently never
   // appeared for a card sent to reserve because the slots were full, nor for
   // Resource / Favor / Press Pass cards, which never occupy a slot at all.
-  const powerful = db.performers.filter((c) => c.characteristic === 'Powerful').map((c) => c.id);
+  const dramatic = db.performers.filter((c) => c.characteristic === 'Dramatic').map((c) => c.id);
   const setup = () => {
     const s = freshGame(2);
     const seat = currentSeat(s);
     const p = s.players[seat];
-    p.slots = [powerful[0], powerful[1], powerful[2], powerful[3], powerful[4], null, null, TRAINERS.STAINGLASS];
+    p.slots = [dramatic[0], dramatic[1], dramatic[2], dramatic[3], dramatic[4], null, null, TRAINERS.STAINGLASS];
     return { s, seat, p };
   };
 
   // A Performer with every Performer slot full.
   {
     const { s, seat } = setup();
-    const extra = db.performers.find((c) => !powerful.slice(0, 5).includes(c.id)).id;
+    const extra = db.performers.find((c) => !dramatic.slice(0, 5).includes(c.id)).id;
     s.draftRow[0] = extra;
     applyAction(s, { type: 'acquireDraft', seat, cardId: extra });
     assert.ok(s.pending.some((x) => x.kind === 'postAcquireDiscard'), 'full slots must still offer');
@@ -810,10 +813,10 @@ test('Professor Stainglass: the card you keep cannot itself be traded in for ano
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.STAINGLASS;
-  const powerful = db.performers.filter((c) => c.characteristic === 'Powerful').map((c) => c.id);
-  p.slots[1] = powerful[0];
-  p.slots[2] = powerful[1];
-  const perf = db.performers.find((c) => !powerful.slice(0, 2).includes(c.id)).id;
+  const dramatic = db.performers.filter((c) => c.characteristic === 'Dramatic').map((c) => c.id);
+  p.slots[1] = dramatic[0];
+  p.slots[2] = dramatic[1];
+  const perf = db.performers.find((c) => !dramatic.slice(0, 2).includes(c.id)).id;
   s.draftRow[0] = perf;
   applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
   const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
@@ -828,12 +831,12 @@ test('Professor Stainglass: the card you keep cannot itself be traded in for ano
   );
 });
 
-test('Professor Stainglass: with no Powerful performer the trade is not offered at all', () => {
+test('Professor Stainglass: with no Dramatic performer the trade is not offered at all', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.STAINGLASS;
-  const perf = performer((c) => c.characteristic !== 'Powerful');
+  const perf = performer((c) => c.characteristic !== 'Dramatic');
   s.draftRow[0] = perf;
   applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
   assert.ok(!s.pending.some((x) => x.kind === 'postAcquireDiscard'), 'nothing to draw, so no offer');
@@ -845,8 +848,8 @@ test('Professor Stainglass: "keep" leaves the card exactly as placed', () => {
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.STAINGLASS;
-  p.slots[1] = db.performers.find((c) => c.characteristic === 'Powerful').id; // so the offer appears
-  const perf = performer((c) => c.characteristic !== 'Powerful');
+  p.slots[1] = db.performers.find((c) => c.characteristic === 'Dramatic').id; // so the offer appears
+  const perf = performer((c) => c.characteristic !== 'Dramatic');
   s.draftRow[0] = perf;
   applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
   const offer = s.pending.find((x) => x.kind === 'postAcquireDiscard');
@@ -1302,6 +1305,48 @@ test('usePressPass: a pre-roll window opens once the draft ends, letting eligibl
   assert.equal(s.phase, 'dice', 'the round now proceeds into its normal 5 shared Collection Dice');
   driveDicePhase(s);
   assert.equal(s.round, 2, 'round completed normally afterward');
+});
+
+test('the pre-roll Press Pass window runs one seat at a time, in reverse draft order', () => {
+  const s = freshGame(3, 555);
+  // Everyone holds a Press Pass, so the queue is the full table and the order
+  // is the only thing under test.
+  for (const p of s.players) {
+    p.slots = [null, null, null, null, null, null, null, null];
+    p.reserve = [];
+  }
+  const passes = ['PressPass-1-1', 'PressPass-1-2', 'PressPass-2-1'];
+  s.players.forEach((p, i) => p.reserve.push(passes[i]));
+
+  // Run the draft down to its last card (bot-driven, so every prompt an
+  // acquisition raises is answered legally) and remember who took the final
+  // draft turn.
+  let lastDrafter = null;
+  for (let guard = 0; guard < 500 && s.phase === 'draft'; guard++) {
+    const it = s.pending.find((x) => x.kind !== 'pressPassWindow');
+    if (it) { applyAction(s, botAction(s, it.seat)); continue; }
+    if (s.pending.some((x) => x.kind === 'pressPassWindow') || !s.turn) break;
+    lastDrafter = s.turn.seat;
+    applyAction(s, botAction(s, s.turn.seat));
+  }
+  assert.ok(lastDrafter != null, 'the draft actually ran');
+
+  // Exactly ONE window is open at a time — and it starts with whoever drafted
+  // last, then walks backwards through the draft (stand) order.
+  const order = seatOrderByStand(s);
+  const startAt = order.indexOf(lastDrafter);
+  const expected = order.map((_, i) => order[(startAt - i + order.length) % order.length]);
+
+  const seen = [];
+  while (s.pressPassWindowActive) {
+    const open = s.pending.filter((x) => x.kind === 'pressPassWindow');
+    assert.equal(open.length, 1, 'exactly one seat may be deciding at any moment');
+    seen.push(open[0].seat);
+    applyAction(s, { type: 'resolvePending', seat: open[0].seat, pendingId: open[0].id });
+  }
+
+  assert.deepEqual(seen, expected, 'the last drafter decides first, then backwards through draft order');
+  assert.equal(s.phase, 'dice', 'the shared dice start only once the whole queue is spent');
 });
 
 test('usePressPass: only legal during that seat\'s own open pre-roll window, for a Press Pass actually in their reserve', () => {
@@ -2312,57 +2357,140 @@ test('Jonas Quickfinger: only active Haunting performers qualify, and only befor
   );
 });
 
-test('The Vanishing Valentino: free start-of-turn trim of 1 draft card per Dramatic performer', () => {
-  const s = freshGame(2);
+// A card put on a mat directly by a test never went through placeInSlot, so it
+// has no hearts recorded — and a round's trophy fatigue then discards it out
+// from under the test. Give everything on the mat its printed hearts.
+function heartUpManualSlots(s, seat) {
+  for (const id of s.players[seat].slots.filter(Boolean)) {
+    s.hearts[id] = card(id).maxHearts ?? card(id).startingHearts ?? 3;
+  }
+}
+
+test('The Vanishing Valentino: re-rolls the chosen Tomato dice, 1 per Powerful performer, all at once', () => {
+  const s = freshGame(2, 8);
   const seat = currentSeat(s);
   const p = s.players[seat];
+  const pow = db.performers.filter((c) => c.characteristic === 'Powerful').map((c) => c.id);
   p.slots[7] = TRAINERS.VALENTINO;
-  const dram = db.performers.filter((c) => c.characteristic === 'Dramatic').map((c) => c.id);
-  const others = db.performers.filter((c) => c.characteristic !== 'Dramatic').map((c) => c.id);
-  p.slots[0] = dram[0];
-  p.slots[1] = dram[1]; // 2 Dramatic performers -> may vanish 2 cards
-  s.draftRow = [others[0], others[1], others[2], others[3]];
+  p.slots[0] = pow[0];
+  p.slots[1] = pow[1]; // 2 Powerful -> may re-roll 2 dice
+  heartUpManualSlots(s, seat);
+  const filler = performer((c) => c.resource === 'Coin' && !pow.slice(0, 2).includes(c.id));
+  s.draftRow = [filler, db.performers[9].id];
+  s.round = 4; // 4 tomato dice, so there is a real selection to make
+  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+
+  driveToTomatoOpen(s);
+  const before = [...s.dice.tomatoResults];
+  assert.equal(before.length, 4);
+  assert.equal(s.dice.valentinoRerollUsed, false);
 
   assert.throws(
-    () => applyAction(s, { type: 'valentinoTrimDraft', seat, cardIds: others.slice(0, 3) }),
-    /at most 2 draft card/
+    () => applyAction(s, { type: 'valentinoRerollTomato', seat, indices: [0, 1, 2] }),
+    /at most 2 Tomato/
   );
-  applyAction(s, { type: 'valentinoTrimDraft', seat, cardIds: [others[0], others[2]] });
-  assert.deepEqual(s.draftRow, [others[1], others[3]], 'exactly the chosen cards were removed');
-  assert.ok(s.discard.includes(others[0]) && s.discard.includes(others[2]));
-  // Free: the main action is still available.
-  assert.equal(s.turn.seat, seat);
-  assert.equal(s.turn.mainDone, false);
   assert.throws(
-    () => applyAction(s, { type: 'valentinoTrimDraft', seat, cardIds: [others[1]] }),
-    /already used/
+    () => applyAction(s, { type: 'valentinoRerollTomato', seat, indices: [0, 0] }),
+    /listed twice/
   );
+  assert.throws(
+    () => applyAction(s, { type: 'valentinoRerollTomato', seat, indices: [99] }),
+    /not one of this round's Tomato dice/
+  );
+
+  applyAction(s, { type: 'valentinoRerollTomato', seat, indices: [0, 2] });
+  assert.equal(s.dice.valentinoRerollUsed, true);
+  assert.equal(s.dice.tomatoResults.length, before.length, 'the batch keeps its size');
+  for (let i = 0; i < before.length; i++) {
+    if (i === 0 || i === 2) continue;
+    assert.equal(s.dice.tomatoResults[i], before[i], `die ${i} was not picked and must be untouched`);
+  }
+  // Once per round, whichever way it went.
+  assert.throws(
+    () => applyAction(s, { type: 'valentinoRerollTomato', seat, indices: [1] }),
+    /already been used/
+  );
+
+  driveDicePhase(s);
+  assert.equal(s.round, 5);
 });
 
-test('The Vanishing Valentino: reserve Dramatic performers do not count, and the row must actually hold the card', () => {
-  const s = freshGame(2);
-  const seat = currentSeat(s);
-  const p = s.players[seat];
-  p.slots[7] = TRAINERS.VALENTINO;
-  const dram = db.performers.filter((c) => c.characteristic === 'Dramatic').map((c) => c.id);
-  const others = db.performers.filter((c) => c.characteristic !== 'Dramatic').map((c) => c.id);
-  // Fill the stage with non-Dramatic performers so the reserve Dramatic stays put.
-  p.slots = [others[0], others[1], others[2], others[3], others[4], null, null, TRAINERS.VALENTINO];
-  p.reserve = [dram[0]];
-  s.draftRow = [others[5], others[6]];
-  assert.throws(
-    () => applyAction(s, { type: 'valentinoTrimDraft', seat, cardIds: [others[5]] }),
-    /at least one Dramatic performer on stage/,
-    'reserve Dramatic performers grant no allowance'
-  );
+test('The Vanishing Valentino: needs a Powerful performer on stage, and waits for Mesmera when she is active', () => {
+  // No Powerful performer -> no allowance at all.
+  {
+    const s = freshGame(2, 8);
+    const seat = currentSeat(s);
+    const p = s.players[seat];
+    p.slots = [null, null, null, null, null, null, null, TRAINERS.VALENTINO];
+    heartUpManualSlots(s, seat);
+    const filler = performer((c) => c.resource === 'Coin');
+    s.draftRow = [filler, db.performers[9].id];
+    applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+    driveToTomatoOpen(s);
+    assert.equal(valentinoRerollAllowance(s, seat), 0);
+    assert.throws(
+      () => applyAction(s, { type: 'valentinoRerollTomato', seat, indices: [0] }),
+      /at least one Powerful performer/
+    );
+  }
 
-  // With one on stage, the named card still has to be in the row.
-  p.slots[0] = dram[0];
-  p.reserve = [];
-  assert.throws(
-    () => applyAction(s, { type: 'valentinoTrimDraft', seat, cardIds: [others[9]] }),
-    /not in the draft row/
-  );
+  // Mesmera in play on another seat: she replaces the whole batch, so nothing
+  // that picks individual dice may happen until she has decided.
+  {
+    const s = freshGame(2, 8);
+    const seat = currentSeat(s);
+    const other = s.players.find((x) => x.seat !== seat).seat;
+    const pow = db.performers.filter((c) => c.characteristic === 'Powerful').map((c) => c.id);
+    s.players[seat].slots[7] = TRAINERS.VALENTINO;
+    s.players[seat].slots[0] = pow[0];
+    s.players[other].slots[7] = TRAINERS.MESMERA;
+    heartUpManualSlots(s, seat);
+    heartUpManualSlots(s, other);
+    const filler = performer((c) => c.resource === 'Coin' && c.id !== pow[0]);
+    s.draftRow = [filler, db.performers[9].id];
+    applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+    driveToTomatoOpen(s);
+
+    assert.equal(mesmeraWindowOpen(s), true);
+    assert.equal(valentinoRerollAllowance(s, seat), 0, 'no allowance while Mesmera still owes a decision');
+    assert.throws(
+      () => applyAction(s, { type: 'valentinoRerollTomato', seat, indices: [0] }),
+      /Mesmera the Veiled decides on this batch first/
+    );
+
+    applyAction(s, { type: 'keepTomatoRoll', seat: other });
+    assert.equal(mesmeraWindowOpen(s), false);
+    assert.equal(valentinoRerollAllowance(s, seat), 1, 'his window opens the moment hers closes');
+    applyAction(s, { type: 'valentinoRerollTomato', seat, indices: [0] });
+    assert.equal(s.dice.valentinoRerollUsed, true);
+
+    driveDicePhase(s);
+    assert.equal(s.round, 2);
+  }
+});
+
+test("keepTomatoRoll: Valentino's holder can decline his window too", () => {
+  const s = freshGame(2, 8);
+  const seat = currentSeat(s);
+  const other = s.players.find((x) => x.seat !== seat).seat;
+  const pow = db.performers.filter((c) => c.characteristic === 'Powerful').map((c) => c.id);
+  s.players[seat].slots[7] = TRAINERS.VALENTINO;
+  s.players[seat].slots[0] = pow[0];
+  heartUpManualSlots(s, seat);
+  const filler = performer((c) => c.resource === 'Coin' && c.id !== pow[0]);
+  s.draftRow = [filler, db.performers[9].id];
+  applyAction(s, { type: 'acquireDraft', seat, cardId: filler });
+  driveToTomatoOpen(s);
+  const before = [...s.dice.tomatoResults];
+
+  assert.throws(() => applyAction(s, { type: 'keepTomatoRoll', seat: other }), /Trainer/);
+  applyAction(s, { type: 'keepTomatoRoll', seat });
+  assert.equal(s.dice.valentinoRerollUsed, true);
+  assert.deepEqual(s.dice.tomatoResults, before, 'declining changes nothing');
+  assert.throws(() => applyAction(s, { type: 'keepTomatoRoll', seat }), /already/i);
+
+  driveDicePhase(s);
+  assert.equal(s.round, 2);
 });
 
 test('Maximillian: the market may be reset between drafting and spending the earned buy', () => {
@@ -2402,19 +2530,19 @@ test('Without a buy owed, the market still cannot be reset after the main action
 });
 
 test('Professor Stainglass: only DRAFTED cards trigger the offer, not market buys or Wendell', () => {
-  const powerful = db.performers.filter((c) => c.characteristic === 'Powerful').map((c) => c.id);
+  const dramatic = db.performers.filter((c) => c.characteristic === 'Dramatic').map((c) => c.id);
   const setup = () => {
     const s = freshGame(2);
     const seat = currentSeat(s);
     const p = s.players[seat];
-    p.slots = [powerful[0], null, null, null, null, null, null, TRAINERS.STAINGLASS];
+    p.slots = [dramatic[0], null, null, null, null, null, null, TRAINERS.STAINGLASS];
     p.coins = 10;
     return { s, seat, p };
   };
   // Drafted -> offered.
   {
     const { s, seat } = setup();
-    const perf = db.performers.find((c) => c.id !== powerful[0]).id;
+    const perf = db.performers.find((c) => c.id !== dramatic[0]).id;
     s.draftRow[0] = perf;
     applyAction(s, { type: 'acquireDraft', seat, cardId: perf });
     assert.ok(s.pending.some((x) => x.kind === 'postAcquireDiscard'), 'a drafted card offers');

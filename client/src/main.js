@@ -24,7 +24,7 @@ let ui = {
   mode: null, // null | 'rearrange' | 'amaraMove'
   rearrange: null, // { slots, reserve, picked: {zone, index} | null }
   amaraMove: null, // { from: cardId | null } — Amara the Reliquary's move-a-heart picker
-  valentinoPick: null, // [cardId] — draft cards chosen for The Vanishing Valentino's trim
+  valentinoPick: null, // [dieIndex] — Tomato dice chosen for The Vanishing Valentino's re-roll
   heartPlan: {}, // cardId -> amount, for heartAssign prompt
   refillPlan: null, // [{slot, cardId}]
   logOpen: true,
@@ -128,7 +128,12 @@ function resetTransientUi() {
   ui.mode = null;
   ui.rearrange = null;
   ui.amaraMove = null;
-  ui.valentinoPick = null;
+  // Valentino's die picks survive a state push for the same reason heartPlan
+  // does (see below): his window sits inside the dice phase, where a push
+  // lands every second or two, and wiping would erase a half-made selection
+  // under the player's cursor. It is dropped only once his window is gone.
+  const me = view.state?.players?.[my.seat];
+  if (!me || valentinoAllowance(view.state, me) < 1) ui.valentinoPick = null;
   // heartPlan and refillPlan are deliberately NOT wiped here. A state push
   // arrives every time any seat acts — during the dice phase that is every
   // second or two — and wiping would erase a half-finished plan out from
@@ -664,6 +669,27 @@ function mesmeraDecider(s) {
   return s.players.find((pl) => trainerIs(pl, 'Mesmera-the-Veiled')) || null;
 }
 
+// The Vanishing Valentino: re-roll 1 Tomato die per Powerful performer, picked
+// individually and thrown together. Mirrors engine.js's
+// valentinoRerollAllowance — including the wait for Mesmera, whose re-roll
+// replaces the whole batch and so has to land first. 0 = no window.
+function valentinoAllowance(s, p) {
+  if (!p) return 0;
+  const d = s.dice;
+  if (!d || d.stage !== 'tomato' || !d.tomatoRolled || d.tomatoLocked || d.valentinoRerollUsed) return 0;
+  if (!trainerIs(p, 'The-Vanishing-Valentino')) return 0;
+  if (mesmeraDecider(s)) return 0;
+  return activePerformersWhere(p, (c) => c.characteristic === 'Powerful').length;
+}
+
+// Same idea as mesmeraDecider: everyone else is told who they're waiting on.
+function valentinoDecider(s) {
+  const d = s.dice;
+  if (!d || d.stage !== 'tomato' || !d.tomatoRolled || d.tomatoLocked || d.valentinoRerollUsed) return null;
+  if (mesmeraDecider(s)) return null;
+  return s.players.find((pl) => valentinoAllowance(s, pl) > 0) || null;
+}
+
 function diceTray(s, p) {
   const d = s.dice;
   const ev = s.dieEvent;
@@ -677,6 +703,9 @@ function diceTray(s, p) {
 
   const mes = mesmeraReady(s, p);
   const mDecider = mesmeraDecider(s);
+  const vAllowance = valentinoAllowance(s, p);
+  const vDecider = valentinoDecider(s);
+  const vPicked = vAllowance > 0 ? (ui.valentinoPick || []) : [];
   const reactionHtml = mes
     ? `<div class="dice-reaction">
          <button id="mesmeraBtn" class="primary">Mesmera: re-roll all Tomato dice</button>
@@ -684,13 +713,21 @@ function diceTray(s, p) {
        </div>`
     : mDecider && (!p || mDecider.seat !== p.seat)
     ? `<div class="dice-reaction"><span class="hint">Waiting for ${esc(mDecider.name)} to decide (Mesmera the Veiled)…</span></div>`
+    : vAllowance > 0
+    ? `<div class="dice-reaction">
+         <span class="hint">The Vanishing Valentino: click up to ${vAllowance} Tomato ${vAllowance === 1 ? 'die' : 'dice'} above to re-roll together (${vPicked.length} chosen).</span>
+         ${vPicked.length > 0 ? `<button id="valentinoRerollBtn" class="primary">Re-roll ${vPicked.length} ${vPicked.length === 1 ? 'die' : 'dice'}</button>` : ''}
+         <button id="keepTomatoBtn">Keep this result</button>
+       </div>`
+    : vDecider && (!p || vDecider.seat !== p.seat)
+    ? `<div class="dice-reaction"><span class="hint">Waiting for ${esc(vDecider.name)} to decide (The Vanishing Valentino)…</span></div>`
     : d && d.stage === 'tomato' && d.tomatoRolled && !d.tomatoLocked
     ? `<div class="dice-reaction"><span class="hint">Tomato dice locking in…</span></div>`
     : '';
 
   return `<div class="dicetray">
     ${d ? `<span class="lbl">Collection:</span>${d.results.map((r) => `<span class="die collection">${r}</span>`).join('')}` : ''}
-    ${d && d.tomatoResults.length ? `<span class="lbl">Tomatoes:</span>${d.tomatoResults.map((r) => `<span class="die tomato">${r}</span>`).join('')}` : ''}
+    ${d && d.tomatoResults.length ? `<span class="lbl">Tomatoes:</span><span id="tomatoDice" class="${vAllowance > 0 ? 'pickable' : ''}">${d.tomatoResults.map((r, i) => `<span class="die tomato ${vPicked.includes(i) ? 'selected' : ''}" data-die="${i}">${r}</span>`).join('')}</span>` : ''}
     ${evHtml}
     ${d ? `<span class="hint">${d.tomatoTotal} tomato ${d.tomatoTotal === 1 ? 'die' : 'dice'} this round</span>` : ''}
     ${reactionHtml}
@@ -721,13 +758,13 @@ function tomatoForecast(s) {
 }
 
 function draftRowHtml(s, p, pending) {
-  const clickable = (isMyTurn() && !ui.mode) || ui.mode === 'valentinoPick';
+  const clickable = isMyTurn() && !ui.mode;
   return `<div class="zone">
     <h3>Draft row <span class="hint">(free — ends when 1 card remains)</span></h3>
     <div class="cardrow ${clickable ? 'clickable' : ''}" id="draftRow">
       ${s.draftRow.map((id) => cardHtml(id, {
         size: 'md',
-        extra: ui.mode === 'valentinoPick' ? ((ui.valentinoPick || []).includes(id) ? 'selected' : 'highlight') : '',
+        extra: '',
       })).join('') || '<span class="hint">empty</span>'}
     </div>
   </div>`;
@@ -795,12 +832,6 @@ function turnBarHtml(s, p) {
   } else if (ui.mode === 'jonasPick') {
     buttons.push(`<span class="yourturn">Jonas Quickfinger: click a Haunting performer on your stage to discard it for its resource x its power dots.</span>`);
     buttons.push(`<button id="cancelMode">Cancel</button>`);
-  } else if (ui.mode === 'valentinoPick') {
-    const picked = ui.valentinoPick || [];
-    const allowance = activePerformersWhere(p, (c) => c.characteristic === 'Dramatic').length;
-    buttons.push(`<span class="yourturn">The Vanishing Valentino: click up to ${allowance} draft card${allowance === 1 ? '' : 's'} to vanish (${picked.length} chosen).</span>`);
-    if (picked.length > 0) buttons.push(`<button id="valentinoConfirm" class="primary">Vanish ${picked.length} card${picked.length === 1 ? '' : 's'}</button>`);
-    buttons.push(`<button id="cancelMode">Cancel</button>`);
   } else if (ui.mode === 'wendellTake') {
     buttons.push(`<span class="yourturn">Wendell the Propmaster: click a card below to take it from the discard pile.</span>`);
     buttons.push(`<button id="cancelMode">Cancel</button>`);
@@ -831,11 +862,6 @@ function turnBarHtml(s, p) {
         const haunting = activePerformerIds(p).filter((id) => jonasCanTake(p, id));
         buttons.push(`<button id="jonasBtn" ${haunting.length ? '' : 'disabled'} title="${haunting.length ? '' : 'No Haunting performer on your stage'}">Jonas Quickfinger: cash in a Haunting performer (free)</button>`);
       }
-      if (trainers.includes('The-Vanishing-Valentino') && !t.valentinoUsed) {
-        const allowance = activePerformersWhere(p, (c) => c.characteristic === 'Dramatic').length;
-        const can = allowance > 0 && s.draftRow.length > 0;
-        buttons.push(`<button id="valentinoBtn" ${can ? '' : 'disabled'} title="${can ? '' : 'Needs a Dramatic performer on stage and cards in the draft row'}">The Vanishing Valentino: vanish ${allowance} draft card${allowance === 1 ? '' : 's'} (free)</button>`);
-      }
     }
     if (t.open) {
       buttons.push(`<button id="endTurnBtn" class="primary">End turn (Maximillian)</button>`);
@@ -862,8 +888,13 @@ function promptHtml(s, p, item) {
   switch (item.kind) {
     case 'pressPassWindow': {
       const myPasses = p.reserve.filter((id) => card(id).cardType === 'reroll');
+      // Seats decide one at a time in reverse draft order (see engine.js's
+      // openPressPassWindow); item.data.waiting is how many still come after
+      // this one, so everyone can see where they sit in that order.
+      const waiting = item.data?.waiting || 0;
       return promptBox(`
         <div>Before this round's 5 shared Collection Dice roll, you may spend any Press Pass card${myPasses.length === 1 ? '' : 's'} below for private roll${myPasses.length === 1 ? '' : 's'} of your own. Click one to spend it, or continue whenever you're ready.</div>
+        <div class="hint">Press Passes are decided in reverse draft order — the round's last drafter chooses first.${waiting > 0 ? ` ${waiting} player${waiting === 1 ? '' : 's'} still to decide after you.` : ' You are the last to decide.'}</div>
         <button id="pressPassContinue" class="primary">${myPasses.length > 0 ? "I'm done — roll the dice" : 'Continue — roll the dice'}</button>`);
     }
     case 'placement': {
@@ -936,7 +967,7 @@ function promptHtml(s, p, item) {
     }
     case 'postAcquireDiscard': {
       const labels = {
-        stainglass: 'Discard it (Professor Stainglass) — draw 1 per Powerful performer, keep one',
+        stainglass: 'Discard it (Professor Stainglass) — draw 1 per Dramatic performer, keep one',
       };
       return promptBox(`
         <div>You just acquired <b>${esc(item.data.cardName)}</b> — keep it, or discard it right now for a Trainer effect?</div>
@@ -1065,8 +1096,6 @@ function myMatHtml(s, p, pending) {
     return id !== amaraMove.from && capLeft(p, id) > 0;
   };
 
-  // The Vanishing Valentino: highlight the Dramatic performers that can be
-  // discarded to pay for ending the draft.
   const jonasEligible = (id) => ui.mode === 'jonasPick' && jonasCanTake(p, id);
 
   return `<section class="mymat">
@@ -1187,16 +1216,6 @@ function wireGameEvents(s, p, pending) {
     const el = e.target.closest('[data-cardid]');
     if (!el) return;
     const id = el.dataset.cardid;
-    if (ui.mode === 'valentinoPick') {
-      const picked = ui.valentinoPick || [];
-      const allowance = activePerformersWhere(p, (c) => c.characteristic === 'Dramatic').length;
-      const at = picked.indexOf(id);
-      if (at >= 0) picked.splice(at, 1);
-      else if (picked.length < allowance) picked.push(id);
-      ui.valentinoPick = picked;
-      render();
-      return;
-    }
     if (isMyTurn() && !ui.mode && !s.turn.mainDone) {
       send({ type: 'acquireDraft', cardId: id });
     }
@@ -1242,16 +1261,27 @@ function wireGameEvents(s, p, pending) {
     ui.mode = null;
     send({ type: 'wendellTakeDiscard', cardId: el.dataset.cardid });
   });
-  document.getElementById('valentinoBtn')?.addEventListener('click', () => {
-    ui.mode = 'valentinoPick';
-    ui.valentinoPick = [];
+  // The Vanishing Valentino: toggle individual Tomato dice, then throw the
+  // whole selection at once. Only live while his window is open (see
+  // valentinoAllowance), so no mode flag is needed — the dice themselves are
+  // the picker.
+  document.getElementById('tomatoDice')?.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-die]');
+    if (!el) return;
+    const allowance = valentinoAllowance(s, p);
+    if (allowance < 1) return;
+    const i = Number(el.dataset.die);
+    const picked = ui.valentinoPick || [];
+    const at = picked.indexOf(i);
+    if (at >= 0) picked.splice(at, 1);
+    else if (picked.length < allowance) picked.push(i);
+    ui.valentinoPick = picked;
     render();
   });
-  document.getElementById('valentinoConfirm')?.addEventListener('click', () => {
-    const ids = ui.valentinoPick || [];
-    ui.mode = null;
+  document.getElementById('valentinoRerollBtn')?.addEventListener('click', () => {
+    const indices = ui.valentinoPick || [];
     ui.valentinoPick = null;
-    if (ids.length) send({ type: 'valentinoTrimDraft', cardIds: ids });
+    if (indices.length) send({ type: 'valentinoRerollTomato', indices });
   });
   document.getElementById('jonasBtn')?.addEventListener('click', () => {
     ui.mode = 'jonasPick';

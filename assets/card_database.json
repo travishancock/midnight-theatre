@@ -1236,7 +1236,7 @@
     {
       "id": "Professor-Stainglass",
       "name": "Professor Stainglass",
-      "ability": "A drafted card may be immediately discarded to draw cards equal to 1 x your Powerful performers; keep 1",
+      "ability": "A drafted card may be immediately discarded to draw cards equal to 1 x your Dramatic performers; keep 1",
       "startingHearts": 3,
       "image": "cards/Trainer Professor Stainglass.webp"
     },
@@ -1278,7 +1278,7 @@
     {
       "id": "The-Vanishing-Valentino",
       "name": "The Vanishing Valentino",
-      "ability": "To start your turn you may discard 1 card from the draft per Dramatic performer",
+      "ability": "You may re-roll 1 tomato die per Powerful performer (after Mesmera, if she is active)",
       "startingHearts": 3,
       "image": "cards/Trainer The Vanishing Valentino.webp"
     },
@@ -1625,6 +1625,20 @@
       "effect": "During your pre-roll window — opened the instant the draft ends, before the round's 5 shared Collection Dice roll — discard this from reserve to immediately roll 4 private Collection Dice of your own, resolved exactly like a normal Collection Die but only you collect from them.",
       "image": "cards/Press Pass 4.webp",
       "count": 4
+    },
+    {
+      "id": "PressPass-5-1",
+      "name": "Press Pass 5",
+      "effect": "During your pre-roll window — opened the instant the draft ends, before the round's 5 shared Collection Dice roll — discard this from reserve to immediately roll 5 private Collection Dice of your own, resolved exactly like a normal Collection Die but only you collect from them.",
+      "image": "cards/Press Pass 5.webp",
+      "count": 5
+    },
+    {
+      "id": "PressPass-5-2",
+      "name": "Press Pass 5",
+      "effect": "During your pre-roll window — opened the instant the draft ends, before the round's 5 shared Collection Dice roll — discard this from reserve to immediately roll 5 private Collection Dice of your own, resolved exactly like a normal Collection Die but only you collect from them.",
+      "image": "cards/Press Pass 5.webp",
+      "count": 5
     }
   ]
 }
