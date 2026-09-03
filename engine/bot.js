@@ -111,6 +111,10 @@ function resolvePrompt(state, seat, item) {
     // watching the results, so this resolves instantly.
     case 'diceResultsReview':
       return { ...base };
+    // Purely informational (see engine.js's drawnCardsReveal) — acknowledge
+    // and move on; it only means anything to a human watching.
+    case 'drawnCardsReveal':
+      return { ...base };
     // Madame Barre: end-of-round free rearrange. The bot never proactively
     // rearranges (same conservative policy as every other optional Trainer
     // action it's offered) — just closes the prompt, leaving the troupe as

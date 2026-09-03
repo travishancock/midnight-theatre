@@ -157,6 +157,8 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
 .card.md { width: 100px; height: 155px; --zoom: 2.0; }
 .card.lg { width: 118px; height: 183px; --zoom: 1.7; }
 .card.dim { opacity: 0.5; }
+/* The one card in a drawn batch that is currently asking for a home. */
+.card.placing { outline: 3px solid var(--gold); outline-offset: 1px; }
 .card.danger:hover { outline: 2px solid var(--red); cursor: pointer; }
 
 /* Hover to read a card — TRAINERS ONLY. Trainers are the cards carrying a

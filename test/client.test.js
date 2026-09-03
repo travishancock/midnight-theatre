@@ -240,6 +240,55 @@ test('heart tokens are sized in absolute units, not a percentage', () => {
   }
 });
 
+// A drawn card is a thing you look at and judge. Naming it in a sentence
+// makes the player reconstruct it from memory; showing it does not.
+test('the placement prompt shows the drawn cards as cards, not as text', () => {
+  const drawn = [perfs[10], perfs[11], perfs[12]];
+  s.pending = [{
+    id: 200, kind: 'cardResourcePlacement', seat: 0,
+    data: { cardId: drawn[1], allowedSlots: [0, 1, 2, 3, 4], drawn, source: 'Resource 3 Cards' },
+  }];
+  push(s);
+  const imgs = [...app.querySelectorAll('.prompt .card')];
+  assert.equal(imgs.length, 3, `expected all 3 drawn cards rendered, got ${imgs.length}`);
+  assert.ok(/Resource 3 Cards/.test(html()), 'the prompt does not say what drew them');
+  const placing = app.querySelectorAll('.prompt .card.placing');
+  assert.equal(placing.length, 1, 'exactly one card should be marked as the one being placed');
+  assert.equal(placing[0].dataset.cardid, drawn[1], 'the wrong card is marked for placement');
+  const dimmed = [...app.querySelectorAll('.prompt .card.dim')].map((e) => e.dataset.cardid);
+  assert.deepEqual(dimmed.sort(), [drawn[0], drawn[2]].sort(), 'the other drawn cards should be dimmed');
+  assert.ok(app.querySelector('#cardResourceToReserve'), 'no send-to-reserve option');
+});
+
+test('a single drawn card still renders as a card', () => {
+  s.pending = [{
+    id: 201, kind: 'cardResourcePlacement', seat: 0,
+    data: { cardId: perfs[10], allowedSlots: [0] },
+  }];
+  push(s);
+  assert.equal(app.querySelectorAll('.prompt .card').length, 1);
+  assert.equal(app.querySelectorAll('.prompt .card.dim').length, 0, 'a lone card must not be dimmed');
+});
+
+// When every drawn card finds its own slot, nothing prompts — the cards would
+// otherwise appear on the mat unannounced and the player would never see what
+// the Resource actually drew.
+test('cards that placed themselves are still shown, once', () => {
+  const drawn = [perfs[13], perfs[14]];
+  s.pending = [{ id: 202, kind: 'drawnCardsReveal', seat: 0, data: { drawn, source: 'Resource 2 Cards' } }];
+  push(s);
+  assert.equal(app.querySelectorAll('.prompt .card').length, 2, 'the drawn cards are not shown');
+  assert.ok(/Resource 2 Cards/.test(html()), 'the prompt does not say what drew them');
+  const go = app.querySelector('#drawnRevealContinue');
+  assert.ok(go, 'no way to dismiss the reveal');
+  go.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  const sent = (socket.sent || []).map(([ev, payload]) => payload).filter(Boolean);
+  assert.ok(sent.some((a) => a && a.pendingId === 202 && a.type === 'resolvePending'),
+    'Continue did not resolve the prompt');
+  s.pending = [];
+  push(s);
+});
+
 test('hover-to-enlarge is offered on Trainers and nothing else', () => {
   s.hearts[perfs[7]] = 1;
   push(s);

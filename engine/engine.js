@@ -665,8 +665,17 @@ function acquireCard(state, seat, cardId, chosenSlot, { offerStainglass = false 
         log(state, `${p.name} resolves ${c.name}: +${c.amount} stars.`);
       } else if (c.resourceType === 'Card') {
         const drawn = draw(state, c.amount);
-        log(state, `${p.name} resolves ${c.name}: draws ${drawn.length} card(s).`);
-        for (const id of drawn) intakeDrawnCard(state, seat, id);
+        log(state, `${p.name} resolves ${c.name}: draws ${drawn.length} card(s) — ${drawn.map((x) => card(x).name).join(', ')}.`);
+        // The whole batch rides along on every placement prompt it raises, so
+        // the player can see everything this Resource drew, not just the one
+        // card currently asking for a home.
+        for (const id of drawn) intakeDrawnCard(state, seat, id, { drawn, source: c.name });
+        // If every drawn card found its own home, nothing prompted and the
+        // player would never actually see what they drew — cards would just
+        // silently appear on their mat. Show them.
+        if (drawn.length > 0 && !state.pending.some((x) => x.seat === seat && x.kind === 'cardResourcePlacement')) {
+          pushPending(state, 'drawnCardsReveal', seat, { drawn, source: c.name });
+        }
       } else {
         // Hearts
         log(state, `${p.name} resolves ${c.name}.`);
@@ -940,7 +949,7 @@ function setStartingHearts(state, seat, cardId) {
 // Ezra's leftover, Stainglass's own keep) are never themselves "acquired",
 // so they never raise a Stainglass offer — that already happened once, for
 // the acquisition that produced them.
-function intakeDrawnCard(state, seat, cardId) {
+function intakeDrawnCard(state, seat, cardId, batch = null) {
   const p = state.players[seat];
   const c = card(cardId);
   if (c.cardType === 'resource' || c.cardType === 'favor' || c.cardType === 'reroll') {
@@ -959,7 +968,14 @@ function intakeDrawnCard(state, seat, cardId) {
   // Madame Barre active: always a genuine choice, any of the 8 mat slots
   // (or reserve — see the 'cardResourcePlacement' resolution), even when a
   // natural slot is open.
-  pushPending(state, 'cardResourcePlacement', seat, { cardId, allowedSlots: allowed });
+  pushPending(state, 'cardResourcePlacement', seat, {
+    cardId,
+    allowedSlots: allowed,
+    // Batch context for the UI only — which cards this same draw produced,
+    // and what produced them. Absent for Ezra's leftover and Stainglass's
+    // keep, which are single cards from no batch.
+    ...(batch ? { drawn: batch.drawn, source: batch.source } : {}),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1752,6 +1768,13 @@ function resolvePendingItem(state, item, action) {
       }
       log(state, `${p.name} keeps ${card(keepId).name} and discards the rest (Professor Stainglass).`);
       intakeDrawnCard(state, seat, keepId);
+      break;
+    }
+    // Nothing to decide — the player is just being shown what a "draw N"
+    // Resource produced, because every card found its own slot and would
+    // otherwise have appeared on the mat unannounced.
+    case 'drawnCardsReveal': {
+      removePending(state, item.id);
       break;
     }
     case 'heartAssign': {

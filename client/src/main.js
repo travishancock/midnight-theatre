@@ -847,9 +847,34 @@ function promptHtml(s, p, item) {
         ${item.data.allowReserve ? `<button id="placementToReserve">Send to reserve instead</button>` : ''}`);
     }
     case 'cardResourcePlacement': {
+      // Show the cards, not their names. A drawn card is a thing you look at
+      // and judge; a sentence naming it makes you go and find it in the
+      // database in your head. The whole batch this Resource drew is shown,
+      // with the one currently asking for a home called out.
+      const drawn = item.data.drawn && item.data.drawn.length ? item.data.drawn : [item.data.cardId];
+      const placing = item.data.cardId;
+      const many = drawn.length > 1;
       return promptBox(`
-        <div>You drew <b>${esc(card(item.data.cardId).name)}</b> — click a highlighted slot to place it (the current occupant, if any, moves to your reserve), or send it to reserve instead.</div>
+        <div>${many
+          ? `You drew <b>${drawn.length}</b> cards${item.data.source ? ` from <b>${esc(item.data.source)}</b>` : ''}. <b>${esc(card(placing).name)}</b> needs a home`
+          : `You drew <b>${esc(card(placing).name)}</b>`} — click a highlighted slot on your mat below to place it (the current occupant, if any, moves to your reserve), or send it to reserve instead.</div>
+        <div class="cardrow">
+          ${drawn.map((id) => cardHtml(id, {
+            size: 'md',
+            dim: id !== placing,
+            extra: id === placing ? 'placing' : '',
+          })).join('')}
+        </div>
         <button id="cardResourceToReserve">Send to reserve instead</button>`);
+    }
+    case 'drawnCardsReveal': {
+      const drawn = item.data.drawn || [];
+      return promptBox(`
+        <div>${esc(item.data.source || 'Your Resource card')} drew ${drawn.length === 1 ? 'this' : `these <b>${drawn.length}</b>`} for you${drawn.length === 1 ? '' : ''} — ${drawn.length === 1 ? 'it has' : 'they have'} gone straight to your mat.</div>
+        <div class="cardrow">
+          ${drawn.map((id) => cardHtml(id, { size: 'md' })).join('')}
+        </div>
+        <button id="drawnRevealContinue" class="primary">Continue</button>`);
     }
     case 'heartAssign': {
       const targets = [...p.slots.filter(Boolean), ...p.reserve].filter((id) => capLeft(p, id) > 0);
@@ -1274,6 +1299,9 @@ function wireGameEvents(s, p, pending) {
   );
   document.getElementById('mesmeraBtn')?.addEventListener('click', () => send({ type: 'mesmeraRerollTomato' }));
   document.getElementById('keepTomatoBtn')?.addEventListener('click', () => send({ type: 'keepTomatoRoll' }));
+  document.getElementById('drawnRevealContinue')?.addEventListener('click', () =>
+    send({ type: 'resolvePending', pendingId: pending.id })
+  );
   document.getElementById('cardResourceToReserve')?.addEventListener('click', () =>
     send({ type: 'resolvePending', pendingId: pending.id, toReserve: true })
   );
