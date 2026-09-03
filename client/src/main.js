@@ -262,6 +262,34 @@ const card = (id) => cards.get(id);
 const st = () => view.state;
 const me = () => st()?.players?.[my.seat];
 
+// Mirrors engine.js's activePerformers — the performers actually performing:
+// mat slots 0-4, PLUS this seat's reserve Singers while Bellacanto the
+// Choirmistress is their active Trainer, who count everywhere an on-stage
+// performer would. The server stays authoritative; this only keeps the
+// buttons and prices on screen agreeing with it.
+function activePerformerIds(player) {
+  const out = player.slots.slice(0, 5).filter((id) => id && card(id).cardType === 'performer');
+  if (trainerIs(player, 'Bellacanto-the-Choirmistress')) {
+    for (const id of player.reserve) {
+      const c = card(id);
+      if (c.cardType === 'performer' && c.type === 'Singer') out.push(id);
+    }
+  }
+  return out;
+}
+
+function activePerformersWhere(player, pred) {
+  return activePerformerIds(player).filter((id) => pred(card(id)));
+}
+
+// Jonas Quickfinger takes any ACTIVE Haunting performer — which under
+// Bellacanto includes a Haunting Singer sitting in reserve, so this keys off
+// the active set rather than a slot index. Module-level because both the mat
+// renderer and the click handlers need it.
+function jonasCanTake(player, id) {
+  return !!id && card(id).characteristic === 'Haunting' && activePerformerIds(player).includes(id);
+}
+
 function trainerIs(player, id) {
   return player.slots[5] === id || player.slots[6] === id || player.slots[7] === id;
 }
@@ -307,14 +335,11 @@ function anyMovableHeart(p) {
 
 // Mirrors marketCost in engine/engine.js — the server stays authoritative,
 // this only decides the price shown on the button. Barnaby Pennywhistle
-// discounts 1 coin per *active* Graceful performer (mat slots 0-4 only,
-// never reserve), down to 0 but never below.
+// discounts 1 coin per *active* Graceful performer, down to 0 but never below.
 function marketCost(player, index) {
   let cost = index + 1;
   if (trainerIs(player, 'Barnaby-Pennywhistle')) {
-    const graceful = player.slots
-      .slice(0, 5)
-      .filter((id) => id && card(id).characteristic === 'Graceful').length;
+    const graceful = activePerformersWhere(player, (c) => c.characteristic === 'Graceful').length;
     cost = Math.max(0, cost - graceful);
   }
   return cost;
@@ -745,7 +770,7 @@ function marketHtml(s, p) {
 }
 
 function dancerCountOf(p) {
-  return p.slots.slice(0, 5).filter((id) => id && card(id).type === 'Dancer').length;
+  return activePerformersWhere(p, (c) => c.type === 'Dancer').length;
 }
 
 function turnBarHtml(s, p) {
@@ -772,7 +797,7 @@ function turnBarHtml(s, p) {
     buttons.push(`<button id="cancelMode">Cancel</button>`);
   } else if (ui.mode === 'valentinoPick') {
     const picked = ui.valentinoPick || [];
-    const allowance = p.slots.slice(0, 5).filter((id) => id && card(id).characteristic === 'Dramatic').length;
+    const allowance = activePerformersWhere(p, (c) => c.characteristic === 'Dramatic').length;
     buttons.push(`<span class="yourturn">The Vanishing Valentino: click up to ${allowance} draft card${allowance === 1 ? '' : 's'} to vanish (${picked.length} chosen).</span>`);
     if (picked.length > 0) buttons.push(`<button id="valentinoConfirm" class="primary">Vanish ${picked.length} card${picked.length === 1 ? '' : 's'}</button>`);
     buttons.push(`<button id="cancelMode">Cancel</button>`);
@@ -803,11 +828,11 @@ function turnBarHtml(s, p) {
         buttons.push(`<button id="amaraMoveBtn" ${has ? '' : 'disabled'} title="${has ? '' : 'None of your cards currently hold a heart'}">Amara the Reliquary: rearrange a heart (${left} left, free)</button>`);
       }
       if (trainers.includes('Jonas-Quickfinger') && !t.jonasUsed) {
-        const haunting = p.slots.slice(0, 5).filter((id) => id && card(id).characteristic === 'Haunting');
+        const haunting = activePerformerIds(p).filter((id) => jonasCanTake(p, id));
         buttons.push(`<button id="jonasBtn" ${haunting.length ? '' : 'disabled'} title="${haunting.length ? '' : 'No Haunting performer on your stage'}">Jonas Quickfinger: cash in a Haunting performer (free)</button>`);
       }
       if (trainers.includes('The-Vanishing-Valentino') && !t.valentinoUsed) {
-        const allowance = p.slots.slice(0, 5).filter((id) => id && card(id).characteristic === 'Dramatic').length;
+        const allowance = activePerformersWhere(p, (c) => c.characteristic === 'Dramatic').length;
         const can = allowance > 0 && s.draftRow.length > 0;
         buttons.push(`<button id="valentinoBtn" ${can ? '' : 'disabled'} title="${can ? '' : 'Needs a Dramatic performer on stage and cards in the draft row'}">The Vanishing Valentino: vanish ${allowance} draft card${allowance === 1 ? '' : 's'} (free)</button>`);
       }
@@ -1042,8 +1067,7 @@ function myMatHtml(s, p, pending) {
 
   // The Vanishing Valentino: highlight the Dramatic performers that can be
   // discarded to pay for ending the draft.
-  const jonasEligible = (i, id) =>
-    ui.mode === 'jonasPick' && i <= 4 && !!id && card(id).characteristic === 'Haunting';
+  const jonasEligible = (id) => ui.mode === 'jonasPick' && jonasCanTake(p, id);
 
   return `<section class="mymat">
     <div class="mat-head">
@@ -1055,7 +1079,7 @@ function myMatHtml(s, p, pending) {
         const sel = r?.picked?.zone === 'slot' && r.picked.index === i;
         const amaraSel = amaraMove && id === amaraMove.from;
         return `
-        <div class="slot ${placing && allowed.includes(i) ? 'highlight' : ''} ${amaraEligible(id) ? 'highlight' : ''} ${jonasEligible(i, id) ? 'highlight' : ''} ${sel || amaraSel ? 'selected' : ''}" data-slot="${i}">
+        <div class="slot ${placing && allowed.includes(i) ? 'highlight' : ''} ${amaraEligible(id) ? 'highlight' : ''} ${jonasEligible(id) ? 'highlight' : ''} ${sel || amaraSel ? 'selected' : ''}" data-slot="${i}">
           <span class="slotname">${SLOT_NAMES[i]}</span>
           ${id ? cardHtml(id, { size: 'lg', hearts: s.hearts[id] || 0 }) : '<div class="empty">empty</div>'}
         </div>`;
@@ -1077,7 +1101,7 @@ function myMatHtml(s, p, pending) {
             : pressPassReady
             ? 'Click to spend this Press Pass for private Collection Die roll(s)'
             : '';
-          return `<div class="pickable ${sel || amaraSel ? 'selected' : ''} ${ready ? 'favor-ready' : ''} ${amaraEligible(id) ? 'highlight' : ''}" data-reserve="${i}" ${title ? `title="${title}"` : ''}>${cardHtml(id, { size: 'sm', hearts: cardMaxHeartsFor(id) != null ? (s.hearts[id] || 0) : null })}</div>`;
+          return `<div class="pickable ${sel || amaraSel ? 'selected' : ''} ${ready ? 'favor-ready' : ''} ${amaraEligible(id) || jonasEligible(id) ? 'highlight' : ''}" data-reserve="${i}" ${title ? `title="${title}"` : ''}>${cardHtml(id, { size: 'sm', hearts: cardMaxHeartsFor(id) != null ? (s.hearts[id] || 0) : null })}</div>`;
         }).join('') || (r ? '' : '<span class="hint">empty</span>')}
         ${r ? '<div class="pickable droptarget" data-reserve="-1">⤓ move here</div>' : ''}
       </div>
@@ -1165,7 +1189,7 @@ function wireGameEvents(s, p, pending) {
     const id = el.dataset.cardid;
     if (ui.mode === 'valentinoPick') {
       const picked = ui.valentinoPick || [];
-      const allowance = p.slots.slice(0, 5).filter((x) => x && card(x).characteristic === 'Dramatic').length;
+      const allowance = activePerformersWhere(p, (c) => c.characteristic === 'Dramatic').length;
       const at = picked.indexOf(id);
       if (at >= 0) picked.splice(at, 1);
       else if (picked.length < allowance) picked.push(id);
@@ -1257,7 +1281,7 @@ function wireGameEvents(s, p, pending) {
     }
     if (ui.mode === 'rearrange') return pickForSwap('slot', i);
     if (ui.mode === 'amaraMove' && p.slots[i]) return pickForAmaraMove(p, p.slots[i]);
-    if (ui.mode === 'jonasPick' && i <= 4 && p.slots[i] && card(p.slots[i]).characteristic === 'Haunting') {
+    if (ui.mode === 'jonasPick' && jonasCanTake(p, p.slots[i])) {
       const cardId = p.slots[i];
       ui.mode = null;
       send({ type: 'jonasDiscard', cardId });
@@ -1270,6 +1294,12 @@ function wireGameEvents(s, p, pending) {
     const i = +el.dataset.reserve;
     if (ui.mode === 'rearrange') return pickForSwap('reserve', i);
     if (ui.mode === 'amaraMove' && i >= 0) return pickForAmaraMove(p, p.reserve[i]);
+    if (ui.mode === 'jonasPick' && i >= 0 && jonasCanTake(p, p.reserve[i])) {
+      const cardId = p.reserve[i];
+      ui.mode = null;
+      send({ type: 'jonasDiscard', cardId });
+      return;
+    }
     if (!ui.mode && i >= 0 && favorReadyNow(s, p, p.reserve[i])) {
       send({ type: 'useFavor', cardId: p.reserve[i] });
     } else if (!ui.mode && i >= 0 && pressPassReadyNow(s, p, p.reserve[i])) {

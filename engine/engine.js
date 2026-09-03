@@ -450,17 +450,21 @@ export function lockTomatoRoll(state) {
 // Collection / Tomato resolution
 // ---------------------------------------------------------------------------
 
-// Does this player currently have at least one active Performer (one of
-// their 5 Performer slots) of every value of the given boostKind — all 4
-// Characteristics (Graceful/Powerful/Dramatic/Haunting) or all 4 Types
-// (Singer/Dancer/Acrobat/Illusionist)? Only relevant for the wildcard
-// "Any Characteristic"/"Any Type" Prop/Backdrop cards — see boostCount.
+// Does this player currently have at least one ACTIVE Performer of every
+// value of the given boostKind — all 4 Characteristics (Graceful/Powerful/
+// Dramatic/Haunting) or all 4 Types (Singer/Dancer/Acrobat/Illusionist)?
+// Only relevant for the wildcard "Any Characteristic"/"Any Type" Prop/Backdrop
+// cards — see boostCount.
+//
+// Goes through activePerformers rather than reading the slots itself, which
+// is what makes Bellacanto's reserve Singers able to complete a set. It also
+// fixes a quieter bug: this used to add whatever sat in slots 0-4 to the set
+// without checking it was a Performer, so a Prop or Trainer parked there by
+// Madame Barre contributed `undefined` and could switch a wildcard on with
+// only three real values present.
 export function hasFullSet(state, seat, boostKind) {
   const seen = new Set();
-  const p = state.players[seat];
-  for (let i = 0; i < 5; i++) {
-    const id = p.slots[i];
-    if (!id) continue;
+  for (const id of activePerformers(state, seat)) {
     const c = card(id);
     seen.add(boostKind === 'characteristic' ? c.characteristic : c.type);
   }
@@ -503,19 +507,10 @@ function boostCount(state, seat, performer) {
 // against everything else on offer. A flat score can't work: the same card is
 // worth nothing to an empty board and a great deal to a full one.
 export function expectedUnitsPerCollectionRoll(state, seat) {
-  const p = state.players[seat];
-  const sources = [...p.slots.slice(0, 5)];
-  if (trainerActive(state, seat, TRAINERS.BELLACANTO)) {
-    for (const id of p.reserve) {
-      const c = card(id);
-      if (c.cardType === 'performer' && c.type === 'Singer') sources.push(id);
-    }
-  }
+  // activePerformers already folds in Bellacanto's reserve Singers.
   let ev = 0;
-  for (const id of sources) {
-    if (!id) continue;
+  for (const id of activePerformers(state, seat)) {
     const c = card(id);
-    if (c.cardType !== 'performer') continue;
     let units = 1 + boostCount(state, seat, c);
     if ((c.letter === 'G' || c.letter === 'H') && trainerActive(state, seat, TRAINERS.ORSINO)) units += ORSINO_BONUS;
     ev += ((LETTER_FREQ[c.letter] || 0) / 20) * units;
@@ -531,19 +526,10 @@ function resolveCollectionDie(state, letter, onlySeat = null, typeFilterFn = nul
     let heartsEarned = 0;
     let coinsEarned = 0;
     const gains = [];
-    // Board performers, plus (Bellacanto the Choirmistress) any Singer
-    // performers sitting in reserve.
-    const sources = [...p.slots.slice(0, 5)];
-    if (trainerActive(state, p.seat, TRAINERS.BELLACANTO)) {
-      for (const id of p.reserve) {
-        const c = card(id);
-        if (c.cardType === 'performer' && c.type === 'Singer') sources.push(id);
-      }
-    }
-    for (const id of sources) {
-      if (!id) continue;
+    // activePerformers already folds in Bellacanto's reserve Singers.
+    for (const id of activePerformers(state, p.seat)) {
       const c = card(id);
-      if (c.cardType !== 'performer' || c.letter !== letter) continue;
+      if (c.letter !== letter) continue;
       if (typeFilterFn && !typeFilterFn(c)) continue;
       let units = 1 + boostCount(state, p.seat, c);
       if ((letter === 'G' || letter === 'H') && trainerActive(state, p.seat, TRAINERS.ORSINO)) units += ORSINO_BONUS;
@@ -865,23 +851,41 @@ function collectResourceUnits(state, seat, c, amount, reason) {
 
 // THE ACTIVE-PERFORMER RULE
 // -------------------------
-// Whenever a Trainer's ability keys off "your performers", it means only the
-// ones actually on stage — mat slots 0-4. Cards in reserve are held, not
-// performing, and never count. Every performer-counting ability routes
-// through these two helpers so the rule can't drift apart card by card.
+// Whenever anything keys off "your performers", it means the ones actually
+// performing — mat slots 0-4. Cards in reserve are held, not performing, and
+// never count. Everything performer-counting routes through this one helper
+// so the rule can't drift apart case by case.
 //
-// There are exactly two deliberate exceptions, both written into the
-// Trainer's own printed text rather than handled here:
-//   - Bellacanto the Choirmistress: her Singers in reserve also collect on a
-//     matching Collection Die (see resolveCollectionDie's reserve branch).
-//   - Amara the Reliquary: she may move hearts on any of her cards, reserve
-//     included (see the 'amaraMoveHearts' action).
+// BELLACANTO THE CHOIRMISTRESS is the one carve-out, and it is a full one:
+// while she is this seat's active Trainer, their Singers IN RESERVE are
+// performing too, and count everywhere an on-stage performer would (owner's
+// ruling, Sept 3 2026). Not just collecting on a matching Collection Die —
+// also completing the 4-of-a-kind set that switches on a wildcard "Any
+// Characteristic"/"Any Type" Prop or Backdrop, and feeding every Trainer that
+// counts performers: Barnaby's Graceful discount, Tomasso's Dancer dice,
+// Ezra's Illusionist check, Jonas's Haunting cash-in, Valentino's Dramatic
+// allowance, Stainglass's Powerful draw.
+//
+// The single thing a reserve Singer still cannot do is LOSE hearts at the end
+// of a round. That needs no code here: heartHit() addresses cards by mat slot
+// index, so nothing in reserve is reachable by trophy fatigue or a Tomato die
+// in the first place.
+//
+// Amara the Reliquary is a separate, narrower exception written into her own
+// printed text: she may move hearts on any of her cards, reserve included
+// (see the 'amaraMoveHeart' action).
 export function activePerformers(state, seat) {
   const p = state.players[seat];
   const out = [];
   for (let i = 0; i < 5; i++) {
     const id = p.slots[i];
     if (id && card(id).cardType === 'performer') out.push(id);
+  }
+  if (trainerActive(state, seat, TRAINERS.BELLACANTO)) {
+    for (const id of p.reserve) {
+      const c = card(id);
+      if (c.cardType === 'performer' && c.type === 'Singer') out.push(id);
+    }
   }
   return out;
 }
@@ -1556,8 +1560,12 @@ export function applyAction(state, action) {
       if (state.turn.jonasUsed) throw new Error('You have already used that this turn.');
       const p = state.players[seat];
       const cardId = action.cardId;
-      const slotIdx = p.slots.indexOf(cardId);
-      if (slotIdx < 0 || slotIdx > 4) throw new Error('That is not one of your active Performers.');
+      // Any ACTIVE performer — which under Bellacanto includes this seat's
+      // reserve Singers. discardOwnedCard removes from a mat slot or reserve
+      // either way.
+      if (!activePerformers(state, seat).includes(cardId)) {
+        throw new Error('That is not one of your active Performers.');
+      }
       const c = card(cardId);
       if (c.characteristic !== 'Haunting') throw new Error('Jonas Quickfinger only takes Haunting performers.');
       const amount = c.powerDots;

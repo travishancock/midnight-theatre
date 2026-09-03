@@ -1914,6 +1914,90 @@ test('Bellacanto the Choirmistress: Singers in reserve also collect, letter-gate
   assert.equal(p.stars - before, hCount, 'reserve Singer collected 1 star per matching H roll (Bellacanto)');
 });
 
+// Owner's ruling, Sept 3 2026: a reserve Singer that is collecting because of
+// Bellacanto is performing, full stop. It counts everywhere an on-stage
+// performer counts — completing the 4-of-a-kind set that switches on a
+// wildcard Prop/Backdrop, and feeding every Trainer that counts performers.
+// The one thing it still cannot do is lose hearts at end of round, and that
+// needs no rule of its own: heartHit() addresses cards by mat slot index, so
+// reserve is unreachable by trophy fatigue and Tomato dice anyway.
+test('Bellacanto: a reserve Singer completes a wildcard set', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  // Four Types are needed to switch on an "Any Type" wildcard. Put three on
+  // stage and leave the Singer in reserve.
+  const byType = (ty) => performer((c) => c.type === ty);
+  const acro = byType('Acrobat'), dance = byType('Dancer'), illu = byType('Illusionist');
+  const singer = byType('Singer');
+  p.slots = [acro, dance, illu, null, null, null, null, null];
+  p.reserve = [singer];
+
+  assert.equal(hasFullSet(s, seat, 'type'), false, 'three Types on stage is not a full set');
+  p.slots[7] = TRAINERS.BELLACANTO;
+  assert.equal(hasFullSet(s, seat, 'type'), true,
+    'with Bellacanto active, the reserve Singer must complete the Type set');
+
+  // And it really is Bellacanto doing it, not the mere presence of the card.
+  p.slots[7] = TRAINERS.ORSINO;
+  assert.equal(hasFullSet(s, seat, 'type'), false,
+    'without Bellacanto the reserve Singer must not count');
+});
+
+test('Bellacanto: a reserve Singer counts for Trainers that count performers', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  const gracefulSinger = performer((c) => c.type === 'Singer' && c.characteristic === 'Graceful');
+  p.slots = [null, null, null, null, null, null, null, TRAINERS.BARNABY];
+  p.reserve = [gracefulSinger];
+  const full = marketCost(s, seat, 3); // slot 4 costs 4 coins before any discount
+  assert.equal(full, 4, 'no discount without Bellacanto — the Singer is only in reserve');
+
+  p.slots[6] = TRAINERS.BELLACANTO;
+  assert.equal(marketCost(s, seat, 3), 3,
+    "Barnaby's Graceful discount must see the reserve Singer once Bellacanto is active");
+});
+
+test('Bellacanto: Jonas can cash in a Haunting Singer from reserve', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const p = s.players[seat];
+  const hauntingSinger = performer((c) => c.type === 'Singer' && c.characteristic === 'Haunting');
+  p.slots = [null, null, null, null, null, null, TRAINERS.BELLACANTO, TRAINERS.JONAS];
+  p.reserve = [hauntingSinger];
+  s.hearts[hauntingSinger] = 0;
+  s.turn = { seat, mainDone: false, done: false, open: false, buys: 0, turns: 0, jonasUsed: false };
+  applyAction(s, { type: 'jonasDiscard', seat, cardId: hauntingSinger });
+  assert.ok(!p.reserve.includes(hauntingSinger), 'the Singer was not discarded out of reserve');
+  assert.ok(s.discard.includes(hauntingSinger), 'the Singer did not reach the discard pile');
+});
+
+test('Bellacanto: a reserve Singer still cannot lose hearts at end of round', () => {
+  const s = freshGame(2);
+  const seat = currentSeat(s);
+  const other = s.players.find((x) => x.seat !== seat);
+  const p = s.players[seat];
+  const singer = performer((c) => c.type === 'Singer' && c.maxHearts >= 2);
+  const onStage = performer((c) => c.type === 'Singer' && c.maxHearts >= 2 && c.id !== singer);
+  // Every Performer slot filled, so the reserve Singer legally stays there
+  // (see enforceReservePlacement) — otherwise it is promoted onto the mat and
+  // the test proves nothing.
+  const fillers = db.performers.filter((c) => c.id !== singer && c.id !== onStage).slice(0, 4).map((c) => c.id);
+  p.slots = [onStage, ...fillers, null, null, TRAINERS.BELLACANTO];
+  p.reserve = [singer];
+  for (const id of [onStage, ...fillers]) s.hearts[id] = 2;
+  s.hearts[singer] = 2;
+  p.roundStars = 5;
+  other.roundStars = 0;
+
+  assignTrophy(s); // trophy fatigue hits every one of this seat's 8 mat slots
+  assert.equal(s.hearts[singer], 2,
+    'a reserve Singer must not lose hearts at end of round, even while Bellacanto has it performing');
+  assert.equal(s.hearts[onStage], 1,
+    'test setup: the on-stage Singer should have taken the fatigue hit');
+});
+
 test('Ezra the Sleight-of-Hand: receives the draft\'s leftover performer card, placed on his board like a normal acquisition', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);

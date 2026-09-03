@@ -21,6 +21,7 @@ import {
   eligiblePressPasses,
   expectedUnitsPerCollectionRoll,
   marketCost,
+  activePerformers,
   trainerActive,
   hasFullSet,
   TRAINERS,
@@ -219,8 +220,10 @@ function tomatoThreatens(state, seat, value) {
 }
 
 function boardLetterCount(state, seat) {
-  const p = state.players[seat];
-  return p.slots.slice(0, 5).filter((id) => id && card(id).cardType === 'performer').length;
+  // activePerformers, not the mat slots — under Bellacanto a reserve Singer
+  // collects from a private Press Pass roll exactly like one on stage, so it
+  // has to count when pricing the Press Pass.
+  return activePerformers(state, seat).length;
 }
 
 // Fill every fillable empty slot (mandatory). Performers: best first.
@@ -697,13 +700,9 @@ function boostSynergy(state, seat, performer) {
 }
 
 function matchingPerformers(state, seat, boostCard) {
-  const p = state.players[seat];
   let n = 0;
-  for (let i = 0; i < 5; i++) {
-    const id = p.slots[i];
-    if (!id) continue;
+  for (const id of activePerformers(state, seat)) {
     const c = card(id);
-    if (c.cardType !== 'performer') continue;
     const key = boostCard.boostKind === 'characteristic' ? c.characteristic : c.type;
     if (boostCard.boosts.includes(key)) n++;
   }
