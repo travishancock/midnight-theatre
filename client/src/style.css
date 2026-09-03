@@ -186,41 +186,39 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
   background: rgba(0,0,0,0.72); color: #ff8f9a;
   border-radius: 5px; font-size: 12px; padding: 1px 5px;
 }
-/* The Collection letter, stamped top-left: the printed medallion is in the
-   bottom-right corner and too small to read at reserve sizes, and the bottom
-   strip already carries the hearts pill. Scales with the card so it stays
-   proportionate when the card is hover-zoomed. */
-.card .letter {
-  position: absolute; top: 2px; left: 2px;
-  min-width: 1.15em; padding: 0 3px;
-  background: var(--gold); color: #17111d;
-  border: 1px solid rgba(0,0,0,0.55); border-radius: 5px;
-  font-family: Georgia, serif; font-weight: 700; line-height: 1.25;
-  text-align: center; letter-spacing: 0;
-}
-.card.xs .letter { font-size: 12px; }
-.card.sm .letter { font-size: 14px; }
-.card.md .letter,
-.card.lg .letter { font-size: 15px; }
 /* Heart tokens laid across the middle of a card — how loose hearts actually
-   sit on a card at the table. Used for opponents' reserves: no panel, no
-   pill, nothing boxed over the art, so the card's own printed face still
-   reads. The gold ring and dark shadow keep them legible over any artwork. */
+   sit on a card at the table. This is how every OPPONENT's card reports its
+   hearts, mat and reserve alike: no panel, no pill, nothing boxed over the
+   art, so the card's own printed face still reads, and the count is read by
+   counting rather than by parsing "2/3" at 44px. The gold stroke and dark
+   shadow keep them legible over any artwork.
+
+   Sizes are explicit per size class and NOT a percentage: percentages on
+   font-size resolve against the INHERITED font size (the 14px body), not the
+   card's width, so the original `font-size: 30%` rendered ~4px tokens that
+   were effectively invisible. The xs numbers are set so three tokens plus
+   their gaps and strokes still fit inside a 44px card. */
 .card .heart-tokens {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  gap: 6%; pointer-events: none;
+  pointer-events: none;
 }
 .card .heart-tokens i {
   font-style: normal; line-height: 1;
-  color: #d8232f;
-  font-size: 30%;
+  color: #e01b26;
   text-shadow:
-    0 0 2px rgba(0,0,0,0.9), 0 1px 3px rgba(0,0,0,0.8),
-    0 0 0 1px rgba(214,178,106,0.9);
-  -webkit-text-stroke: 1.5px #d9a441;
+    0 0 3px rgba(0,0,0,0.95), 0 1px 4px rgba(0,0,0,0.85);
+  -webkit-text-stroke: 1.2px #f0c46a;
   paint-order: stroke fill;
 }
+.card.xs .heart-tokens { gap: 1px; }
+.card.xs .heart-tokens i { font-size: 15px; -webkit-text-stroke-width: 1px; }
+.card.sm .heart-tokens { gap: 2px; }
+.card.sm .heart-tokens i { font-size: 24px; }
+.card.md .heart-tokens { gap: 3px; }
+.card.md .heart-tokens i { font-size: 31px; -webkit-text-stroke-width: 1.5px; }
+.card.lg .heart-tokens { gap: 4px; }
+.card.lg .heart-tokens i { font-size: 36px; -webkit-text-stroke-width: 1.5px; }
 .card .badge {
   position: absolute; top: 3px; right: 3px;
   background: rgba(0,0,0,0.72); color: var(--gold);
@@ -302,17 +300,7 @@ header { display: flex; justify-content: space-between; align-items: baseline; f
   border-color: transparent; color: var(--muted);
 }
 .opp-reserve .reserve-toggle:hover:not(:disabled) { color: var(--gold); border-color: var(--gold); }
-.opp-reserve .mini-reserve { gap: 6px; margin-top: 5px; }
-/* Reserve letters stay on show even while the row itself is collapsed — an
-   opponent should never have to expand anything to see what letters you are
-   holding back. */
-.reserve-letters { display: inline-flex; gap: 4px; margin-left: 6px; vertical-align: middle; }
-.reserve-letters .letter-chip {
-  display: inline-block; min-width: 17px; padding: 0 4px;
-  background: var(--gold); color: #17111d;
-  border-radius: 4px; font-family: Georgia, serif; font-weight: 700;
-  font-size: 12px; line-height: 17px; text-align: center;
-}
+.opp-reserve .mini-reserve { gap: 4px; margin-top: 5px; }
 
 /* ---- log ---- */
 .log { width: 300px; flex: none; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }

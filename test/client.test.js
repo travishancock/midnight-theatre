@@ -176,40 +176,68 @@ test('a heart plan is dropped once the prompt is gone', () => {
   assert.ok(!/left to place/.test(html()), 'the prompt is still rendered');
 });
 
-test('reserve cards show their Collection letter', () => {
-  const letters = [...app.querySelectorAll('#myReserve .card .letter')].map((e) => e.textContent);
-  assert.deepEqual(letters, me.reserve.map((id) => card(id).letter));
-});
-
-test('the heart prompt does NOT stamp letters over the cards', () => {
+test('no card anywhere carries a letter chip', () => {
   s.pending = [{ id: 101, kind: 'heartAssign', seat: 0, data: { amount: 1, reason: 'Collection Die A' } }];
   s.hearts[me.reserve[0]] = 0;
   push(s);
   assert.ok(/left to place/.test(html()), 'heart prompt not shown');
-  assert.equal(app.querySelectorAll('.prompt .card .letter').length, 0,
-    'a letter chip is covering the card art in the heart prompt');
+  assert.equal(app.querySelectorAll('.letter, .letter-chip').length, 0,
+    'the gold letter chips are still being rendered somewhere');
   s.pending = [];
   push(s);
 });
 
-test("an opponent's reserve shows heart tokens on the card, not a pill or a chip", () => {
+test("every one of an opponent's cards reports hearts as tokens, mat and reserve", () => {
   const held = perfs[7];
+  const onMat = perfs[8];
   them.reserve = [held];
+  them.slots[0] = onMat;
   s.hearts[held] = 2;
+  s.hearts[onMat] = 3;
   ui_open(them.seat);
-  const row = app.querySelector('.opponent .mini-reserve');
-  assert.ok(row, 'opponent reserve did not expand');
-  const cardEl = row.querySelector('.card');
-  assert.ok(cardEl, 'no card rendered in the opponent reserve');
-  assert.equal(cardEl.querySelectorAll('.hearts').length, 0, 'the hearts pill is still boxed over the art');
-  assert.equal(cardEl.querySelectorAll('.letter').length, 0, 'the letter chip is still boxed over the art');
-  const tokens = cardEl.querySelectorAll('.heart-tokens i');
-  assert.equal(tokens.length, 2, `expected 2 heart tokens, got ${tokens.length}`);
+
+  const matCard = app.querySelector('.opponent .slots.mini .card');
+  assert.ok(matCard, 'no card rendered in the opponent mat');
+  assert.equal(matCard.querySelectorAll('.hearts').length, 0, 'a mat card still shows the "n/max" pill');
+  assert.equal(matCard.querySelectorAll('.heart-tokens i').length, 3, 'mat card token count is wrong');
+
+  const resCard = app.querySelector('.opponent .mini-reserve .card');
+  assert.ok(resCard, 'opponent reserve did not expand');
+  assert.equal(resCard.querySelectorAll('.hearts').length, 0, 'a reserve card still shows the pill');
+  assert.equal(resCard.querySelectorAll('.heart-tokens i').length, 2, 'reserve card token count is wrong');
 
   s.hearts[held] = 0;
   push(s);
   assert.equal(app.querySelectorAll('.opponent .mini-reserve .heart-tokens i').length, 0,
     'a card with no hearts left should show no tokens');
+});
+
+test("an opponent's reserve cards are the same size as the cards on their mat", () => {
+  them.reserve = [perfs[7]];
+  ui_open(them.seat);
+  const sizeOf = (el) => ['xs', 'sm', 'md', 'lg'].find((c) => el.classList.contains(c));
+  const mat = sizeOf(app.querySelector('.opponent .slots.mini .card'));
+  const res = sizeOf(app.querySelector('.opponent .mini-reserve .card'));
+  assert.equal(res, mat, `reserve cards render at ${res} but mat cards at ${mat}`);
+});
+
+// Regression: the tokens were first written as `font-size: 30%`, which
+// resolves against the INHERITED font size (the 14px body), not the card
+// width — so they rendered at ~4px and were effectively invisible. Any
+// percentage or em/rem here is the same bug wearing a different hat.
+test('heart tokens are sized in absolute units, not a percentage', () => {
+  const css = fs.readFileSync(path.join(root, 'client', 'src', 'style.css'), 'utf8');
+  const rules = css.match(/\.card[^{]*\.heart-tokens i\s*\{[^}]*\}/g) || [];
+  assert.ok(rules.length >= 1, 'no .heart-tokens i rule found at all');
+  const sized = rules.filter((r) => /font-size\s*:/.test(r));
+  assert.ok(sized.length >= 1, 'no font-size set on the heart tokens');
+  for (const r of sized) {
+    const value = /font-size\s*:\s*([^;]+)/.exec(r)[1].trim();
+    assert.ok(/^\d+(\.\d+)?px$/.test(value),
+      `heart token font-size must be an absolute px value, got "${value}"`);
+    assert.ok(parseFloat(value) >= 12,
+      `heart tokens at ${value} are too small to read on a card`);
+  }
 });
 
 test('hover-to-enlarge is offered on Trainers and nothing else', () => {
@@ -222,13 +250,6 @@ test('hover-to-enlarge is offered on Trainers and nothing else', () => {
   assert.ok(classes.some((c) => /\btrainer\b/.test(c)), 'the Trainer card carries no .trainer class to hover on');
   assert.ok(classes.some((c) => /\bperformer\b/.test(c) && !/\btrainer\b/.test(c)),
     'a performer must not be marked as hoverable');
-});
-
-test("an opponent's held letters are readable without expanding their reserve", () => {
-  them.reserve = [perfs[7]];
-  push(s);
-  const chips = [...app.querySelectorAll('.opponent .reserve-letters .letter-chip')].map((e) => e.textContent);
-  assert.deepEqual(chips, [card(perfs[7]).letter], 'letters are not shown beside the collapsed toggle');
 });
 
 test('a completed turn clicks for everyone, without the your-turn alert', () => {

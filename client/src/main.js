@@ -357,22 +357,21 @@ const imgUrl = (c) => '/' + encodeURI(c.image) + (assetVersion ? `?v=${assetVers
 // hearts pill sits. Since the letter is the single thing an opponent needs to
 // read off a reserve card, it gets its own high-contrast chip in a corner
 // nothing else uses.
-// `letter: true` stamps the performer's Collection letter over the top-left
-// corner. `heartTokens: n` instead lays n heart tokens across the middle of
-// the card, the way loose heart tokens sit on a card at a physical table —
-// used for opponents' reserves, where the point is to read the card's own
-// printed face plus how many hearts it is holding, with nothing boxed over it.
+// `heartTokens: n` lays n heart tokens across the middle of the card, the way
+// loose heart tokens sit on a card at a physical table. That is how every
+// opponent's card reports its hearts — mat and reserve alike — because a
+// count of tokens is read at a glance from across a table where "2/3" is not.
+// `hearts: n` is the alternative: a small "❤ n/max" pill, kept for your OWN
+// cards, where the capacity matters because you are the one filling it.
 // The card's type is emitted as a class because hover-to-enlarge is
 // Trainer-only (see style.css).
-function cardHtml(id, { size = 'md', extra = '', badge = null, hearts = null, dim = false, letter = false, heartTokens = null } = {}) {
+function cardHtml(id, { size = 'md', extra = '', badge = null, hearts = null, dim = false, heartTokens = null } = {}) {
   const c = card(id);
   const h = hearts != null ? hearts : null;
   const max = cardMaxHeartsFor(id);
-  const showLetter = letter && c.cardType === 'performer' && c.letter;
   return `
     <div class="card ${size} ${c.cardType} ${dim ? 'dim' : ''} ${extra}" data-cardid="${esc(id)}" title="${esc(cardTitle(c))}">
       <img src="${imgUrl(c)}" alt="${esc(c.name)}" loading="lazy" draggable="false"/>
-      ${showLetter ? `<span class="letter" aria-label="Collection letter ${esc(c.letter)}">${esc(c.letter)}</span>` : ''}
       ${heartTokens ? `<span class="heart-tokens" aria-label="${heartTokens} heart${heartTokens > 1 ? 's' : ''} remaining">${
         '<i>\u2665</i>'.repeat(heartTokens)
       }</span>` : ''}
@@ -1053,29 +1052,12 @@ function myMatHtml(s, p, pending) {
             : pressPassReady
             ? 'Click to spend this Press Pass for private Collection Die roll(s)'
             : '';
-          return `<div class="pickable ${sel || amaraSel ? 'selected' : ''} ${ready ? 'favor-ready' : ''} ${amaraEligible(id) ? 'highlight' : ''}" data-reserve="${i}" ${title ? `title="${title}"` : ''}>${cardHtml(id, { size: 'sm', letter: true, hearts: cardMaxHeartsFor(id) != null ? (s.hearts[id] || 0) : null })}</div>`;
+          return `<div class="pickable ${sel || amaraSel ? 'selected' : ''} ${ready ? 'favor-ready' : ''} ${amaraEligible(id) ? 'highlight' : ''}" data-reserve="${i}" ${title ? `title="${title}"` : ''}>${cardHtml(id, { size: 'sm', hearts: cardMaxHeartsFor(id) != null ? (s.hearts[id] || 0) : null })}</div>`;
         }).join('') || (r ? '' : '<span class="hint">empty</span>')}
         ${r ? '<div class="pickable droptarget" data-reserve="-1">⤓ move here</div>' : ''}
       </div>
     </div>
   </section>`;
-}
-
-// The Collection letters of the performers a player is holding in reserve,
-// rendered as chips beside the reserve toggle. Reserve is open information,
-// but it sits collapsed by default (four expanded reserves push the mats off
-// screen), and the letter is the one thing opponents actually need off those
-// cards — so the letters are always on show even while the row itself is
-// folded away, and nothing overlaps them.
-function reserveLetters(p) {
-  const letters = p.reserve
-    .map((id) => card(id))
-    .filter((c) => c.cardType === 'performer' && c.letter)
-    .map((c) => c.letter);
-  if (letters.length === 0) return '';
-  return `<span class="reserve-letters" title="Collection letters held in reserve">${
-    letters.map((l) => `<span class="letter-chip">${esc(l)}</span>`).join('')
-  }</span>`;
 }
 
 // An opponent's reserve is open information at a physical table — the cards
@@ -1102,7 +1084,7 @@ function opponentHtml(s, p) {
     <div class="slots mini">
       ${p.slots.map((id, i) => `
         <div class="slot mini" title="${SLOT_NAMES[i]}">
-          ${id ? cardHtml(id, { size: 'xs', hearts: s.hearts[id] || 0 }) : '<div class="empty">·</div>'}
+          ${id ? cardHtml(id, { size: 'xs', heartTokens: s.hearts[id] || 0 }) : '<div class="empty">·</div>'}
         </div>`).join('')}
     </div>
     <div class="opp-reserve">
@@ -1110,9 +1092,8 @@ function opponentHtml(s, p) {
         title="${empty ? 'Nothing in reserve' : 'Show this player’s reserve (favors, press passes and bumped cards)'}">
         ${empty ? '·' : open ? '▾' : '▸'} Reserve (${p.reserve.length})
       </button>
-      ${reserveLetters(p)}
       ${open && !empty ? `<div class="cardrow mini-reserve">
-        ${p.reserve.map((id) => cardHtml(id, { size: 'sm', heartTokens: s.hearts[id] || 0 })).join('')}
+        ${p.reserve.map((id) => cardHtml(id, { size: 'xs', heartTokens: s.hearts[id] || 0 })).join('')}
       </div>` : ''}
     </div>
   </div>`;
