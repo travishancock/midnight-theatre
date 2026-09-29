@@ -23,7 +23,7 @@ let assetVersion = ''; // from /api/cards — appended to card image URLs so a b
 let ui = {
   mode: null, // null | 'rearrange' | 'amaraMove'
   rearrange: null, // { slots, reserve, picked: {zone, index} | null }
-  amaraMove: null, // { from: cardId | null } — Amara the Reliquary's move-a-heart picker
+  amaraMove: null, // { from: cardId | null } — Signora Vivace's move-a-heart picker
   valentinoPick: null, // [dieIndex] — Tomato dice chosen for The Vanishing Valentino's re-roll
   heartPlan: {}, // cardId -> amount, for heartAssign prompt
   refillPlan: null, // [{slot, cardId}]
@@ -323,13 +323,13 @@ function capLeft(player, id) {
   return Math.max(0, maxHearts(player, id) - (st().hearts[id] || 0));
 }
 
-// All of a player's mat + reserve card ids — the universe Anna the
-// Reliquary's "any of your cards" move-a-heart ability can pick from.
+// All of a player's mat + reserve card ids — the universe
+// Signora Vivace's "any of your cards" move-a-heart ability can pick from.
 function ownedCardIds(p) {
   return [...p.slots.filter(Boolean), ...p.reserve];
 }
 
-// Is there at least one legal (from, to) pair for Amara's ability right now?
+// Is there at least one legal (from, to) pair for Signora Vivace's ability right now?
 function anyMovableHeart(p) {
   const s = st();
   const ids = ownedCardIds(p);
@@ -826,8 +826,8 @@ function turnBarHtml(s, p) {
     buttons.push(`<button id="cancelMode">Cancel</button>`);
   } else if (ui.mode === 'amaraMove') {
     buttons.push(`<span class="yourturn">${ui.amaraMove?.from
-      ? 'Amara the Reliquary: now click the card to move that heart onto.'
-      : 'Amara the Reliquary: click one of your cards with a ❤ to move it from.'}</span>`);
+      ? 'Signora Vivace: now click the card to move that heart onto.'
+      : 'Signora Vivace: click one of your cards with a ❤ to move it from.'}</span>`);
     buttons.push(`<button id="cancelMode">Cancel</button>`);
   } else if (ui.mode === 'jonasPick') {
     buttons.push(`<span class="yourturn">Jonas Quickfinger: click a Haunting performer on your stage to discard it for its resource x its power dots.</span>`);
@@ -853,10 +853,10 @@ function turnBarHtml(s, p) {
           buttons.push(`<button class="small" data-celestine="${n}" ${p.coins >= cost ? '' : 'disabled'}>Celestine: buy ${n}⭐ (${cost}🪙)</button>`);
         }
       }
-      if (trainers.includes('Amara-the-Reliquary') && (t.amaraMoves || 0) < AMARA.maxMoves) {
+      if (trainers.includes('Signora-Vivace') && (t.amaraMoves || 0) < AMARA.maxMoves) {
         const has = anyMovableHeart(p);
         const left = AMARA.maxMoves - (t.amaraMoves || 0);
-        buttons.push(`<button id="amaraMoveBtn" ${has ? '' : 'disabled'} title="${has ? '' : 'None of your cards currently hold a heart'}">Amara the Reliquary: rearrange a heart (${left} left, free)</button>`);
+        buttons.push(`<button id="amaraMoveBtn" ${has ? '' : 'disabled'} title="${has ? '' : 'None of your cards currently hold a heart'}">Signora Vivace: rearrange a heart (${left} left, free)</button>`);
       }
       if (trainers.includes('Jonas-Quickfinger') && !t.jonasUsed) {
         const haunting = activePerformerIds(p).filter((id) => jonasCanTake(p, id));
@@ -1088,7 +1088,7 @@ function myMatHtml(s, p, pending) {
   const reserve = r ? r.reserve : p.reserve;
   const anyFavorReady = !r && reserve.some((id) => favorReadyNow(s, p, id));
   const anyPressPassReady = !r && reserve.some((id) => pressPassReadyNow(s, p, id));
-  // Amara the Reliquary: highlight hearted cards while picking a source, or
+  // Signora Vivace: highlight hearted cards while picking a source, or
   // cards with room once a source is picked.
   const amaraEligible = (id) => {
     if (!amaraMove || !id) return false;
@@ -1440,7 +1440,7 @@ function pickForSwap(zone, index) {
   render();
 }
 
-// Amara the Reliquary: first click picks the source (must currently hold a
+// Signora Vivace: first click picks the source (must currently hold a
 // heart), second click picks the destination (must have room) and fires
 // the action. Clicking the already-picked source again deselects it.
 function pickForAmaraMove(p, cardId) {

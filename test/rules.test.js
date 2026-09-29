@@ -618,13 +618,13 @@ test('Maximillian: the earned market buy may simply be declined', () => {
   assert.notEqual(s.turn?.seat, seat, 'declining just ends the turn');
 });
 
-test('Madame Coeur: drafted/placed cards start at their printed maximum heart count', () => {
+test('Winny Wholeheart: drafted/placed cards start at their printed maximum heart count', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
   p.slots[7] = TRAINERS.COEUR;
   // Pick a performer whose printed max exceeds its normal starting fill, so
-  // Coeur's effect is visible. Capacity itself is unaffected by Coeur.
+  // Winny Wholeheart's effect is visible. Capacity itself is unaffected by Winny.
   const perf = performer((c) => c.maxHearts > c.startingHearts);
   assert.equal(maxHearts(s, seat, perf), card(perf).maxHearts);
   s.draftRow = [perf, s.draftRow[1], s.draftRow[2]];
@@ -1734,7 +1734,7 @@ test('acquiring a Trainer with slot 8 full can be sent to reserve instead of bum
 
 // ---- new trainers -----------------------------------------------------------
 
-test('Orsino the Headliner: G and H performers collect +2 when rolled', () => {
+test('Orsino Goldletter: G and H performers collect +2 when rolled', () => {
   const s = freshGame(2, 1234);
   const seat = currentSeat(s);
   const other = s.players.find((x) => x.seat !== seat).seat;
@@ -2074,7 +2074,7 @@ test('Ezra the Sleight-of-Hand: a leftover Resource card resolves its effect and
   assert.ok(!p.reserve.includes(leftover));
 });
 
-test('Amara the Reliquary: rearrange up to 3 hearts per turn, across mat and reserve cards', () => {
+test('Signora Vivace: rearrange up to 3 hearts per turn, across mat and reserve cards', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
@@ -2098,7 +2098,7 @@ test('Amara the Reliquary: rearrange up to 3 hearts per turn, across mat and res
   );
 });
 
-test('Amara the Reliquary: reserve cards are eligible on both ends (her documented exception)', () => {
+test('Signora Vivace: reserve cards are eligible on both ends (her documented exception)', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];
@@ -2118,7 +2118,7 @@ test('Amara the Reliquary: reserve cards are eligible on both ends (her document
   assert.equal(s.hearts[onMat], 2);
 });
 
-test('Amara the Reliquary: cannot move a heart from an empty card or onto a full one', () => {
+test('Signora Vivace: cannot move a heart from an empty card or onto a full one', () => {
   const s = freshGame(2);
   const seat = currentSeat(s);
   const p = s.players[seat];

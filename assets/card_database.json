@@ -1213,11 +1213,11 @@
   ],
   "trainers": [
     {
-      "id": "Madame-Coeur",
-      "name": "Madame Coeur",
+      "id": "Winny-Wholeheart",
+      "name": "Winny Wholeheart",
       "ability": "Acquired cards start with their max hearts",
       "startingHearts": 3,
-      "image": "cards/Trainer Madame Coeur.webp"
+      "image": "cards/Trainer Winny Wholeheart.webp"
     },
     {
       "id": "Tomasso-the-Terrible",
@@ -1283,11 +1283,11 @@
       "image": "cards/Trainer The Vanishing Valentino.webp"
     },
     {
-      "id": "Orsino-the-Headliner",
-      "name": "Orsino the Headliner",
+      "id": "Orsino-Goldletter",
+      "name": "Orsino Goldletter",
       "ability": "Your G and H performers collect +2 when rolled",
       "startingHearts": 3,
-      "image": "cards/Trainer Orsino the Headliner.webp"
+      "image": "cards/Trainer Orsino Goldletter.webp"
     },
     {
       "id": "Delphine-Silvertongue",
@@ -1297,11 +1297,11 @@
       "image": "cards/Trainer Delphine Silvertongue.webp"
     },
     {
-      "id": "Amara-the-Reliquary",
-      "name": "Amara the Reliquary",
+      "id": "Signora-Vivace",
+      "name": "Signora Vivace",
       "ability": "To start your turn you may rearrange up to 3 hearts on any of your cards",
       "startingHearts": 3,
-      "image": "cards/Trainer Amara the Reliquary.webp"
+      "image": "cards/Trainer Signora Vivace.webp"
     },
     {
       "id": "Jonas-Quickfinger",

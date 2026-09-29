@@ -18,7 +18,7 @@ Grounded against the live implementation (`engine/engine.js`, `engine/bot.js`, `
 ### 1. The Ironclad Impresario
 - **Ability:** Once each round, you may ignore every Tomato-die hit against a single one of your eight slots.
 - **Category:** Dice-phase reaction window (proactive click during the Tomato batch — a mini-Mesmera scoped to one slot).
-- **Combos:** With **Madame Coeur** (existing), a full-hearted Star performer in your shielded slot becomes nearly unkillable, letting you commit hard to one letter all game. With **Mesmera** (existing) you get two bites at the Tomato apple: re-roll a bad batch, then still tank one surviving hit.
+- **Combos:** With **Winny Wholeheart** (existing), a full-hearted Star performer in your shielded slot becomes nearly unkillable, letting you commit hard to one letter all game. With **Mesmera** (existing) you get two bites at the Tomato apple: re-roll a bad batch, then still tank one surviving hit.
 
 ### 2. Madame Fantôme
 - **Ability:** Your cards are not discarded by reaching 0 hearts from Tomato dice — only a hit taken while already at 0 removes them, and even then you may send the card to your reserve instead of the discard pile.
@@ -33,7 +33,7 @@ Grounded against the live implementation (`engine/engine.js`, `engine/bot.js`, `
 ### 4. Signora Ombra, the Understudy
 - **Ability:** When one of your slots empties, you may refill it immediately from your reserve — even mid-phase — and that replacement enters with 1 bonus heart.
 - **Category:** Passive (reuses refill + heart-add; only the "immediate" timing is new).
-- **Combos:** With **Professor Stainglass** (existing) or **#19 The Archivist**, your fat reserve becomes a live bench — cards drafted "for later" plug gaps the same round. With **Madame Coeur** (existing) replacements arrive full and the bonus heart caps them out instantly.
+- **Combos:** With **Professor Stainglass** (existing) or **#19 The Archivist**, your fat reserve becomes a live bench — cards drafted "for later" plug gaps the same round. With **Winny Wholeheart** (existing) replacements arrive full and the bonus heart caps them out instantly.
 
 ### 5. The Nightwatch (Constable Grimsby)
 - **Ability:** Once per game, before the Tomato batch locks, cancel every hit against your own board this round.
@@ -47,7 +47,7 @@ Grounded against the live implementation (`engine/engine.js`, `engine/bot.js`, `
 ### 6. The Gilded Ringmaster
 - **Ability:** When you win a Trophy, remove only half your cards' hearts (round down) instead of one from each.
 - **Category:** Passive (modifies the trophy-winner heart-removal loop).
-- **Combos:** The natural enabler for an aggressive Star build, especially with **#23 The Tally Master** — win Trophies repeatedly without your troupe collapsing. With **Madame Coeur** (existing) you can win back-to-back rounds because your board re-tops-up on every acquire.
+- **Combos:** The natural enabler for an aggressive Star build, especially with **#23 The Tally Master** — win Trophies repeatedly without your troupe collapsing. With **Winny Wholeheart** (existing) you can win back-to-back rounds because your board re-tops-up on every acquire.
 
 ### 7. Ringmistress Céleste
 - **Ability:** You win Star ties for the Trophy outright, and count as having the fewest Stars for next round's seating ties.
@@ -121,7 +121,7 @@ Grounded against the live implementation (`engine/engine.js`, `engine/bot.js`, `
 ### 19. The Archivist (Brother Cassius)
 - **Ability:** Discard 1 card from the draft row to draw the top 2 cards of the deck to your reserve, then discard one of them.
 - **Category:** Discard-a-draft-card to activate (Stainglass-plus; reuses draw + discard).
-- **Combos:** A stronger **Professor Stainglass** (existing). Pairs with **#4 The Understudy** (immediate refill from the reserve you just stocked) and **Madame Coeur** (existing) — cards you later slot in arrive full.
+- **Combos:** A stronger **Professor Stainglass** (existing). Pairs with **#4 The Understudy** (immediate refill from the reserve you just stocked) and **Winny Wholeheart** (existing) — cards you later slot in arrive full.
 
 ### 20. Barnaba Brasswork, the Auctioneer
 - **Ability:** Whenever another player buys from or resets the market, take 1 coin from the supply.
@@ -194,7 +194,7 @@ Grounded against the live implementation (`engine/engine.js`, `engine/bot.js`, `
 
 ## Signature Combos
 
-**1. Madame Coeur (existing) + The Ironclad Impresario (#1).**
+**1. Winny Wholeheart (existing) + The Ironclad Impresario (#1).**
 Every card you take enters at full hearts, and one slot per round shrugs off all Tomato hits. Plant your best Star performer, shield that slot, and let opponents' boards erode while yours stays static — enables a single-letter Star-spam plan that normally can't survive the late-round Tomato flood.
 
 **2. Auric the Alchemist (existing) + Madame Sang-Froid (#14).**

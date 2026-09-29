@@ -37,7 +37,7 @@ export const SLOTS_FOR_TYPE = {
 };
 
 export const TRAINERS = {
-  COEUR: 'Madame-Coeur',
+  COEUR: 'Winny-Wholeheart',
   TOMASSO: 'Tomasso-the-Terrible',
   CURIO: 'Madame-Curio',
   STAINGLASS: 'Professor-Stainglass',
@@ -47,9 +47,9 @@ export const TRAINERS = {
   MAXIMILLIAN: 'Maximillian-the-Magnate',
   MESMERA: 'Mesmera-the-Veiled',
   VALENTINO: 'The-Vanishing-Valentino',
-  ORSINO: 'Orsino-the-Headliner',
+  ORSINO: 'Orsino-Goldletter',
   DELPHINE: 'Delphine-Silvertongue',
-  AMARA: 'Amara-the-Reliquary',
+  AMARA: 'Signora-Vivace',
   JONAS: 'Jonas-Quickfinger',
   WENDELL: 'Wendell-the-Propmaster',
   CELESTINE: 'Celestine-the-Stargazer',
@@ -57,7 +57,7 @@ export const TRAINERS = {
   EZRA: 'Ezra-the-Sleight-of-Hand',
 };
 
-// Orsino the Headliner: extra resource units a G or H performer collects, on
+// Orsino Goldletter: extra resource units a G or H performer collects, on
 // top of the normal 1 + any Backdrop/Prop boost. Printed on the card, so this
 // constant and assets/card_database.json's ability text must agree.
 const ORSINO_BONUS = 2;
@@ -84,7 +84,7 @@ export const TOKEN_SUPPLY = { hearts: 90, stars: 30, coins: 80 };
 export const CELESTINE_MAX_STARS = 2;
 export const CELESTINE_STAR_COST = 2;
 
-// Amara the Reliquary: how many individual heart relocations she may make in
+// Signora Vivace: how many individual heart relocations she may make in
 // one turn. Mirrored by the client (see AMARA in client/src/main.js).
 export const AMARA_MAX_MOVES = 3;
 
@@ -168,7 +168,7 @@ function newTurn(seat, isBonus = false, bonusTiming = null) {
   return {
     seat, mainDone: false, done: false, open: false, buys: 0, isBonus, bonusTiming,
     curioDone: false, celestineUsed: false,
-    // Amara the Reliquary: up to AMARA_MAX_MOVES individual heart relocations
+    // Signora Vivace: up to AMARA_MAX_MOVES individual heart relocations
     // per turn, counted rather than a single-use flag.
     amaraMoves: 0,
     // Free once-per-turn Trainer actions taken before the main action.
@@ -931,7 +931,7 @@ function collectResourceUnits(state, seat, c, amount, reason) {
 // index, so nothing in reserve is reachable by trophy fatigue or a Tomato die
 // in the first place.
 //
-// Amara the Reliquary is a separate, narrower exception written into her own
+// Signora Vivace is a separate, narrower exception written into her own
 // printed text: she may move hearts on any of her cards, reserve included
 // (see the 'amaraMoveHeart' action).
 export function activePerformers(state, seat) {
@@ -977,14 +977,14 @@ function placeInSlot(state, seat, cardId, slot) {
   p.slots[slot] = cardId;
   setStartingHearts(state, seat, cardId);
   const startFull = trainerActive(state, seat, TRAINERS.COEUR);
-  log(state, `${p.name} places ${card(cardId).name} in ${SLOT_NAMES[slot]}${startFull ? ' at full hearts (Madame Coeur)' : ''}.`);
+  log(state, `${p.name} places ${card(cardId).name} in ${SLOT_NAMES[slot]}${startFull ? ' at full hearts (Winny Wholeheart)' : ''}.`);
 }
 
 // Give a newly acquired card its printed starting hearts. Applies wherever it
 // lands — a card sent straight to reserve is just as "acquired" as one placed
 // on the mat, and arrives with the same hearts filled in, so it's ready to go
 // the moment it's promoted into a slot.
-// Madame Coeur: acquired cards start at their printed maximum instead.
+// Winny Wholeheart: acquired cards start at their printed maximum instead.
 function setStartingHearts(state, seat, cardId) {
   const startFull = trainerActive(state, seat, TRAINERS.COEUR);
   state.hearts[cardId] = startFull ? maxHearts(state, seat, cardId) : (card(cardId).startingHearts ?? 0);
@@ -1613,17 +1613,17 @@ export function applyAction(state, action) {
       log(state, `${p.name} spends ${cost} coins to buy ${n} star${n > 1 ? 's' : ''} (Celestine the Stargazer).`);
       break;
     }
-    // Amara the Reliquary: to start your turn, you may rearrange up to 3
+    // Signora Vivace: to start your turn, you may rearrange up to 3
     // hearts across your cards — submitted one move at a time, each from one
     // card to another, capped by the destination's printed capacity. Hearts
     // are only ever relocated, never created or destroyed, so a player's
-    // total is unchanged. Reserve cards are eligible on both ends: Amara is
+    // total is unchanged. Reserve cards are eligible on both ends: Signora Vivace is
     // one of the two documented exceptions to the active-performer rule (see
     // activePerformers), because her text says "any of your cards".
     case 'amaraMoveHeart': {
       requireTurn(state, seat);
       if (state.turn.mainDone) throw new Error('This must be used before your main turn action.');
-      if (!trainerActive(state, seat, TRAINERS.AMARA)) throw new Error('Amara the Reliquary is not your active Trainer.');
+      if (!trainerActive(state, seat, TRAINERS.AMARA)) throw new Error('Signora Vivace is not your active Trainer.');
       if (state.turn.amaraMoves >= AMARA_MAX_MOVES) throw new Error(`You have already rearranged ${AMARA_MAX_MOVES} hearts this turn.`);
       const p = state.players[seat];
       const { fromCardId, toCardId } = action;
@@ -1635,7 +1635,7 @@ export function applyAction(state, action) {
       state.hearts[fromCardId] -= 1;
       state.hearts[toCardId] = (state.hearts[toCardId] || 0) + 1;
       state.turn.amaraMoves += 1;
-      log(state, `${p.name} moves a heart from ${card(fromCardId).name} to ${card(toCardId).name} (Amara the Reliquary, ${state.turn.amaraMoves}/${AMARA_MAX_MOVES}).`);
+      log(state, `${p.name} moves a heart from ${card(fromCardId).name} to ${card(toCardId).name} (Signora Vivace, ${state.turn.amaraMoves}/${AMARA_MAX_MOVES}).`);
       break;
     }
     // ----- pre-roll Press Pass window ------------------------------------
